@@ -1,4 +1,4 @@
-package com.example.myapplication;
+package cn.edu.hut.course;
 
 import java.io.Serializable;
 import java.util.List;

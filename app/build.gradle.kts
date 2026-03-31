@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.myapplication"
+    namespace = "cn.edu.hut.course"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.myapplication"
+        applicationId = "cn.edu.hut.course"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

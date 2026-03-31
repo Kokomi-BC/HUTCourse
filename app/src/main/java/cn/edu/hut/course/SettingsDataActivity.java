@@ -1,4 +1,4 @@
-package com.example.myapplication;
+package cn.edu.hut.course;
 
 import android.content.Intent;
 import android.os.Bundle;

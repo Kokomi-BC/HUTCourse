@@ -1,4 +1,4 @@
-package com.example.myapplication;
+package cn.edu.hut.course;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -354,7 +354,7 @@ public class MainActivity extends AppCompatActivity {
     private void renderWeekGrid(GridLayout grid, int week) {
         if (grid == null) return;
         grid.removeAllViews();
-        int dp40 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 68, getResources().getDisplayMetrics());
+        int dp40 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 45, getResources().getDisplayMetrics());
         int dp120 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 120, getResources().getDisplayMetrics());
         int colorOnSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, ContextCompat.getColor(this, android.R.color.black));
         int colorOnSurfaceVariant = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, colorOnSurface);
@@ -364,11 +364,11 @@ public class MainActivity extends AppCompatActivity {
         boolean showGridLines = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getBoolean(KEY_SHOW_GRID_LINES, true);
 
         String[] sectionTimes = {
-                "8:00\n9:40",
-                "10:00\n11:40",
-                "14:00\n15:40",
-                "16:00\n17:40",
-                "19:00\n20:40"
+            "8:00\n9:40",
+            "10:00\n11:40",
+            "14:00\n15:40",
+            "16:00\n17:40",
+            "19:00\n20:40"
         };
 
         int currentSlotIndex = -1;
@@ -381,8 +381,8 @@ public class MainActivity extends AppCompatActivity {
             t.setText("第" + (i + 1) + "大节\n" + sectionTimes[i]);
             t.setTextColor(colorOnSurfaceVariant);
             t.setGravity(Gravity.CENTER);
-            t.setLineSpacing(2f, 1f);
-            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
+            t.setLineSpacing(0f, 1f);
+            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
             if (currentSlotIndex == i + 1) {
                 t.setTextColor(colorOnSecondaryContainer);
                 android.graphics.drawable.GradientDrawable highlight = new android.graphics.drawable.GradientDrawable();

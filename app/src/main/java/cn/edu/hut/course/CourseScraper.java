@@ -1,4 +1,4 @@
-package com.example.myapplication;
+package cn.edu.hut.course;
 
 import android.content.Context;
 import android.util.Log;
