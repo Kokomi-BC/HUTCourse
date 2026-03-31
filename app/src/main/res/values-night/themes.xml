@@ -1,0 +1,16 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.MyApplication" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_primary_container</item>
+        <item name="colorOnPrimary">@color/brand_on_primary_container</item>
+        <item name="colorPrimaryContainer">@color/brand_primary</item>
+        <item name="colorOnPrimaryContainer">@color/brand_on_primary</item>
+        <item name="colorSecondary">@color/brand_secondary_container</item>
+        <item name="colorOnSecondary">@color/brand_on_secondary_container</item>
+        <item name="colorSecondaryContainer">@color/brand_secondary</item>
+        <item name="colorOnSecondaryContainer">@color/brand_on_secondary</item>
+        <item name="colorSurface">#121316</item>
+        <item name="colorSurfaceVariant">#2E3138</item>
+        <item name="colorOnSurface">#E3E2E6</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+</resources>
