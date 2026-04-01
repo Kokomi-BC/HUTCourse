@@ -28,7 +28,10 @@ import com.google.android.material.color.MaterialColors;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 public class SettingsDisplayActivity extends AppCompatActivity {
@@ -164,14 +167,33 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         });
     }
 
-    private int getCourseColor(String courseName) {
+    private int getCourseColor(String key, String fallbackName) {
         SharedPreferences mPrefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
-        if (mPrefs.contains(courseName)) {
-            return mPrefs.getInt(courseName, 0);
+        if (mPrefs.contains(key)) {
+            return mPrefs.getInt(key, 0);
+        }
+        if (mPrefs.contains(fallbackName)) {
+            return mPrefs.getInt(fallbackName, 0);
         }
         int[] palette = buildMaterialPalette();
-        int hash = Math.abs(courseName.hashCode());
+        int hash = Math.abs(fallbackName.hashCode());
         return palette[hash % palette.length];
+    }
+
+    private String buildCourseColorKey(String courseName, boolean isExperimental) {
+        return courseName + (isExperimental ? "|EXP" : "|REG");
+    }
+
+    private static class CourseColorItem {
+        final String key;
+        final String title;
+        final String fallbackName;
+
+        CourseColorItem(String key, String title, String fallbackName) {
+            this.key = key;
+            this.title = title;
+            this.fallbackName = fallbackName;
+        }
     }
 
     private void loadCoursesAndRenderColors() {
@@ -185,7 +207,9 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 if (!o.optBoolean("isRemark", false)) {
-                    uniqueCourses.add(o.getString("name"));
+                    String name = o.getString("name");
+                    boolean isExperimental = o.optBoolean("isExperimental", false);
+                    uniqueCourses.add(buildCourseColorKey(name, isExperimental));
                 }
             }
         } catch (Exception ignored) {}
@@ -198,7 +222,16 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             return;
         }
 
-        for (String course : uniqueCourses) {
+        List<CourseColorItem> items = new ArrayList<>();
+        for (String key : uniqueCourses) {
+            boolean isExp = key.endsWith("|EXP");
+            String baseName = key.replace("|EXP", "").replace("|REG", "");
+            String title = isExp ? (baseName + " [实验]") : baseName;
+            items.add(new CourseColorItem(key, title, baseName));
+        }
+        Collections.sort(items, (a, b) -> a.title.compareToIgnoreCase(b.title));
+
+        for (CourseColorItem item : items) {
             MaterialCardView card = new MaterialCardView(this);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(0, 0, 0, 16);
@@ -214,7 +247,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             row.setGravity(Gravity.CENTER_VERTICAL);
 
             TextView tv = new TextView(this);
-            tv.setText(course);
+            tv.setText(item.title);
             tv.setTextSize(16);
             tv.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, ContextCompat.getColor(this, android.R.color.black)));
             LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -227,7 +260,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             
             android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
             gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            gd.setColor(getCourseColor(course));
+            gd.setColor(getCourseColor(item.key, item.fallbackName));
             gd.setStroke(2, MaterialColors.getColor(this, com.google.android.material.R.attr.colorOutline, 0));
             colorIndicator.setBackground(gd);
 
@@ -235,20 +268,20 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             row.addView(colorIndicator);
             card.addView(row);
 
-            card.setOnClickListener(v -> showColorPicker(course, gd));
+            card.setOnClickListener(v -> showColorPicker(item, gd));
             container.addView(card);
         }
     }
 
-    private void showColorPicker(String courseName, android.graphics.drawable.GradientDrawable gd) {
+    private void showColorPicker(CourseColorItem item, android.graphics.drawable.GradientDrawable gd) {
         int[] palette = buildMaterialPalette();
-        showColorPickerBottomSheet("选择颜色 - " + courseName, palette, (index, color) -> {
-            getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE).edit().putInt(courseName, color).apply();
+        showColorPickerBottomSheet("选择颜色 - " + item.title, palette, (index, color) -> {
+            getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE).edit().putInt(item.key, color).apply();
             gd.setColor(color);
             notifyMainToRefresh("refresh_grid");
         }, () -> {
-            getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE).edit().remove(courseName).apply();
-            gd.setColor(getCourseColor(courseName));
+            getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE).edit().remove(item.key).apply();
+            gd.setColor(getCourseColor(item.key, item.fallbackName));
             notifyMainToRefresh("refresh_grid");
         });
     }

@@ -14,5 +14,5 @@ public class Course implements Serializable {
     public List<Integer> weeks;
     public String typeClass = ""; // classtype1, classtype2, etc.
     public boolean isExperimental = false;
-    public boolean isRemark = false; // 是否属于底部备注课程 // 是否为实验课
+    public boolean isRemark = false; // 是否属于底部备注课程 
 }

@@ -314,7 +314,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="关闭"
                 android:padding="4dp"
-                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:src="@drawable/ic_close_notice"
                 app:tint="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

@@ -273,6 +273,11 @@ public class CourseScraper {
                 if (c.location.isEmpty()) c.location = regex(text, "@([^\\s]+)");
             }
         }
+
+        if (!"Experiment".equals(sourceLabel)) {
+            c.teacher = extractTeacherForRegular(container, text);
+            c.location = normalizeRegularLocation(c.location, text);
+        }
         
         c.weeks = parseWeeks(text);
         if (c.weeks.isEmpty() && blockWeek > 0) {
@@ -287,6 +292,48 @@ public class CourseScraper {
 
         Log.d(TAG, "Parsed >> " + c.name + " Wks: " + c.weeks + " (Exp: "+c.isExperimental+")");
         out.add(c);
+    }
+
+    private static String extractTeacherForRegular(Element container, String fullText) {
+        if (container != null) {
+            Elements items = container.select(".qz-tooltipContent-detailitem");
+            for (Element item : items) {
+                String itemText = item.text();
+                if (itemText.contains("老师")) {
+                    String teacher = regex(itemText, "老师[：:]\\s*([^；;]+)");
+                    if (!teacher.isEmpty()) {
+                        return teacher;
+                    }
+                }
+            }
+        }
+        return regex(fullText, "老师[：:]\\s*([^；;]+)");
+    }
+
+    private static String normalizeRegularLocation(String parsedLocation, String fullText) {
+        String fromFullText = regex(fullText, "地点[：:][^；;]*[（(]([^（）()]+)[）)]");
+        if (!fromFullText.isEmpty()) {
+            return sanitizeLocation(fromFullText);
+        }
+        return sanitizeLocation(extractLocationInParentheses(parsedLocation));
+    }
+
+    private static String sanitizeLocation(String location) {
+        if (location == null) return "";
+        String normalized = location.trim();
+        while (normalized.startsWith("@") || normalized.startsWith("＠")) {
+            normalized = normalized.substring(1).trim();
+        }
+        return normalized;
+    }
+
+    private static String extractLocationInParentheses(String location) {
+        if (location == null || location.isEmpty()) return "";
+        Matcher matcher = Pattern.compile("[（(]([^（）()]+)[）)]").matcher(location);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return location.trim();
     }
 
     private static List<Course> deduplicate(List<Course> list) {

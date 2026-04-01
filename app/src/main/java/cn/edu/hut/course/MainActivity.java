@@ -3,7 +3,13 @@ package cn.edu.hut.course;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.StyleSpan;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -13,7 +19,6 @@ import android.webkit.CookieManager;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.ImageButton;
-import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -40,7 +45,6 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
@@ -58,19 +62,20 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "CourseScraper";
     private static final String BASE_URL = "http://jwxt.hut.edu.cn";
     private static final String LOGIN_URL = BASE_URL + "/jsxsd/sso.jsp";
+    private static final String SUCCESS_URL = BASE_URL + "/jsxsd/framework/xsMainV.htmlx";
+    private static final String LOGIN_SUCCESS_PATH = "/jsxsd/framework/xsMainV.htmlx";
     private static final String TARGET_URL = BASE_URL + "/jsxsd/xskb/xskb_list.do?viweType=0";
     private static final String EXPERIMENT_URL = BASE_URL + "/jsxsd/syjx/toXskb.do";
     private static final String PREF_NAME = "course_storage";
     private static final String KEY_COURSES_JSON = "courses_json";
     private static final String KEY_SHOW_GRID_LINES = "show_grid_lines";
 
-    private MaterialButton btnOpenJwxt, btnExtractFromJwxt, btnClearCurrent;
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
     private TextView tvMainTitle, tvEmptyHint, tvRemarksSettings, tvNextCourseNotice;
     private ImageView ivBackground;
     private ImageButton btnCloseNextCourseNotice;
     private BottomNavigationView bottomNav;
-    private GridLayout courseGrid; // Grid for header rendering if needed, but we use VP2 now
+    // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
     private View cardRemarks, pageSchedule, titleContainer, rootMain, vBackgroundScrim;
     private ScrollView scheduleScroll;
@@ -83,6 +88,14 @@ public class MainActivity extends AppCompatActivity {
     private int totalWeeks = 20;
     private long semesterStartDateMs = 0;
     private boolean nextCourseNoticeDismissed = false;
+    private final Handler noticeHandler = new Handler(Looper.getMainLooper());
+    private final Runnable noticeTicker = new Runnable() {
+        @Override
+        public void run() {
+            updateNextCourseNotice();
+            noticeHandler.postDelayed(this, 1_000L);
+        }
+    };
 
     private ActivityResultLauncher<Intent> browserLauncher;
     private ActivityResultLauncher<Intent> settingsLauncher;
@@ -192,8 +205,11 @@ public class MainActivity extends AppCompatActivity {
                         case "extract":
                             extractAllTables(null);
                             break;
-                        case "clear":
-                            clearCurrentSchedule();
+                        case "clear_schedule_only":
+                            clearCurrentSchedule(false);
+                            break;
+                        case "logout":
+                            clearLoginState();
                             break;
                         case "refresh_current_week":
                             semesterStartDateMs = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getLong("semester_start_date", 0);
@@ -204,6 +220,10 @@ public class MainActivity extends AppCompatActivity {
                             break;
                         case "refresh_grid":
                             drawGrid();
+                            break;
+                        case "reload_courses":
+                            loadCoursesFromLocal();
+                            updateNextCourseNotice();
                             break;
                         case "export_table":
                             exportTable();
@@ -261,6 +281,30 @@ public class MainActivity extends AppCompatActivity {
         setupViewPager();
         loadCoursesFromLocal();
         updateBackground();
+        startNoticeTicker();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        startNoticeTicker();
+    }
+
+    @Override
+    protected void onPause() {
+        noticeHandler.removeCallbacks(noticeTicker);
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        noticeHandler.removeCallbacks(noticeTicker);
+        super.onDestroy();
+    }
+
+    private void startNoticeTicker() {
+        noticeHandler.removeCallbacks(noticeTicker);
+        noticeHandler.post(noticeTicker);
     }
 
     private void showWeekSelector() {
@@ -329,6 +373,10 @@ public class MainActivity extends AppCompatActivity {
 
     private int getCourseColor(String courseName, boolean isExperimental) {
         SharedPreferences mPrefs = getSharedPreferences("course_colors", MODE_PRIVATE);
+        String key = buildCourseColorKey(courseName, isExperimental);
+        if (mPrefs.contains(key)) {
+            return mPrefs.getInt(key, 0);
+        }
         if (mPrefs.contains(courseName)) {
             return mPrefs.getInt(courseName, 0);
         }
@@ -349,6 +397,10 @@ public class MainActivity extends AppCompatActivity {
             color = MaterialColors.getColor(this, com.google.android.material.R.attr.colorTertiaryContainer, color);
         }
         return color;
+    }
+
+    private String buildCourseColorKey(String courseName, boolean isExperimental) {
+        return courseName + (isExperimental ? "|EXP" : "|REG");
     }
 
     private void renderWeekGrid(GridLayout grid, int week) {
@@ -454,7 +506,7 @@ public class MainActivity extends AppCompatActivity {
                 int bgColor = getCourseColor(c.name, c.isExperimental);
                 card.setCardBackgroundColor(bgColor);
                 TextView tv = new TextView(this);
-                tv.setText(c.name + (c.isExperimental ? "\n[实验]" : "") + "\n@" + (c.location.isEmpty() ? "未定" : c.location));
+                tv.setText(c.name + (c.isExperimental ? "\n[实验]" : "") + "\n" + (c.location.isEmpty() ? "未定" : sanitizeLocation(c.location)));
                 int textColor = ColorUtils.calculateLuminance(bgColor) < 0.5 ? android.graphics.Color.WHITE : colorOnSurface;
                 tv.setTextColor(textColor);
                 tv.setTextSize(10); tv.setPadding(8, 8, 8, 8); tv.setGravity(Gravity.CENTER);
@@ -500,14 +552,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        String message = buildTodayNextCourseMessage();
-        if (message == null || message.isEmpty()) {
+        NextCourseNotice next = buildTodayNextCourseMessage();
+        if (next == null) {
             cardNextCourseNotice.setVisibility(View.GONE);
             return;
         }
 
         applyNextCourseNoticeStyle();
-        tvNextCourseNotice.setText(message);
+        tvNextCourseNotice.setText(next.message);
         cardNextCourseNotice.setVisibility(View.VISIBLE);
     }
 
@@ -527,24 +579,28 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private String formatDuration(int minutes) {
-        int hours = minutes / 60;
-        int mins = minutes % 60;
+    private String formatDuration(int totalSeconds) {
+        int hours = totalSeconds / 3600;
+        int mins = (totalSeconds % 3600) / 60;
+        int secs = totalSeconds % 60;
         if (hours > 0) {
-            return hours + "小时" + mins + "分钟";
+            return hours + "小时" + mins + "分钟" + secs + "秒";
         }
-        return mins + "分钟";
+        if (mins > 0) {
+            return mins + "分钟" + secs + "秒";
+        }
+        return secs + "秒";
     }
 
-    private String buildTodayNextCourseMessage() {
+    private NextCourseNotice buildTodayNextCourseMessage() {
         int actualWeek = getActualCurrentWeek();
         Calendar now = Calendar.getInstance();
         int today = now.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY ? 7 : now.get(Calendar.DAY_OF_WEEK) - 1;
-        int currentMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
-        int[] starts = {8 * 60, 10 * 60, 14 * 60, 16 * 60, 19 * 60};
+        int currentSeconds = now.get(Calendar.HOUR_OF_DAY) * 3600 + now.get(Calendar.MINUTE) * 60 + now.get(Calendar.SECOND);
+        int[] starts = {8 * 3600, 10 * 3600, 14 * 3600, 16 * 3600, 19 * 3600};
 
         Course nextCourse = null;
-        int nextStartMinutes = Integer.MAX_VALUE;
+        int nextStartSeconds = Integer.MAX_VALUE;
         for (Course c : allCourses) {
             if (c == null || c.isRemark) continue;
             if (c.dayOfWeek != today) continue;
@@ -553,16 +609,37 @@ public class MainActivity extends AppCompatActivity {
             int slot = (c.startSection - 1) / 2;
             if (slot < 0 || slot >= starts.length) continue;
             int start = starts[slot];
-            if (start > currentMinutes && start < nextStartMinutes) {
-                nextStartMinutes = start;
+            if (start > currentSeconds && start < nextStartSeconds) {
+                nextStartSeconds = start;
                 nextCourse = c;
             }
         }
 
         if (nextCourse == null) return null;
-        int minutes = nextStartMinutes - currentMinutes;
-        return "距离下一节" + nextCourse.name + "课还有" + formatDuration(minutes) + "，地点在" +
-                (nextCourse.location == null || nextCourse.location.isEmpty() ? "未定" : nextCourse.location);
+        int seconds = nextStartSeconds - currentSeconds;
+        String startTime = String.format(Locale.getDefault(), "%02d:%02d", nextStartSeconds / 3600, (nextStartSeconds % 3600) / 60);
+        String location = (nextCourse.location == null || nextCourse.location.isEmpty()) ? "未定" : nextCourse.location;
+        String courseLabel = nextCourse.name + (nextCourse.isExperimental ? "[实验]" : "");
+
+        String plain = "下节 " + startTime + " " + courseLabel + "\n还有" + formatDuration(seconds) + "，地点:" + location;
+        SpannableString styled = new SpannableString(plain);
+        int timeStart = plain.indexOf(startTime);
+        if (timeStart >= 0) {
+            styled.setSpan(new StyleSpan(Typeface.BOLD), timeStart, timeStart + startTime.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        int locStart = plain.lastIndexOf(location);
+        if (locStart >= 0) {
+            styled.setSpan(new StyleSpan(Typeface.BOLD), locStart, locStart + location.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return new NextCourseNotice(styled);
+    }
+
+    private static class NextCourseNotice {
+        final CharSequence message;
+
+        NextCourseNotice(CharSequence message) {
+            this.message = message;
+        }
     }
 
     private int getActualCurrentWeek() {
@@ -632,30 +709,23 @@ private void extractAllTables(String passedCookie) {
         final String finalCookie = cookie;
         new Thread(() -> {
             try {
-                List<Course> combinedList = new ArrayList<>();
-                boolean hasAnySuccess = false;
-                try {
-                    String normalHtml = fetch(TARGET_URL, finalCookie);
-                    parseRegular(normalHtml, combinedList);
-                    hasAnySuccess = true;
-                } catch (Exception e) {
-                    Log.e(TAG, "Regular parse error", e);
+                ExtractOutcome outcome = scrapeAllTablesOnce(finalCookie);
+                if (!outcome.hasAnySuccess || countNonRemarkCourses(outcome.courses) == 0) {
+                    String refreshedCookie = trySilentLoginAndGetCookie(finalCookie);
+                    if (refreshedCookie != null && !refreshedCookie.isEmpty()) {
+                        ExtractOutcome retryOutcome = scrapeAllTablesOnce(refreshedCookie);
+                        if (retryOutcome.hasAnySuccess && countNonRemarkCourses(retryOutcome.courses) > 0) {
+                            outcome = retryOutcome;
+                        }
+                    }
                 }
 
-                try {
-                    String expHtml = fetch(EXPERIMENT_URL, finalCookie);
-                    parseExperiment(expHtml, combinedList);
-                    hasAnySuccess = true;
-                } catch (Exception e) {
-                    Log.e(TAG, "Experiment parse error", e);
-                }
-
-                if (!hasAnySuccess) {
+                if (!outcome.hasAnySuccess || countNonRemarkCourses(outcome.courses) == 0) {
                     runOnUiThread(() -> Toast.makeText(this, "抓取失败：未获取到课表页面，请确认已在教务系统登录", Toast.LENGTH_LONG).show());
                     return;
                 }
                 
-                List<Course> finalResult = deduplicate(combinedList);
+                List<Course> finalResult = deduplicate(outcome.courses);
 
                 runOnUiThread(() -> {
                     allCourses.clear();
@@ -672,6 +742,47 @@ private void extractAllTables(String passedCookie) {
                 runOnUiThread(() -> Toast.makeText(this, "抓取失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
             }
         }).start();
+    }
+
+    private static class ExtractOutcome {
+        final List<Course> courses;
+        final boolean hasAnySuccess;
+
+        ExtractOutcome(List<Course> courses, boolean hasAnySuccess) {
+            this.courses = courses;
+            this.hasAnySuccess = hasAnySuccess;
+        }
+    }
+
+    private ExtractOutcome scrapeAllTablesOnce(String cookie) {
+        List<Course> combinedList = new ArrayList<>();
+        boolean hasAnySuccess = false;
+        try {
+            String normalHtml = fetch(TARGET_URL, cookie);
+            parseRegular(normalHtml, combinedList);
+            hasAnySuccess = true;
+        } catch (Exception e) {
+            Log.e(TAG, "Regular parse error", e);
+        }
+
+        try {
+            String expHtml = fetch(EXPERIMENT_URL, cookie);
+            parseExperiment(expHtml, combinedList);
+            hasAnySuccess = true;
+        } catch (Exception e) {
+            Log.e(TAG, "Experiment parse error", e);
+        }
+        return new ExtractOutcome(combinedList, hasAnySuccess);
+    }
+
+    private int countNonRemarkCourses(List<Course> courses) {
+        int count = 0;
+        for (Course c : courses) {
+            if (c != null && !c.isRemark) {
+                count++;
+            }
+        }
+        return count;
     }
 
     
@@ -876,6 +987,11 @@ private void extractAllTables(String passedCookie) {
                 if (c.location.isEmpty()) c.location = regex(text, "@([^\\s]+)");
             }
         }
+
+        if (!"Experiment".equals(sourceLabel)) {
+            c.teacher = extractTeacherForRegular(container, text);
+            c.location = normalizeRegularLocation(c.location, text);
+        }
         
         c.weeks = parseWeeks(text);
         if (c.weeks.isEmpty() && blockWeek > 0) {
@@ -890,6 +1006,119 @@ private void extractAllTables(String passedCookie) {
 
         Log.d(TAG, "Parsed >> " + c.name + " Wks: " + c.weeks + " (Exp: "+c.isExperimental+")");
         out.add(c);
+    }
+
+    private String extractLocationInParentheses(String location) {
+        if (location == null || location.isEmpty()) return "";
+        Matcher matcher = Pattern.compile("[（(]([^（）()]+)[）)]").matcher(location);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return location.trim();
+    }
+
+    private String extractTeacherForRegular(Element container, String fullText) {
+        if (container != null) {
+            Elements items = container.select(".qz-tooltipContent-detailitem");
+            for (Element item : items) {
+                String itemText = item.text();
+                if (itemText.contains("老师")) {
+                    String teacher = regex(itemText, "老师[：:]\\s*([^；;]+)");
+                    if (!teacher.isEmpty()) {
+                        return teacher;
+                    }
+                }
+            }
+        }
+        return regex(fullText, "老师[：:]\\s*([^；;]+)");
+    }
+
+    private String normalizeRegularLocation(String parsedLocation, String fullText) {
+        String fromFullText = regex(fullText, "地点[：:][^；;]*[（(]([^（）()]+)[）)]");
+        if (!fromFullText.isEmpty()) {
+            return sanitizeLocation(fromFullText);
+        }
+        return sanitizeLocation(extractLocationInParentheses(parsedLocation));
+    }
+
+    private String sanitizeLocation(String location) {
+        if (location == null) return "";
+        String normalized = location.trim();
+        while (normalized.startsWith("@") || normalized.startsWith("＠")) {
+            normalized = normalized.substring(1).trim();
+        }
+        return normalized;
+    }
+
+    private String trySilentLoginAndGetCookie(String fallbackCookie) {
+        HttpURLConnection conn = null;
+        try {
+            String cookie = CookieManager.getInstance().getCookie(BASE_URL);
+            if (cookie == null || cookie.isEmpty()) {
+                cookie = fallbackCookie;
+            }
+            if (cookie == null || cookie.isEmpty()) {
+                return null;
+            }
+
+            URL loginUrl = new URL(LOGIN_URL);
+            conn = (HttpURLConnection) loginUrl.openConnection();
+            conn.setInstanceFollowRedirects(false);
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+            conn.setRequestProperty("Cookie", cookie);
+            conn.connect();
+
+            Map<String, List<String>> headers = conn.getHeaderFields();
+            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+                if (entry.getKey() != null && "Set-Cookie".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
+                    for (String one : entry.getValue()) {
+                        CookieManager.getInstance().setCookie(BASE_URL, one);
+                    }
+                }
+            }
+            CookieManager.getInstance().flush();
+        } catch (Exception e) {
+            Log.w(TAG, "Silent login refresh failed", e);
+            return null;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+
+        HttpURLConnection verifyConn = null;
+        try {
+            String newCookie = CookieManager.getInstance().getCookie(BASE_URL);
+            if (newCookie == null || newCookie.isEmpty()) {
+                return null;
+            }
+
+            verifyConn = (HttpURLConnection) new URL(SUCCESS_URL).openConnection();
+            verifyConn.setInstanceFollowRedirects(false);
+            verifyConn.setConnectTimeout(8000);
+            verifyConn.setReadTimeout(8000);
+            verifyConn.setRequestProperty("User-Agent", "Mozilla/5.0");
+            verifyConn.setRequestProperty("Cookie", newCookie);
+            int code = verifyConn.getResponseCode();
+            String location = verifyConn.getHeaderField("Location");
+
+            if (code == HttpURLConnection.HTTP_OK) {
+                return newCookie;
+            }
+            if (location != null && location.contains(LOGIN_SUCCESS_PATH)) {
+                return newCookie;
+            }
+            return null;
+        } catch (Exception e) {
+            Log.w(TAG, "Silent login verify failed", e);
+            return null;
+        } finally {
+            if (verifyConn != null) {
+                verifyConn.disconnect();
+            }
+        }
     }
 
     private List<Course> deduplicate(List<Course> list) {
@@ -1052,14 +1281,47 @@ private void extractAllTables(String passedCookie) {
     }
 
 
-    private void clearCurrentSchedule() {
+    private void clearCurrentSchedule(boolean includeCookie) {
         allCourses.clear();
-        saveCoursesToLocal();
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        prefs.edit().remove(KEY_COURSES_JSON).apply();
+        getSharedPreferences("course_colors", MODE_PRIVATE).edit().clear().apply();
+        clearAppCacheDirs();
+        if (includeCookie) {
+            CookieManager.getInstance().removeSessionCookies(null);
+            CookieManager.getInstance().flush();
+        }
         updateScheduleViewState();
         currentWeek = 1;
-        moveToCurrentWeek(false, true);
         drawGrid();
-        Toast.makeText(this, "已彻底清空本地课表", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, includeCookie ? "已清空本地课表与登录状态" : "已清空本地课表（保留登录状态）", Toast.LENGTH_SHORT).show();
+    }
+
+    private void clearLoginState() {
+        CookieManager.getInstance().removeSessionCookies(null);
+        CookieManager.getInstance().flush();
+        Toast.makeText(this, "已退出登录", Toast.LENGTH_SHORT).show();
+    }
+
+    private void clearAppCacheDirs() {
+        deleteRecursively(getCacheDir());
+        java.io.File externalCache = getExternalCacheDir();
+        if (externalCache != null) {
+            deleteRecursively(externalCache);
+        }
+    }
+
+    private void deleteRecursively(java.io.File file) {
+        if (file == null || !file.exists()) return;
+        if (file.isDirectory()) {
+            java.io.File[] children = file.listFiles();
+            if (children != null) {
+                for (java.io.File child : children) {
+                    deleteRecursively(child);
+                }
+            }
+        }
+        file.delete();
     }
 
     private String buildJson() throws Exception {
@@ -1067,6 +1329,7 @@ private void extractAllTables(String passedCookie) {
         for (Course c : allCourses) {
             JSONObject o = new JSONObject();
             o.put("name", c.name); 
+            o.put("teacher", c.teacher);
             o.put("dayOfWeek", c.dayOfWeek); 
             o.put("startSection", c.startSection);
             o.put("location", c.location); 
@@ -1087,6 +1350,7 @@ private void extractAllTables(String passedCookie) {
             JSONObject o = arr.getJSONObject(i); 
             Course c = new Course();
             c.name = o.getString("name"); 
+            c.teacher = o.optString("teacher", "");
             c.dayOfWeek = o.getInt("dayOfWeek"); 
             c.startSection = o.getInt("startSection");
             c.location = o.optString("location", ""); 
@@ -1126,7 +1390,6 @@ private void extractAllTables(String passedCookie) {
                 parseJson(json); 
                 calculateCurrentWeek(); 
                 updateScheduleViewState(); 
-                moveToCurrentWeek(true, true);
                 drawGrid(); 
             } catch (Exception ignored) {} 
         }
@@ -1152,7 +1415,6 @@ private void extractAllTables(String passedCookie) {
                 saveCoursesToLocal();
                 calculateCurrentWeek();
                 updateScheduleViewState();
-                moveToCurrentWeek(true, true);
                 drawGrid();
                 Toast.makeText(this, "导入成功", Toast.LENGTH_SHORT).show();
             } else {

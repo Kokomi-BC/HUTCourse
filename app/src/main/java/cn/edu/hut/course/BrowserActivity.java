@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -20,11 +21,15 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 public class BrowserActivity extends AppCompatActivity {
 
+    private static final String LOGIN_SUCCESS_PATH = "/jsxsd/framework/xsMainV.htmlx";
+
     private WebView webView;
     private EditText etUrl;
     private ProgressBar progressBar;
     private ImageButton btnBack, btnRefresh, btnClose;
     private FloatingActionButton fabDone;
+    private boolean autoCloseOnLoginSuccess = false;
+    private boolean resultSent = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,6 +43,7 @@ public class BrowserActivity extends AppCompatActivity {
         btnRefresh = findViewById(R.id.btnRefresh);
         btnClose = findViewById(R.id.btnClose);
         fabDone = findViewById(R.id.fabDone);
+        autoCloseOnLoginSuccess = getIntent().getBooleanExtra("autoCloseOnLoginSuccess", false);
 
         // 初始化 WebView
         WebSettings settings = webView.getSettings();
@@ -57,17 +63,37 @@ public class BrowserActivity extends AppCompatActivity {
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 progressBar.setVisibility(View.VISIBLE);
                 etUrl.setText(url);
+                if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
+                    returnLoginSuccess(url, true);
+                }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
+                if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
+                    returnLoginSuccess(url, true);
+                }
             }
             
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
+                    returnLoginSuccess(url, true);
+                    return true;
+                }
                 view.loadUrl(url);
                 return true;
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
+                if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
+                    returnLoginSuccess(url, true);
+                    return true;
+                }
+                return false;
             }
         });
 
@@ -90,16 +116,30 @@ public class BrowserActivity extends AppCompatActivity {
 
         // 右下角打钩按钮：完成登录并同步
         fabDone.setOnClickListener(v -> {
-            CookieManager.getInstance().flush();
-            String cookie = CookieManager.getInstance().getCookie(webView.getUrl());
-            Intent result = new Intent();
-            result.putExtra("cookie", cookie);
-            setResult(RESULT_OK, result);
-            finish();
+            returnLoginSuccess(webView.getUrl(), isLoginSuccessUrl(webView.getUrl()));
         });
 
         String url = getIntent().getStringExtra("url");
         if (url != null) webView.loadUrl(url);
+    }
+
+    private boolean isLoginSuccessUrl(String url) {
+        return url != null && url.contains(LOGIN_SUCCESS_PATH);
+    }
+
+    private void returnLoginSuccess(String url, boolean loginSuccess) {
+        if (resultSent) return;
+        resultSent = true;
+        CookieManager.getInstance().flush();
+        String cookie = CookieManager.getInstance().getCookie(url);
+        if (cookie == null || cookie.isEmpty()) {
+            cookie = CookieManager.getInstance().getCookie(CourseScraper.BASE_URL);
+        }
+        Intent result = new Intent();
+        result.putExtra("cookie", cookie);
+        result.putExtra("login_success", loginSuccess);
+        setResult(RESULT_OK, result);
+        finish();
     }
 
     @Override
