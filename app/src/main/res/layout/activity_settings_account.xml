@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootSettingsAccount"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true">
@@ -148,9 +149,10 @@
                             style="@style/Widget.MyApplication.SettingsRowTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="抓取课表" />
+                            android:text="刷新课表" />
 
                         <TextView
+                            android:id="@+id/tvExtractSummary"
                             style="@style/Widget.MyApplication.SettingsRowSummary"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -192,6 +194,7 @@
                         android:textColor="?attr/colorError" />
 
                     <TextView
+                        android:id="@+id/tvClearSummary"
                         style="@style/Widget.MyApplication.SettingsRowSummary"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -224,6 +227,7 @@
                         android:textColor="?attr/colorError" />
 
                     <TextView
+                        android:id="@+id/tvLogoutSummary"
                         style="@style/Widget.MyApplication.SettingsRowSummary"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"

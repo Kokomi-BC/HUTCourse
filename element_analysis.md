@@ -70,7 +70,7 @@
 
 ## 4. Android 开发解析策略建议
 
-### 4.1 数据抓取
+### 4.1 数据刷新
 1. **获取源**: 使用 `OkHttp` 获取 HTML 字符串（需携带有效的 `JSESSIONID` Cookie）。
 2. **解析库**: 使用 `Jsoup` (Java/Kotlin 开发首选)。
 

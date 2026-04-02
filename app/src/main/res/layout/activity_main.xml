@@ -160,7 +160,7 @@
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
                                         android:layout_marginTop="4dp"
-                                        android:text="教务登录、开学日期、抓取与清空"
+                                        android:text="教务登录、开学日期、刷新与清空"
                                         android:textColor="?attr/colorOnSurfaceVariant"
                                         android:textSize="12sp" />
                                 </LinearLayout>

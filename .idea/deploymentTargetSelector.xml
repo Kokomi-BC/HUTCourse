@@ -4,7 +4,7 @@
     <selectionStates>
       <SelectionState runConfigName="HUTCourse ">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-04-01T05:14:30.565715400Z">
+        <DropdownSelection timestamp="2026-04-02T06:12:47.361562600Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="PhysicalDevice" identifier="serial=f3957bd5" />

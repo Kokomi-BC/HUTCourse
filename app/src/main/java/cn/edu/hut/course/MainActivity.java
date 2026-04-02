@@ -3,6 +3,7 @@ package cn.edu.hut.course;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
@@ -19,12 +20,13 @@ import android.webkit.CookieManager;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.ImageButton;
+import android.widget.HorizontalScrollView;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.cardview.widget.CardView;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
 import androidx.viewpager2.widget.ViewPager2;
@@ -33,7 +35,9 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -67,8 +71,10 @@ public class MainActivity extends AppCompatActivity {
     private static final String TARGET_URL = BASE_URL + "/jsxsd/xskb/xskb_list.do?viweType=0";
     private static final String EXPERIMENT_URL = BASE_URL + "/jsxsd/syjx/toXskb.do";
     private static final String PREF_NAME = "course_storage";
+    private static final String PREF_COURSE_COLORS = "course_colors";
     private static final String KEY_COURSES_JSON = "courses_json";
     private static final String KEY_SHOW_GRID_LINES = "show_grid_lines";
+    private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
 
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
     private TextView tvMainTitle, tvEmptyHint, tvRemarksSettings, tvNextCourseNotice;
@@ -88,11 +94,16 @@ public class MainActivity extends AppCompatActivity {
     private int totalWeeks = 20;
     private long semesterStartDateMs = 0;
     private boolean nextCourseNoticeDismissed = false;
+    private String selectedCourseColorKey = null;
+    private int lastRealtimeWeek = -1;
+    private int lastRealtimeDay = -1;
+    private int lastRealtimeSlot = -2;
     private final Handler noticeHandler = new Handler(Looper.getMainLooper());
     private final Runnable noticeTicker = new Runnable() {
         @Override
         public void run() {
             updateNextCourseNotice();
+            refreshRealtimeCourseHighlight();
             noticeHandler.postDelayed(this, 1_000L);
         }
     };
@@ -155,10 +166,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        androidx.core.view.WindowInsetsControllerCompat windowInsetsController =
-                androidx.core.view.WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-        windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars());
+        UiStyleHelper.hideStatusBar(this);
 
         setContentView(R.layout.activity_main);
 
@@ -181,6 +189,7 @@ public class MainActivity extends AppCompatActivity {
         itemAccountSync = findViewById(R.id.itemAccountSync);
         itemDisplaySettings = findViewById(R.id.itemDisplaySettings);
         itemDataManagement = findViewById(R.id.itemDataManagement);
+        applyMainSettingsGlassStyle();
 
         browserLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == RESULT_OK) {
@@ -224,6 +233,9 @@ public class MainActivity extends AppCompatActivity {
                         case "reload_courses":
                             loadCoursesFromLocal();
                             updateNextCourseNotice();
+                            break;
+                        case "open_course_editor":
+                            openCourseEditorFromAction(result.getData());
                             break;
                         case "export_table":
                             exportTable();
@@ -282,6 +294,14 @@ public class MainActivity extends AppCompatActivity {
         loadCoursesFromLocal();
         updateBackground();
         startNoticeTicker();
+        openCourseEditorFromAction(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        openCourseEditorFromAction(intent);
     }
 
     @Override
@@ -341,6 +361,52 @@ public class MainActivity extends AppCompatActivity {
         dialog.show();
     }
 
+    private void openCourseEditorFromAction(Intent data) {
+        if (data == null) return;
+        String action = data.getStringExtra("action");
+        if (!"open_course_editor".equals(action)) return;
+        String name = data.getStringExtra("course_name");
+        int day = data.getIntExtra("course_day", -1);
+        int start = data.getIntExtra("course_start", -1);
+        boolean isExp = data.getBooleanExtra("course_is_experimental", false);
+        if (name == null || name.isEmpty()) return;
+
+        if (allCourses.isEmpty()) {
+            loadCoursesFromLocal();
+        }
+
+        data.removeExtra("action");
+
+        Course target = null;
+        Course sameTypeTarget = null;
+        for (Course c : allCourses) {
+            if (c == null || c.isRemark) continue;
+            if (!name.equals(c.name)) continue;
+            if (day > 0 && start > 0 && c.dayOfWeek == day && c.startSection == start && c.isExperimental == isExp) {
+                target = c;
+                break;
+            }
+            if (c.isExperimental == isExp && sameTypeTarget == null) {
+                sameTypeTarget = c;
+            }
+            if (target == null) {
+                target = c;
+            }
+        }
+
+        if (sameTypeTarget != null) {
+            target = sameTypeTarget;
+        }
+
+        if (target == null) {
+            Toast.makeText(this, "未找到对应课程", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        selectedCourseColorKey = buildCourseColorKey(target.name, target.isExperimental);
+        drawGrid();
+        showCourseDetailSheet(target, selectedCourseColorKey);
+    }
+
     private void setupViewPager() {
         if (viewPager == null) return;
         viewPager.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
@@ -372,7 +438,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int getCourseColor(String courseName, boolean isExperimental) {
-        SharedPreferences mPrefs = getSharedPreferences("course_colors", MODE_PRIVATE);
+        SharedPreferences mPrefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
         String key = buildCourseColorKey(courseName, isExperimental);
         if (mPrefs.contains(key)) {
             return mPrefs.getInt(key, 0);
@@ -403,6 +469,59 @@ public class MainActivity extends AppCompatActivity {
         return courseName + (isExperimental ? "|EXP" : "|REG");
     }
 
+    private boolean hasCustomCourseColor(String courseName, boolean isExperimental) {
+        SharedPreferences mPrefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
+        String key = buildCourseColorKey(courseName, isExperimental);
+        return mPrefs.contains(key) || mPrefs.contains(courseName);
+    }
+
+    private int getTimetableThemeColor() {
+        int fallback = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.parseColor("#4F7A5A"));
+        return getSharedPreferences(PREF_NAME, MODE_PRIVATE).getInt(KEY_TIMETABLE_THEME_COLOR, fallback);
+    }
+
+    private int[] buildColorPalette() {
+        int colorSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface, ContextCompat.getColor(this, android.R.color.white));
+        int p = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimaryContainer, colorSurface);
+        int s = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondaryContainer, colorSurface);
+        int t = MaterialColors.getColor(this, com.google.android.material.R.attr.colorTertiaryContainer, colorSurface);
+        int pv = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, colorSurface);
+        int sv = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondary, colorSurface);
+        int tv = MaterialColors.getColor(this, com.google.android.material.R.attr.colorTertiary, colorSurface);
+        return new int[] {
+                colorSurface,
+                ColorUtils.blendARGB(colorSurface, p, 0.22f),
+                ColorUtils.blendARGB(colorSurface, s, 0.22f),
+                ColorUtils.blendARGB(colorSurface, t, 0.22f),
+                ColorUtils.blendARGB(colorSurface, p, 0.35f),
+                ColorUtils.blendARGB(colorSurface, s, 0.35f),
+                ColorUtils.blendARGB(colorSurface, t, 0.35f),
+                ColorUtils.blendARGB(colorSurface, pv, 0.16f),
+                ColorUtils.blendARGB(colorSurface, sv, 0.16f),
+                ColorUtils.blendARGB(colorSurface, tv, 0.16f),
+                ColorUtils.blendARGB(colorSurface, pv, 0.28f),
+                ColorUtils.blendARGB(colorSurface, sv, 0.28f)
+        };
+    }
+
+    private int pickReadableTextColor(int bgColor) {
+        return ColorUtils.calculateLuminance(bgColor) < 0.5 ? Color.WHITE : Color.BLACK;
+    }
+
+    private void refreshRealtimeCourseHighlight() {
+        if (viewPager == null || pageSchedule == null || pageSchedule.getVisibility() != View.VISIBLE) return;
+        int week = getActualCurrentWeek();
+        Calendar now = Calendar.getInstance();
+        int day = now.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY ? 7 : now.get(Calendar.DAY_OF_WEEK) - 1;
+        int slot = getCurrentTimeslotIndex();
+        if (week != lastRealtimeWeek || day != lastRealtimeDay || slot != lastRealtimeSlot) {
+            lastRealtimeWeek = week;
+            lastRealtimeDay = day;
+            lastRealtimeSlot = slot;
+            drawGrid();
+        }
+    }
+
     private void renderWeekGrid(GridLayout grid, int week) {
         if (grid == null) return;
         grid.removeAllViews();
@@ -410,10 +529,12 @@ public class MainActivity extends AppCompatActivity {
         int dp120 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 120, getResources().getDisplayMetrics());
         int colorOnSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, ContextCompat.getColor(this, android.R.color.black));
         int colorOnSurfaceVariant = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, colorOnSurface);
-        int colorSecondaryContainer = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondaryContainer, ContextCompat.getColor(this, android.R.color.darker_gray));
-        int colorOnSecondaryContainer = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSecondaryContainer, colorOnSurface);
         int colorOutline = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOutline, colorOnSurfaceVariant);
+        int themeColor = getTimetableThemeColor();
         boolean showGridLines = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getBoolean(KEY_SHOW_GRID_LINES, true);
+        boolean darkMode = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+            == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        int highlightBg = ColorUtils.setAlphaComponent(themeColor, darkMode ? 160 : 130);
 
         String[] sectionTimes = {
             "8:00\n9:40",
@@ -436,15 +557,7 @@ public class MainActivity extends AppCompatActivity {
             t.setLineSpacing(0f, 1f);
             t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
             if (currentSlotIndex == i + 1) {
-                t.setTextColor(colorOnSecondaryContainer);
-                android.graphics.drawable.GradientDrawable highlight = new android.graphics.drawable.GradientDrawable();
-                highlight.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-                highlight.setCornerRadius(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10, getResources().getDisplayMetrics()));
-                highlight.setColor(colorSecondaryContainer);
-                if (showGridLines) {
-                    highlight.setStroke(1, colorOutline);
-                }
-                t.setBackground(highlight);
+                applyActiveHeaderStyle(t, highlightBg, colorOutline, showGridLines);
             } else if (showGridLines) {
                 android.graphics.drawable.GradientDrawable lineBg = new android.graphics.drawable.GradientDrawable();
                 lineBg.setColor(android.graphics.Color.TRANSPARENT);
@@ -475,17 +588,7 @@ public class MainActivity extends AppCompatActivity {
             boolean isToday = dayCal.get(Calendar.YEAR) == today.get(Calendar.YEAR)
                     && dayCal.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR);
             if (isToday) {
-                t.setTextColor(colorOnSecondaryContainer);
-                android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-                bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-                bg.setCornerRadius(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12, getResources().getDisplayMetrics()));
-                bg.setColor(colorSecondaryContainer);
-                if (showGridLines) {
-                    bg.setStroke(1, colorOutline);
-                }
-                t.setBackground(bg);
-                int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4, getResources().getDisplayMetrics());
-                t.setPadding(pad, pad, pad, pad);
+                applyActiveHeaderStyle(t, highlightBg, colorOutline, showGridLines);
             } else if (showGridLines) {
                 android.graphics.drawable.GradientDrawable lineBg = new android.graphics.drawable.GradientDrawable();
                 lineBg.setColor(android.graphics.Color.TRANSPARENT);
@@ -498,19 +601,50 @@ public class MainActivity extends AppCompatActivity {
             cal.add(Calendar.DAY_OF_MONTH, 1);
         }
 
+        int todayOfWeek = today.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY ? 7 : today.get(Calendar.DAY_OF_WEEK) - 1;
+        int dp2 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2, getResources().getDisplayMetrics());
+        int glassBg = UiStyleHelper.resolveGlassCardColor(this);
+
         for (Course c : allCourses) {
             if (!c.isRemark && c.dayOfWeek >= 1 && c.dayOfWeek <= 7 && c.weeks != null && c.weeks.contains(week)) {
-                CardView card = new CardView(this);
+                MaterialCardView card = new MaterialCardView(this);
                 card.setRadius(20);
-                card.setCardElevation(4);
-                int bgColor = getCourseColor(c.name, c.isExperimental);
-                card.setCardBackgroundColor(bgColor);
+                card.setCardElevation(0f);
+                card.setStrokeColor(Color.TRANSPARENT);
+
+                String colorKey = buildCourseColorKey(c.name, c.isExperimental);
+                boolean hasCustomColor = hasCustomCourseColor(c.name, c.isExperimental);
+                int customColor = getCourseColor(c.name, c.isExperimental);
+                int cardBg = hasCustomColor ? ColorUtils.blendARGB(glassBg, customColor, 0.30f) : glassBg;
+                card.setCardBackgroundColor(cardBg);
+
+                int slot = (c.startSection - 1) / 2 + 1;
+                boolean isCurrentCourse = week == getActualCurrentWeek()
+                        && c.dayOfWeek == todayOfWeek
+                        && slot == currentSlotIndex;
+                boolean isSelected = colorKey.equals(selectedCourseColorKey);
+                if (isCurrentCourse || isSelected) {
+                    card.setStrokeWidth(dp2);
+                    card.setStrokeColor(themeColor);
+                } else {
+                    card.setStrokeWidth(0);
+                    card.setStrokeColor(Color.TRANSPARENT);
+                }
+
                 TextView tv = new TextView(this);
-                tv.setText(c.name + (c.isExperimental ? "\n[实验]" : "") + "\n" + (c.location.isEmpty() ? "未定" : sanitizeLocation(c.location)));
-                int textColor = ColorUtils.calculateLuminance(bgColor) < 0.5 ? android.graphics.Color.WHITE : colorOnSurface;
+                String teacher = c.teacher == null ? "" : c.teacher.trim();
+                String teacherLine = teacher.isEmpty() ? "" : "\n" + teacher;
+                String location = (c.location == null || c.location.isEmpty()) ? "未定" : sanitizeLocation(c.location);
+                tv.setText(c.name + (c.isExperimental ? "\n[实验]" : "") + teacherLine + "\n" + location);
+                int textColor = pickReadableTextColor(cardBg);
                 tv.setTextColor(textColor);
                 tv.setTextSize(10); tv.setPadding(8, 8, 8, 8); tv.setGravity(Gravity.CENTER);
                 card.addView(tv);
+                card.setOnClickListener(v -> {
+                    selectedCourseColorKey = colorKey;
+                    drawGrid();
+                    showCourseDetailSheet(c, colorKey);
+                });
                 int row = (c.startSection - 1) / 2 + 1;
                 int col = c.dayOfWeek;
                 if (row < 1) row = 1; if (row > 5) row = 5;
@@ -529,6 +663,21 @@ public class MainActivity extends AppCompatActivity {
         moveToCurrentWeek(false, true);
         updateTitle();
         updateNextCourseNotice();
+    }
+
+    private void applyActiveHeaderStyle(TextView target, int backgroundColor, int outlineColor, boolean showGridLines) {
+        if (target == null) return;
+        target.setTextColor(pickReadableTextColor(backgroundColor));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12, getResources().getDisplayMetrics()));
+        bg.setColor(backgroundColor);
+        if (showGridLines) {
+            bg.setStroke(1, outlineColor);
+        }
+        target.setBackground(bg);
+        int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4, getResources().getDisplayMetrics());
+        target.setPadding(pad, pad, pad, pad);
     }
 
     private int getCurrentTimeslotIndex() {
@@ -565,14 +714,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void applyNextCourseNoticeStyle() {
         if (cardNextCourseNotice == null || tvNextCourseNotice == null) return;
-        boolean darkMode = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
-                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
-        int base = darkMode ? android.graphics.Color.BLACK : android.graphics.Color.WHITE;
-        int text = darkMode ? android.graphics.Color.WHITE : android.graphics.Color.BLACK;
-        int cardColor = ColorUtils.setAlphaComponent(base, 220);
+        int cardColor = UiStyleHelper.resolveGlassCardColor(this);
+        int text = pickReadableTextColor(cardColor);
 
         cardNextCourseNotice.setCardBackgroundColor(cardColor);
-        cardNextCourseNotice.setStrokeColor(ColorUtils.setAlphaComponent(text, 45));
+        cardNextCourseNotice.setStrokeWidth(0);
+        cardNextCourseNotice.setStrokeColor(Color.TRANSPARENT);
         tvNextCourseNotice.setTextColor(text);
         if (btnCloseNextCourseNotice != null) {
             btnCloseNextCourseNotice.setColorFilter(ColorUtils.setAlphaComponent(text, 170));
@@ -618,7 +765,7 @@ public class MainActivity extends AppCompatActivity {
         if (nextCourse == null) return null;
         int seconds = nextStartSeconds - currentSeconds;
         String startTime = String.format(Locale.getDefault(), "%02d:%02d", nextStartSeconds / 3600, (nextStartSeconds % 3600) / 60);
-        String location = (nextCourse.location == null || nextCourse.location.isEmpty()) ? "未定" : nextCourse.location;
+        String location = (nextCourse.location == null || nextCourse.location.isEmpty()) ? "未定" : sanitizeLocation(nextCourse.location);
         String courseLabel = nextCourse.name + (nextCourse.isExperimental ? "[实验]" : "");
 
         String plain = "下节 " + startTime + " " + courseLabel + "\n还有" + formatDuration(seconds) + "，地点:" + location;
@@ -721,7 +868,7 @@ private void extractAllTables(String passedCookie) {
                 }
 
                 if (!outcome.hasAnySuccess || countNonRemarkCourses(outcome.courses) == 0) {
-                    runOnUiThread(() -> Toast.makeText(this, "抓取失败：未获取到课表页面，请确认已在教务系统登录", Toast.LENGTH_LONG).show());
+                    runOnUiThread(() -> Toast.makeText(this, "刷新失败：未获取到课表页面，请确认已在教务系统登录", Toast.LENGTH_LONG).show());
                     return;
                 }
                 
@@ -735,11 +882,11 @@ private void extractAllTables(String passedCookie) {
                     updateScheduleViewState();
                     moveToCurrentWeek(true, true);
                     drawGrid();
-                    Toast.makeText(this, "抓取完成，共 " + allCourses.size() + " 门课程", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "刷新完成，共 " + allCourses.size() + " 门课程", Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 Log.e(TAG, "Extraction error", e);
-                runOnUiThread(() -> Toast.makeText(this, "抓取失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(this, "刷新失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
             }
         }).start();
     }
@@ -1244,6 +1391,22 @@ private void extractAllTables(String passedCookie) {
         }
 
         applyMaterialScaffoldStyle(bgColor, imageMode);
+        applyMainSettingsGlassStyle();
+    }
+
+    private void applyMainSettingsGlassStyle() {
+        if (cardRemarks instanceof MaterialCardView) {
+            UiStyleHelper.styleGlassCard((MaterialCardView) cardRemarks, this);
+        }
+        if (itemAccountSync instanceof MaterialCardView) {
+            UiStyleHelper.styleGlassCard((MaterialCardView) itemAccountSync, this);
+        }
+        if (itemDisplaySettings instanceof MaterialCardView) {
+            UiStyleHelper.styleGlassCard((MaterialCardView) itemDisplaySettings, this);
+        }
+        if (itemDataManagement instanceof MaterialCardView) {
+            UiStyleHelper.styleGlassCard((MaterialCardView) itemDataManagement, this);
+        }
     }
 
     private int[] buildBackgroundPalette() {
@@ -1412,9 +1575,15 @@ private void extractAllTables(String passedCookie) {
             if (clipboard.hasPrimaryClip() && clipboard.getPrimaryClip().getItemCount() > 0) {
                 String json = clipboard.getPrimaryClip().getItemAt(0).getText().toString();
                 parseJson(json);
+                getSharedPreferences(PREF_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putString("bg_mode", "color")
+                        .putInt("bg_color_index", 0)
+                        .apply();
                 saveCoursesToLocal();
                 calculateCurrentWeek();
                 updateScheduleViewState();
+                updateBackground();
                 drawGrid();
                 Toast.makeText(this, "导入成功", Toast.LENGTH_SHORT).show();
             } else {
@@ -1423,6 +1592,351 @@ private void extractAllTables(String passedCookie) {
         } catch (Exception e) {
             Toast.makeText(this, "导入失败，数据格式可能不正确", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void showCourseDetailSheet(Course c, String colorKey) {
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20, getResources().getDisplayMetrics());
+        layout.setPadding(pad, pad, pad, pad);
+
+        TextView title = new TextView(this);
+        title.setText(c.name + (c.isExperimental ? " [实验]" : ""));
+        title.setTextSize(18f);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK));
+        layout.addView(title);
+
+        int colorOnSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK);
+        int colorOnSurfaceVariant = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.DKGRAY);
+
+        LinearLayout rowsContainer = new LinearLayout(this);
+        rowsContainer.setOrientation(LinearLayout.VERTICAL);
+        rowsContainer.setPadding(0, pad / 2, 0, pad / 3);
+
+        final TextView[] teacherRef = new TextView[1];
+        final TextView[] locationRef = new TextView[1];
+        final TextView[] weeksRef = new TextView[1];
+
+        teacherRef[0] = addEditableInfoRow(rowsContainer, "教师", c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim(),
+            v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurfaceVariant);
+
+        locationRef[0] = addEditableInfoRow(rowsContainer, "地点", c.location == null || c.location.trim().isEmpty() ? "未定" : sanitizeLocation(c.location),
+            v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurfaceVariant);
+
+        weeksRef[0] = addEditableInfoRow(rowsContainer, "周次", formatWeeksForDisplay(c.weeks),
+            v -> showWeeksPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurfaceVariant);
+
+        addEditableInfoRow(rowsContainer, "节次", "周" + c.dayOfWeek + " 第" + ((c.startSection - 1) / 2 + 1) + "大节", null, colorOnSurface, colorOnSurfaceVariant);
+        layout.addView(rowsContainer);
+
+        TextView colorTitle = new TextView(this);
+        colorTitle.setText("课程颜色");
+        colorTitle.setTextSize(14f);
+        colorTitle.setTypeface(null, Typeface.BOLD);
+        colorTitle.setTextColor(colorOnSurfaceVariant);
+        colorTitle.setPadding(0, pad / 4, 0, pad / 4);
+        layout.addView(colorTitle);
+
+        HorizontalScrollView hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
+        LinearLayout paletteRow = new LinearLayout(this);
+        paletteRow.setOrientation(LinearLayout.HORIZONTAL);
+        hsv.addView(paletteRow, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        renderColorSlider(paletteRow, c, colorKey);
+        layout.addView(hsv);
+
+        dialog.setContentView(layout);
+        dialog.setOnDismissListener(d -> {
+            selectedCourseColorKey = null;
+            drawGrid();
+        });
+        dialog.show();
+    }
+
+    private TextView addEditableInfoRow(LinearLayout parent, String label, String value, View.OnClickListener editAction,
+                                        int labelColor, int valueColor) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(6), 0, dp(6));
+
+        LinearLayout textCol = new LinearLayout(this);
+        textCol.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        textCol.setLayoutParams(textLp);
+
+        TextView labelTv = new TextView(this);
+        labelTv.setText(label);
+        labelTv.setTextSize(12f);
+        labelTv.setTextColor(labelColor);
+        labelTv.setTypeface(null, Typeface.BOLD);
+
+        TextView valueTv = new TextView(this);
+        valueTv.setText(value);
+        valueTv.setTextSize(16f);
+        valueTv.setTextColor(valueColor);
+        valueTv.setPadding(0, dp(2), 0, 0);
+
+        textCol.addView(labelTv);
+        textCol.addView(valueTv);
+        row.addView(textCol);
+
+        if (editAction != null) {
+            ImageButton editBtn = new ImageButton(this);
+            editBtn.setImageResource(android.R.drawable.ic_menu_edit);
+            editBtn.setBackgroundColor(Color.TRANSPARENT);
+            editBtn.setColorFilter(labelColor);
+            editBtn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            editBtn.setPadding(dp(6), dp(6), dp(6), dp(6));
+            editBtn.setContentDescription("编辑" + label);
+            LinearLayout.LayoutParams editLp = new LinearLayout.LayoutParams(dp(32), dp(32));
+            editLp.setMargins(dp(10), 0, 0, 0);
+            editBtn.setLayoutParams(editLp);
+            editBtn.setOnClickListener(editAction);
+            row.addView(editBtn);
+        }
+
+        parent.addView(row);
+        return valueTv;
+    }
+
+    private void onCourseInfoUpdated(Course c, TextView teacherValue, TextView locationValue, TextView weeksValue) {
+        if (teacherValue != null) {
+            teacherValue.setText(c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim());
+        }
+        if (locationValue != null) {
+            locationValue.setText(c.location == null || c.location.trim().isEmpty() ? "未定" : sanitizeLocation(c.location));
+        }
+        if (weeksValue != null) {
+            weeksValue.setText(formatWeeksForDisplay(c.weeks));
+        }
+        saveCoursesToLocal();
+        updateNextCourseNotice();
+        drawGrid();
+    }
+
+    private void showTeacherPicker(Course c, Runnable afterPick) {
+        List<String> options = new ArrayList<>();
+        options.add("未定");
+        for (Course item : allCourses) {
+            if (item == null || item.isRemark) continue;
+            String teacher = item.teacher == null ? "" : item.teacher.trim();
+            if (!teacher.isEmpty() && !options.contains(teacher)) {
+                options.add(teacher);
+            }
+        }
+        String current = c.teacher == null ? "" : c.teacher.trim();
+        int checked = current.isEmpty() ? 0 : options.indexOf(current);
+        if (checked < 0) {
+            options.add(current);
+            checked = options.size() - 1;
+        }
+        final int[] picked = {checked};
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("选择教师")
+                .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    String selected = options.get(picked[0]);
+                    c.teacher = "未定".equals(selected) ? "" : selected;
+                    if (afterPick != null) afterPick.run();
+                })
+                .show();
+    }
+
+    private void showLocationPicker(Course c, Runnable afterPick) {
+        List<String> options = new ArrayList<>();
+        options.add("未定");
+        for (Course item : allCourses) {
+            if (item == null || item.isRemark) continue;
+            String location = sanitizeLocation(item.location == null ? "" : item.location);
+            if (!location.isEmpty() && !options.contains(location)) {
+                options.add(location);
+            }
+        }
+        String current = sanitizeLocation(c.location == null ? "" : c.location);
+        int checked = current.isEmpty() ? 0 : options.indexOf(current);
+        if (checked < 0) {
+            options.add(current);
+            checked = options.size() - 1;
+        }
+        final int[] picked = {checked};
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("选择上课地点")
+                .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    String selected = options.get(picked[0]);
+                    c.location = "未定".equals(selected) ? "" : selected;
+                    if (afterPick != null) afterPick.run();
+                })
+                .show();
+    }
+
+    private void showWeeksPicker(Course c, Runnable afterPick) {
+        int maxWeeks = Math.max(totalWeeks, 20);
+        String[] labels = new String[maxWeeks];
+        boolean[] checked = new boolean[maxWeeks];
+        Set<Integer> weekSet = new HashSet<>();
+        if (c.weeks != null) {
+            weekSet.addAll(c.weeks);
+        }
+        for (int i = 0; i < maxWeeks; i++) {
+            int weekNo = i + 1;
+            labels[i] = "第" + weekNo + "周";
+            checked[i] = weekSet.contains(weekNo);
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("选择上课周数")
+                .setMultiChoiceItems(labels, checked, (dialog, which, isChecked) -> checked[which] = isChecked)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    List<Integer> selectedWeeks = new ArrayList<>();
+                    for (int i = 0; i < checked.length; i++) {
+                        if (checked[i]) selectedWeeks.add(i + 1);
+                    }
+                    if (selectedWeeks.isEmpty()) {
+                        Toast.makeText(this, "至少选择一周", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    Collections.sort(selectedWeeks);
+                    c.weeks = selectedWeeks;
+                    if (afterPick != null) afterPick.run();
+                })
+                .show();
+    }
+
+    private void renderColorSlider(LinearLayout container, Course c, String colorKey) {
+        container.removeAllViews();
+        SharedPreferences prefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
+        boolean hasCustom = prefs.contains(colorKey) || prefs.contains(c.name);
+        int current = getCourseColor(c.name, c.isExperimental);
+        int[] palette = buildColorPalette();
+
+        addColorDot(container, Color.TRANSPARENT, !hasCustom, true, v -> {
+            prefs.edit().remove(colorKey).remove(c.name).apply();
+            saveCoursesToLocal();
+            drawGrid();
+            renderColorSlider(container, c, colorKey);
+        });
+
+        for (int color : palette) {
+            boolean selected = hasCustom && current == color;
+            addColorDot(container, color, selected, false, v -> {
+                prefs.edit().putInt(colorKey, color).apply();
+                saveCoursesToLocal();
+                drawGrid();
+                renderColorSlider(container, c, colorKey);
+            });
+        }
+    }
+
+    private void addColorDot(LinearLayout container, int color, boolean selected, boolean isDefault, View.OnClickListener click) {
+        MaterialCardView dot = new MaterialCardView(this);
+        int size = dp(38);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+        lp.setMargins(0, 0, dp(10), 0);
+        dot.setLayoutParams(lp);
+        dot.setRadius(size / 2f);
+        dot.setCardElevation(0f);
+        dot.setStrokeWidth(selected ? dp(2) : dp(1));
+        int outline = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOutline, Color.GRAY);
+        int selectedColor = getTimetableThemeColor();
+        dot.setStrokeColor(selected ? selectedColor : outline);
+
+        if (isDefault) {
+            dot.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+            TextView icon = new TextView(this);
+            icon.setText("⊘");
+            icon.setGravity(Gravity.CENTER);
+            icon.setTextSize(16f);
+            icon.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.DKGRAY));
+            dot.addView(icon, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        } else {
+            dot.setCardBackgroundColor(color);
+        }
+        dot.setOnClickListener(click);
+        container.addView(dot);
+    }
+
+    private String formatWeeksForDisplay(List<Integer> weeks) {
+        if (weeks == null || weeks.isEmpty()) return "未定";
+        List<Integer> sorted = new ArrayList<>(weeks);
+        Collections.sort(sorted);
+        StringBuilder sb = new StringBuilder();
+        int start = sorted.get(0);
+        int prev = start;
+        for (int i = 1; i < sorted.size(); i++) {
+            int cur = sorted.get(i);
+            if (cur == prev + 1) {
+                prev = cur;
+                continue;
+            }
+            if (sb.length() > 0) sb.append(", ");
+            if (start == prev) sb.append(start);
+            else sb.append(start).append("-").append(prev);
+            start = prev = cur;
+        }
+        if (sb.length() > 0) sb.append(", ");
+        if (start == prev) sb.append(start);
+        else sb.append(start).append("-").append(prev);
+        return sb.toString();
+    }
+
+    private int dp(int value) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
+    }
+
+    private interface OnPalettePickListener {
+        void onPick(int index, int color);
+    }
+
+    private void showColorPickerBottomSheet(String titleText, int[] colors, OnPalettePickListener onColorSelect) {
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(32, 32, 32, 32);
+
+        TextView title = new TextView(this);
+        title.setText(titleText);
+        title.setTextSize(18);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setPadding(0, 0, 0, 24);
+        layout.addView(title);
+
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(4);
+        grid.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        for (int i = 0; i < colors.length; i++) {
+            int color = colors[i];
+            int colorIndex = i;
+            View colorDot = new View(this);
+            int size = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48, getResources().getDisplayMetrics());
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+            params.width = size;
+            params.height = size;
+            params.setMargins(16, 16, 16, 16);
+            colorDot.setLayoutParams(params);
+
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            bg.setColor(color);
+            bg.setStroke(2, MaterialColors.getColor(this, com.google.android.material.R.attr.colorOutline, 0));
+            colorDot.setBackground(bg);
+            colorDot.setOnClickListener(v -> {
+                onColorSelect.onPick(colorIndex, color);
+                dialog.dismiss();
+            });
+            grid.addView(colorDot);
+        }
+
+        layout.addView(grid);
+        dialog.setContentView(layout);
+        dialog.show();
     }
 
     private void exportCookie() {
