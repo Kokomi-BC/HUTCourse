@@ -39,4 +39,5 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation("org.jsoup:jsoup:1.16.1")
+    implementation("com.theokanning.openai-gpt3-java:service:0.18.2")
 }

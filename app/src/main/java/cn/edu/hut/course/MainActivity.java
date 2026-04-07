@@ -1,5 +1,6 @@
 package cn.edu.hut.course;
 
+import android.Manifest;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -11,12 +12,14 @@ import android.os.Looper;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.StyleSpan;
+import android.text.InputType;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.ImageButton;
@@ -38,12 +41,15 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
+import cn.edu.hut.course.data.CampusBuildingStore;
+import cn.edu.hut.course.data.CourseJsonCodec;
+import cn.edu.hut.course.data.CourseStorageManager;
+
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -77,17 +83,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
 
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
-    private TextView tvMainTitle, tvEmptyHint, tvRemarksSettings, tvNextCourseNotice;
+    private TextView tvMainTitle, tvEmptyHint, tvNextCourseNotice;
     private ImageView ivBackground;
     private ImageButton btnCloseNextCourseNotice;
     private BottomNavigationView bottomNav;
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
-    private View cardRemarks, pageSchedule, titleContainer, rootMain, vBackgroundScrim;
+    private View pageSchedule, pageMore, titleContainer, rootMain, vBackgroundScrim;
     private ScrollView scheduleScroll;
-    private ScrollView pageSettings;
-    private View settingsHome;
-    private View itemAccountSync, itemDisplaySettings, itemDataManagement;
 
     private final List<Course> allCourses = new ArrayList<>();
     private int currentWeek = 1;
@@ -110,16 +113,13 @@ public class MainActivity extends AppCompatActivity {
 
     private ActivityResultLauncher<Intent> browserLauncher;
     private ActivityResultLauncher<Intent> settingsLauncher;
+    private ActivityResultLauncher<String[]> locationPermissionLauncher;
 
     private void updateTitle() {
         if (tvMainTitle != null) {
-            if (pageSettings.getVisibility() == View.VISIBLE) {
-                tvMainTitle.setText("设置");
-            } else {
-                tvMainTitle.setText("第" + currentWeek + "周课表");
-            }
+            boolean moreVisible = pageMore != null && pageMore.getVisibility() == View.VISIBLE;
+            tvMainTitle.setText(moreVisible ? "更多选项" : ("第" + currentWeek + "周课表"));
         }
-        updateRemarksInSettings();
     }
 
     private void applyMaterialScaffoldStyle(int baseBackgroundColor, boolean imageMode) {
@@ -147,22 +147,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void updateRemarksInSettings() {
-        if (cardRemarks == null || tvRemarksSettings == null) return;
-        StringBuilder sb = new StringBuilder();
-        for (Course c : allCourses) {
-            if (c.isRemark) {
-                sb.append("• ").append(c.name).append("\n");
-            }
-        }
-        if (sb.length() > 0) {
-            cardRemarks.setVisibility(View.VISIBLE);
-            tvRemarksSettings.setText(sb.toString().trim());
-        } else {
-            cardRemarks.setVisibility(View.GONE);
-        }
-    }
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -177,19 +161,21 @@ public class MainActivity extends AppCompatActivity {
         titleContainer = findViewById(R.id.titleContainer);
         tvEmptyHint = findViewById(R.id.tvEmptyHint);
         pageSchedule = findViewById(R.id.pageSchedule);
-        pageSettings = findViewById(R.id.pageSettings);
+        pageMore = findViewById(R.id.pageMore);
         bottomNav = findViewById(R.id.bottomNav);
         viewPager = findViewById(R.id.viewPager);
-        cardRemarks = findViewById(R.id.cardRemarks);
-        tvRemarksSettings = findViewById(R.id.tvRemarksSettings);
         cardNextCourseNotice = findViewById(R.id.cardNextCourseNotice);
         tvNextCourseNotice = findViewById(R.id.tvNextCourseNotice);
         btnCloseNextCourseNotice = findViewById(R.id.btnCloseNextCourseNotice);
-        settingsHome = findViewById(R.id.settingsHome);
-        itemAccountSync = findViewById(R.id.itemAccountSync);
-        itemDisplaySettings = findViewById(R.id.itemDisplaySettings);
-        itemDataManagement = findViewById(R.id.itemDataManagement);
-        applyMainSettingsGlassStyle();
+        View itemOpenSettingsHome = findViewById(R.id.itemOpenSettingsHome);
+        View itemOpenAiChat = findViewById(R.id.itemOpenAiChat);
+
+        if (itemOpenSettingsHome != null) {
+            itemOpenSettingsHome.setOnClickListener(v -> settingsLauncher.launch(new Intent(this, SettingsHomeActivity.class)));
+        }
+        if (itemOpenAiChat != null) {
+            itemOpenAiChat.setOnClickListener(v -> settingsLauncher.launch(new Intent(this, AiChatActivity.class)));
+        }
 
         browserLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == RESULT_OK) {
@@ -254,9 +240,10 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        itemAccountSync.setOnClickListener(v -> settingsLauncher.launch(new Intent(this, SettingsAccountActivity.class)));
-        itemDisplaySettings.setOnClickListener(v -> settingsLauncher.launch(new Intent(this, SettingsDisplayActivity.class)));
-        itemDataManagement.setOnClickListener(v -> settingsLauncher.launch(new Intent(this, SettingsDataActivity.class)));
+        locationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+            updateNextCourseNotice();
+        });
+        ensureLocationPermission();
 
         if (btnCloseNextCourseNotice != null) {
             btnCloseNextCourseNotice.setOnClickListener(v -> {
@@ -267,11 +254,21 @@ public class MainActivity extends AppCompatActivity {
 
         bottomNav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
-            pageSchedule.setVisibility(id == R.id.nav_schedule ? View.VISIBLE : View.GONE);
-            pageSettings.setVisibility(id == R.id.nav_settings ? View.VISIBLE : View.GONE);
-            updateNextCourseNotice();
-            updateTitle();
-            return true;
+            if (id == R.id.nav_schedule) {
+                pageSchedule.setVisibility(View.VISIBLE);
+                if (pageMore != null) pageMore.setVisibility(View.GONE);
+                updateNextCourseNotice();
+                updateTitle();
+                return true;
+            }
+            if (id == R.id.nav_more) {
+                pageSchedule.setVisibility(View.GONE);
+                if (pageMore != null) pageMore.setVisibility(View.VISIBLE);
+                updateNextCourseNotice();
+                updateTitle();
+                return true;
+            }
+            return false;
         });
         bottomNav.setOnItemReselectedListener(item -> {
             if (item.getItemId() == R.id.nav_schedule) {
@@ -307,6 +304,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        loadCoursesFromLocal();
+        updateBackground();
         startNoticeTicker();
     }
 
@@ -328,7 +327,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showWeekSelector() {
-        if (pageSettings != null && pageSettings.getVisibility() == View.VISIBLE) return;
+        if (pageMore != null && pageMore.getVisibility() == View.VISIBLE) {
+            return;
+        }
         com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
         View view = getLayoutInflater().inflate(R.layout.dialog_week_selector, null);
         dialog.setContentView(view);
@@ -634,7 +635,7 @@ public class MainActivity extends AppCompatActivity {
                 TextView tv = new TextView(this);
                 String teacher = c.teacher == null ? "" : c.teacher.trim();
                 String teacherLine = teacher.isEmpty() ? "" : "\n" + teacher;
-                String location = (c.location == null || c.location.isEmpty()) ? "未定" : sanitizeLocation(c.location);
+                String location = CampusBuildingStore.toStandardLocation(this, c.location);
                 tv.setText(c.name + (c.isExperimental ? "\n[实验]" : "") + teacherLine + "\n" + location);
                 int textColor = pickReadableTextColor(cardBg);
                 tv.setTextColor(textColor);
@@ -739,6 +740,15 @@ public class MainActivity extends AppCompatActivity {
         return secs + "秒";
     }
 
+    private String formatClockOfDay(int totalSeconds) {
+        int oneDay = 24 * 3600;
+        int normalized = ((totalSeconds % oneDay) + oneDay) % oneDay;
+        int hour = normalized / 3600;
+        int minute = (normalized % 3600) / 60;
+        int second = normalized % 60;
+        return String.format(Locale.getDefault(), "%02d:%02d:%02d", hour, minute, second);
+    }
+
     private NextCourseNotice buildTodayNextCourseMessage() {
         int actualWeek = getActualCurrentWeek();
         Calendar now = Calendar.getInstance();
@@ -765,10 +775,37 @@ public class MainActivity extends AppCompatActivity {
         if (nextCourse == null) return null;
         int seconds = nextStartSeconds - currentSeconds;
         String startTime = String.format(Locale.getDefault(), "%02d:%02d", nextStartSeconds / 3600, (nextStartSeconds % 3600) / 60);
-        String location = (nextCourse.location == null || nextCourse.location.isEmpty()) ? "未定" : sanitizeLocation(nextCourse.location);
+        String location = CampusBuildingStore.toStandardLocation(this, nextCourse.location);
         String courseLabel = nextCourse.name + (nextCourse.isExperimental ? "[实验]" : "");
 
-        String plain = "下节 " + startTime + " " + courseLabel + "\n还有" + formatDuration(seconds) + "，地点:" + location;
+        StringBuilder plainBuilder = new StringBuilder();
+        plainBuilder.append("下节 ").append(startTime).append(" ").append(courseLabel)
+            .append("\n还有").append(formatDuration(seconds)).append("，地点:").append(location);
+
+        if (CampusBuildingStore.hasLocationPermission(this)) {
+            CampusBuildingStore.DistanceInfo distanceInfo = CampusBuildingStore.estimateDistanceFromDevice(this, nextCourse.location);
+            if (distanceInfo.available) {
+                int walkSeconds = Math.max(1, Math.round(distanceInfo.meters / 1.35f));
+                int arrivalSeconds = currentSeconds + walkSeconds;
+                int bufferSeconds = nextStartSeconds - arrivalSeconds;
+
+                plainBuilder.append("\n距离约")
+                        .append(formatDistanceMeters(distanceInfo.meters))
+                        .append("，步行约")
+                        .append(formatDuration(walkSeconds))
+                        .append("，预计")
+                        .append(formatClockOfDay(arrivalSeconds))
+                        .append("到达");
+
+                if (bufferSeconds >= 0) {
+                    plainBuilder.append("（提前").append(formatDuration(bufferSeconds)).append("）");
+                } else {
+                    plainBuilder.append("（迟到").append(formatDuration(-bufferSeconds)).append("）");
+                }
+            }
+        }
+
+        String plain = plainBuilder.toString();
         SpannableString styled = new SpannableString(plain);
         int timeStart = plain.indexOf(startTime);
         if (timeStart >= 0) {
@@ -1197,6 +1234,79 @@ private void extractAllTables(String passedCookie) {
         return normalized;
     }
 
+    private void ensureLocationPermission() {
+        if (CampusBuildingStore.hasLocationPermission(this)) {
+            return;
+        }
+        if (locationPermissionLauncher != null) {
+            locationPermissionLauncher.launch(new String[]{
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+            });
+        }
+    }
+
+    private String formatLocationWithDistance(String locationRaw) {
+        String base = CampusBuildingStore.toStandardLocation(this, locationRaw);
+        if ("未定".equals(base)) {
+            return base;
+        }
+
+        if (!CampusBuildingStore.hasLocationPermission(this)) {
+            return base;
+        }
+
+        CampusBuildingStore.DistanceInfo info = CampusBuildingStore.estimateDistanceFromDevice(this, locationRaw);
+        if (info.available) {
+            return base + "（距离" + formatDistanceMeters(info.meters) + "）";
+        }
+        return base;
+    }
+
+    private String formatDistanceMeters(float meters) {
+        if (meters < 1000f) {
+            return String.valueOf(Math.round(meters)) + "米";
+        }
+        return String.format(Locale.getDefault(), "%.1f公里", meters / 1000f);
+    }
+
+    private void showCustomTeacherInputDialog(Course c, Runnable afterPick) {
+        EditText input = new EditText(this);
+        input.setHint("输入教师名称");
+        input.setText(c.teacher == null ? "" : c.teacher);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("自定义教师")
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    c.teacher = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (afterPick != null) afterPick.run();
+                })
+                .show();
+    }
+
+    private void showRoomNumberInputDialog(String buildingName, String currentRoom, OnRoomConfirm callback) {
+        EditText input = new EditText(this);
+        input.setHint("教室位置（仅数字，可为空）");
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(currentRoom == null ? "" : currentRoom);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("设置教室位置 - " + buildingName)
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    String raw = input.getText() == null ? "" : input.getText().toString();
+                    String room = raw.replaceAll("[^0-9]", "").trim();
+                    if (callback != null) {
+                        callback.onConfirm(room);
+                    }
+                })
+                .show();
+    }
+
     private String trySilentLoginAndGetCookie(String fallbackCookie) {
         HttpURLConnection conn = null;
         try {
@@ -1391,22 +1501,6 @@ private void extractAllTables(String passedCookie) {
         }
 
         applyMaterialScaffoldStyle(bgColor, imageMode);
-        applyMainSettingsGlassStyle();
-    }
-
-    private void applyMainSettingsGlassStyle() {
-        if (cardRemarks instanceof MaterialCardView) {
-            UiStyleHelper.styleGlassCard((MaterialCardView) cardRemarks, this);
-        }
-        if (itemAccountSync instanceof MaterialCardView) {
-            UiStyleHelper.styleGlassCard((MaterialCardView) itemAccountSync, this);
-        }
-        if (itemDisplaySettings instanceof MaterialCardView) {
-            UiStyleHelper.styleGlassCard((MaterialCardView) itemDisplaySettings, this);
-        }
-        if (itemDataManagement instanceof MaterialCardView) {
-            UiStyleHelper.styleGlassCard((MaterialCardView) itemDataManagement, this);
-        }
     }
 
     private int[] buildBackgroundPalette() {
@@ -1446,8 +1540,7 @@ private void extractAllTables(String passedCookie) {
 
     private void clearCurrentSchedule(boolean includeCookie) {
         allCourses.clear();
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-        prefs.edit().remove(KEY_COURSES_JSON).apply();
+        CourseStorageManager.clearCourses(this);
         getSharedPreferences("course_colors", MODE_PRIVATE).edit().clear().apply();
         clearAppCacheDirs();
         if (includeCookie) {
@@ -1488,42 +1581,12 @@ private void extractAllTables(String passedCookie) {
     }
 
     private String buildJson() throws Exception {
-        JSONArray arr = new JSONArray();
-        for (Course c : allCourses) {
-            JSONObject o = new JSONObject();
-            o.put("name", c.name); 
-            o.put("teacher", c.teacher);
-            o.put("dayOfWeek", c.dayOfWeek); 
-            o.put("startSection", c.startSection);
-            o.put("location", c.location); 
-            o.put("isExperimental", c.isExperimental);
-            o.put("isRemark", c.isRemark);
-            JSONArray w = new JSONArray(); 
-            if (c.weeks != null) for (int week : c.weeks) w.put(week); 
-            o.put("weeks", w);
-            arr.put(o);
-        }
-        return arr.toString();
+        return CourseJsonCodec.toJson(allCourses);
     }
 
     private void parseJson(String json) throws Exception {
-        JSONArray arr = new JSONArray(json); 
         allCourses.clear();
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject o = arr.getJSONObject(i); 
-            Course c = new Course();
-            c.name = o.getString("name"); 
-            c.teacher = o.optString("teacher", "");
-            c.dayOfWeek = o.getInt("dayOfWeek"); 
-            c.startSection = o.getInt("startSection");
-            c.location = o.optString("location", ""); 
-            c.isExperimental = o.optBoolean("isExperimental", false);
-            c.isRemark = o.optBoolean("isRemark", false);
-            c.weeks = new ArrayList<>(); 
-            JSONArray w = o.getJSONArray("weeks"); 
-            for (int k = 0; k < w.length(); k++) c.weeks.add(w.getInt(k));
-            allCourses.add(c);
-        }
+        allCourses.addAll(CourseJsonCodec.fromJson(json));
     }
 
     private Calendar getSemesterStartCalendar() {
@@ -1543,19 +1606,15 @@ private void extractAllTables(String passedCookie) {
     }
 
     private void saveCoursesToLocal() {
-        try { getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit().putString(KEY_COURSES_JSON, buildJson()).apply(); } catch (Exception ignored) {}
+        CourseStorageManager.saveCourses(this, allCourses);
     }
 
     private void loadCoursesFromLocal() {
-        String json = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString(KEY_COURSES_JSON, "");
-        if (!json.isEmpty()) { 
-            try { 
-                parseJson(json); 
-                calculateCurrentWeek(); 
-                updateScheduleViewState(); 
-                drawGrid(); 
-            } catch (Exception ignored) {} 
-        }
+        allCourses.clear();
+        allCourses.addAll(CourseStorageManager.loadCourses(this));
+        calculateCurrentWeek();
+        updateScheduleViewState();
+        drawGrid();
     }
 
     private void exportTable() {
@@ -1622,7 +1681,7 @@ private void extractAllTables(String passedCookie) {
         teacherRef[0] = addEditableInfoRow(rowsContainer, "教师", c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim(),
             v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurfaceVariant);
 
-        locationRef[0] = addEditableInfoRow(rowsContainer, "地点", c.location == null || c.location.trim().isEmpty() ? "未定" : sanitizeLocation(c.location),
+        locationRef[0] = addEditableInfoRow(rowsContainer, "地点", formatLocationWithDistance(c.location),
             v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurfaceVariant);
 
         weeksRef[0] = addEditableInfoRow(rowsContainer, "周次", formatWeeksForDisplay(c.weeks),
@@ -1707,7 +1766,7 @@ private void extractAllTables(String passedCookie) {
             teacherValue.setText(c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim());
         }
         if (locationValue != null) {
-            locationValue.setText(c.location == null || c.location.trim().isEmpty() ? "未定" : sanitizeLocation(c.location));
+            locationValue.setText(formatLocationWithDistance(c.location));
         }
         if (weeksValue != null) {
             weeksValue.setText(formatWeeksForDisplay(c.weeks));
@@ -1737,6 +1796,7 @@ private void extractAllTables(String passedCookie) {
         new MaterialAlertDialogBuilder(this)
                 .setTitle("选择教师")
                 .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
+                .setNeutralButton("自定义", (dialog, which) -> showCustomTeacherInputDialog(c, afterPick))
                 .setNegativeButton("取消", null)
                 .setPositiveButton("确定", (dialog, which) -> {
                     String selected = options.get(picked[0]);
@@ -1749,19 +1809,14 @@ private void extractAllTables(String passedCookie) {
     private void showLocationPicker(Course c, Runnable afterPick) {
         List<String> options = new ArrayList<>();
         options.add("未定");
-        for (Course item : allCourses) {
-            if (item == null || item.isRemark) continue;
-            String location = sanitizeLocation(item.location == null ? "" : item.location);
-            if (!location.isEmpty() && !options.contains(location)) {
-                options.add(location);
-            }
-        }
-        String current = sanitizeLocation(c.location == null ? "" : c.location);
-        int checked = current.isEmpty() ? 0 : options.indexOf(current);
-        if (checked < 0) {
-            options.add(current);
-            checked = options.size() - 1;
-        }
+        options.addAll(CampusBuildingStore.getBuildingNames(this));
+
+        CampusBuildingStore.ResolvedLocation resolved = CampusBuildingStore.resolveLocation(this, c.location);
+        String currentBuilding = resolved == null ? "" : resolved.buildingName;
+        String currentRoom = resolved == null ? "" : resolved.roomNumber;
+        int checked = currentBuilding.isEmpty() ? 0 : options.indexOf(currentBuilding);
+        if (checked < 0) checked = 0;
+
         final int[] picked = {checked};
         new MaterialAlertDialogBuilder(this)
                 .setTitle("选择上课地点")
@@ -1769,8 +1824,15 @@ private void extractAllTables(String passedCookie) {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("确定", (dialog, which) -> {
                     String selected = options.get(picked[0]);
-                    c.location = "未定".equals(selected) ? "" : selected;
-                    if (afterPick != null) afterPick.run();
+                    if ("未定".equals(selected)) {
+                        c.location = "";
+                        if (afterPick != null) afterPick.run();
+                        return;
+                    }
+                    showRoomNumberInputDialog(selected, currentRoom, room -> {
+                        c.location = CampusBuildingStore.buildLocationText(selected, room);
+                        if (afterPick != null) afterPick.run();
+                    });
                 })
                 .show();
     }
@@ -1888,6 +1950,10 @@ private void extractAllTables(String passedCookie) {
 
     private int dp(int value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
+    }
+
+    private interface OnRoomConfirm {
+        void onConfirm(String roomNumber);
     }
 
     private interface OnPalettePickListener {

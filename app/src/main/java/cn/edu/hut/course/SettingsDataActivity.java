@@ -14,12 +14,13 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
 
+import cn.edu.hut.course.data.CourseStorageManager;
+
 import org.json.JSONArray;
 
 public class SettingsDataActivity extends AppCompatActivity {
 
     private static final String PREF_COURSE_STORAGE = "course_storage";
-    private static final String KEY_COURSES_JSON = "courses_json";
     private static final String BASE_URL = "http://jwxt.hut.edu.cn";
     private static final String TARGET_URL = BASE_URL + "/jsxsd/xskb/xskb_list.do?viweType=0";
 
@@ -101,19 +102,7 @@ public class SettingsDataActivity extends AppCompatActivity {
     }
 
     private int getSavedCourseCount() {
-        try {
-            String json = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE).getString(KEY_COURSES_JSON, "[]");
-            JSONArray arr = new JSONArray(json);
-            int count = 0;
-            for (int i = 0; i < arr.length(); i++) {
-                if (!arr.getJSONObject(i).optBoolean("isRemark", false)) {
-                    count++;
-                }
-            }
-            return count;
-        } catch (Exception ignored) {
-            return 0;
-        }
+        return CourseStorageManager.countNonRemarkCourses(this);
     }
 
     private boolean hasCookie() {
@@ -129,8 +118,7 @@ public class SettingsDataActivity extends AppCompatActivity {
     }
 
     private void exportTableToClipboard() {
-        SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
-        String json = prefs.getString(KEY_COURSES_JSON, "[]");
+        String json = CourseStorageManager.loadCoursesJson(this);
         if (json == null || json.trim().isEmpty() || "[]".equals(json.trim())) {
             Toast.makeText(this, "当前无课表可导出", Toast.LENGTH_SHORT).show();
             if (tvExportTableSummary != null) tvExportTableSummary.setText("导出失败：暂无课表数据");
@@ -158,9 +146,9 @@ public class SettingsDataActivity extends AppCompatActivity {
             String json = text.toString();
             new JSONArray(json);
 
-            getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
+                CourseStorageManager.saveCoursesJson(this, json);
+                getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
                     .edit()
-                    .putString(KEY_COURSES_JSON, json)
                     .putString("bg_mode", "color")
                     .putInt("bg_color_index", 0)
                     .apply();

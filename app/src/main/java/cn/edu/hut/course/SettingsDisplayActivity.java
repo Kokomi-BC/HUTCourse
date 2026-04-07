@@ -5,10 +5,12 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
@@ -30,8 +32,8 @@ import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
+import cn.edu.hut.course.data.CampusBuildingStore;
+import cn.edu.hut.course.data.CourseStorageManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -301,59 +303,11 @@ public class SettingsDisplayActivity extends AppCompatActivity {
 
     private void loadCoursesFromLocal() {
         allCourses.clear();
-        String json = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE).getString("courses_json", "[]");
-        try {
-            JSONArray arr = new JSONArray(json);
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                Course c = new Course();
-                c.name = o.optString("name", "");
-                c.teacher = o.optString("teacher", "");
-                c.dayOfWeek = o.optInt("dayOfWeek", 1);
-                c.startSection = o.optInt("startSection", 1);
-                c.location = o.optString("location", "");
-                c.isExperimental = o.optBoolean("isExperimental", false);
-                c.isRemark = o.optBoolean("isRemark", false);
-                JSONArray w = o.optJSONArray("weeks");
-                c.weeks = new ArrayList<>();
-                if (w != null) {
-                    for (int k = 0; k < w.length(); k++) {
-                        c.weeks.add(w.optInt(k));
-                    }
-                }
-                allCourses.add(c);
-            }
-        } catch (Exception ignored) {
-        }
+        allCourses.addAll(CourseStorageManager.loadCourses(this));
     }
 
     private void saveCoursesToLocal() {
-        try {
-            JSONArray arr = new JSONArray();
-            for (Course c : allCourses) {
-                JSONObject o = new JSONObject();
-                o.put("name", c.name);
-                o.put("teacher", c.teacher);
-                o.put("dayOfWeek", c.dayOfWeek);
-                o.put("startSection", c.startSection);
-                o.put("location", c.location);
-                o.put("isExperimental", c.isExperimental);
-                o.put("isRemark", c.isRemark);
-                JSONArray w = new JSONArray();
-                if (c.weeks != null) {
-                    for (Integer week : c.weeks) {
-                        if (week != null) w.put(week);
-                    }
-                }
-                o.put("weeks", w);
-                arr.put(o);
-            }
-            getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                    .edit()
-                    .putString("courses_json", arr.toString())
-                    .apply();
-        } catch (Exception ignored) {
-        }
+        CourseStorageManager.saveCourses(this, allCourses);
     }
 
     private interface OnPalettePickListener {
@@ -438,7 +392,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
                 labelColor, valueColor);
 
         locationRef[0] = addEditableInfoRow(rowsContainer, "地点",
-                c.location == null || c.location.trim().isEmpty() ? "未定" : sanitizeLocation(c.location),
+            formatLocationWithDistance(c.location),
                 v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])),
                 labelColor, valueColor);
 
@@ -525,7 +479,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             teacherValue.setText(c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim());
         }
         if (locationValue != null) {
-            locationValue.setText(c.location == null || c.location.trim().isEmpty() ? "未定" : sanitizeLocation(c.location));
+            locationValue.setText(formatLocationWithDistance(c.location));
         }
         if (weeksValue != null) {
             weeksValue.setText(formatWeeksForDisplay(c.weeks));
@@ -554,6 +508,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         new MaterialAlertDialogBuilder(this)
                 .setTitle("选择教师")
                 .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
+                .setNeutralButton("自定义", (dialog, which) -> showCustomTeacherInputDialog(c, afterPick))
                 .setNegativeButton("取消", null)
                 .setPositiveButton("确定", (dialog, which) -> {
                     String selected = options.get(picked[0]);
@@ -566,19 +521,14 @@ public class SettingsDisplayActivity extends AppCompatActivity {
     private void showLocationPicker(Course c, Runnable afterPick) {
         List<String> options = new ArrayList<>();
         options.add("未定");
-        for (Course item : allCourses) {
-            if (item == null || item.isRemark) continue;
-            String location = sanitizeLocation(item.location == null ? "" : item.location);
-            if (!location.isEmpty() && !options.contains(location)) {
-                options.add(location);
-            }
-        }
-        String current = sanitizeLocation(c.location == null ? "" : c.location);
-        int checked = current.isEmpty() ? 0 : options.indexOf(current);
-        if (checked < 0) {
-            options.add(current);
-            checked = options.size() - 1;
-        }
+        options.addAll(CampusBuildingStore.getBuildingNames(this));
+
+        CampusBuildingStore.ResolvedLocation resolved = CampusBuildingStore.resolveLocation(this, c.location);
+        String currentBuilding = resolved == null ? "" : resolved.buildingName;
+        String currentRoom = resolved == null ? "" : resolved.roomNumber;
+        int checked = currentBuilding.isEmpty() ? 0 : options.indexOf(currentBuilding);
+        if (checked < 0) checked = 0;
+
         final int[] picked = {checked};
         new MaterialAlertDialogBuilder(this)
                 .setTitle("选择上课地点")
@@ -586,8 +536,76 @@ public class SettingsDisplayActivity extends AppCompatActivity {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("确定", (dialog, which) -> {
                     String selected = options.get(picked[0]);
-                    c.location = "未定".equals(selected) ? "" : selected;
+                    if ("未定".equals(selected)) {
+                        c.location = "";
+                        if (afterPick != null) afterPick.run();
+                        return;
+                    }
+                    showRoomNumberInputDialog(selected, currentRoom, room -> {
+                        c.location = CampusBuildingStore.buildLocationText(selected, room);
+                        if (afterPick != null) afterPick.run();
+                    });
+                })
+                .show();
+    }
+
+    private String formatLocationWithDistance(String locationRaw) {
+        String base = CampusBuildingStore.toStandardLocation(this, locationRaw);
+        if ("未定".equals(base)) {
+            return base;
+        }
+
+        if (!CampusBuildingStore.hasLocationPermission(this)) {
+            return base;
+        }
+
+        CampusBuildingStore.DistanceInfo info = CampusBuildingStore.estimateDistanceFromDevice(this, locationRaw);
+        if (info.available) {
+            return base + "（距离" + formatDistanceMeters(info.meters) + "）";
+        }
+        return base;
+    }
+
+    private String formatDistanceMeters(float meters) {
+        if (meters < 1000f) {
+            return String.valueOf(Math.round(meters)) + "米";
+        }
+        return String.format(java.util.Locale.getDefault(), "%.1f公里", meters / 1000f);
+    }
+
+    private void showCustomTeacherInputDialog(Course c, Runnable afterPick) {
+        EditText input = new EditText(this);
+        input.setHint("输入教师名称");
+        input.setText(c.teacher == null ? "" : c.teacher);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("自定义教师")
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    c.teacher = input.getText() == null ? "" : input.getText().toString().trim();
                     if (afterPick != null) afterPick.run();
+                })
+                .show();
+    }
+
+    private void showRoomNumberInputDialog(String buildingName, String currentRoom, OnRoomConfirm callback) {
+        EditText input = new EditText(this);
+        input.setHint("教室位置（仅数字，可为空）");
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(currentRoom == null ? "" : currentRoom);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("设置教室位置 - " + buildingName)
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    String raw = input.getText() == null ? "" : input.getText().toString();
+                    String room = raw.replaceAll("[^0-9]", "").trim();
+                    if (callback != null) {
+                        callback.onConfirm(room);
+                    }
                 })
                 .show();
     }
@@ -726,6 +744,10 @@ public class SettingsDisplayActivity extends AppCompatActivity {
 
     private int dp(int value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
+    }
+
+    private interface OnRoomConfirm {
+        void onConfirm(String roomNumber);
     }
 
     private void notifyMainToRefresh(String action) {

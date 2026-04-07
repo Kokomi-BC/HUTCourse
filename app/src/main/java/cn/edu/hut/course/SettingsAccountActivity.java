@@ -22,8 +22,7 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.datepicker.MaterialDatePicker;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
+import cn.edu.hut.course.data.CourseStorageManager;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -40,7 +39,6 @@ public class SettingsAccountActivity extends AppCompatActivity {
 
     private static final String PREF_COURSE_STORAGE = "course_storage";
     private static final String PREF_COURSE_COLORS = "course_colors";
-    private static final String KEY_COURSES_JSON = "courses_json";
     private static final String TARGET_URL = "http://jwxt.hut.edu.cn/jsxsd/xskb/xskb_list.do?viweType=0";
     private static final String BASE_URL = "http://jwxt.hut.edu.cn";
     private static final String LOGIN_URL = BASE_URL + "/jsxsd/sso.jsp";
@@ -152,20 +150,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private int getSavedCourseCount() {
-        try {
-            String json = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE).getString(KEY_COURSES_JSON, "[]");
-            JSONArray arr = new JSONArray(json);
-            int count = 0;
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                if (!o.optBoolean("isRemark", false)) {
-                    count++;
-                }
-            }
-            return count;
-        } catch (Exception ignored) {
-            return 0;
-        }
+        return CourseStorageManager.countNonRemarkCourses(this);
     }
 
     private boolean hasLocalLoginCookie() {
@@ -342,10 +327,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private void clearLocalScheduleOnly() {
-        getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                .edit()
-                .remove(KEY_COURSES_JSON)
-                .apply();
+        CourseStorageManager.clearCourses(this);
         getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE)
                 .edit()
                 .clear()
@@ -558,32 +540,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private void saveCoursesToLocal(List<Course> courses) {
-        try {
-            JSONArray arr = new JSONArray();
-            for (Course c : courses) {
-                JSONObject o = new JSONObject();
-                o.put("name", c.name);
-                o.put("teacher", c.teacher);
-                o.put("dayOfWeek", c.dayOfWeek);
-                o.put("startSection", c.startSection);
-                o.put("location", c.location);
-                o.put("isExperimental", c.isExperimental);
-                o.put("isRemark", c.isRemark);
-                JSONArray w = new JSONArray();
-                if (c.weeks != null) {
-                    for (int week : c.weeks) {
-                        w.put(week);
-                    }
-                }
-                o.put("weeks", w);
-                arr.put(o);
-            }
-            getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                    .edit()
-                    .putString(KEY_COURSES_JSON, arr.toString())
-                    .apply();
-        } catch (Exception ignored) {
-        }
+        CourseStorageManager.saveCourses(this, courses);
     }
 
     private void updateStartDateSummary(TextView tvStartDateSummary) {
