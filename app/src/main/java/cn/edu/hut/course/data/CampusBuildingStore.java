@@ -8,13 +8,17 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Looper;
 
 import androidx.core.content.ContextCompat;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,9 +34,23 @@ public final class CampusBuildingStore {
 
     private static final String REASON_NO_LOCATION = "NO_LOCATION";
     private static final String REASON_NO_COORDINATE = "NO_COORDINATE";
+    private static final String REASON_NO_PERMISSION = "NO_PERMISSION";
 
     private static long lastDeviceLocationFetchMs = 0L;
     private static double[] cachedDeviceLocation = null;
+    private static float lastAcceptedAccuracyMeters = Float.MAX_VALUE;
+    private static final Object LOCATION_TRACK_LOCK = new Object();
+    private static LocationManager trackingLocationManager = null;
+    private static LocationListener trackingLocationListener = null;
+    private static boolean realtimeTrackingEnabled = false;
+
+    private static final long GPS_MIN_TIME_MS = 2_000L;
+    private static final long NETWORK_MIN_TIME_MS = 3_000L;
+    private static final float GPS_MIN_DISTANCE_M = 2.5f;
+    private static final float NETWORK_MIN_DISTANCE_M = 4.0f;
+    private static final long JITTER_SUPPRESS_WINDOW_MS = 8_000L;
+    private static final float MAX_SUDDEN_JUMP_M = 90f;
+    private static final float IGNORE_ACCURACY_OVER_M = 120f;
 
     private CampusBuildingStore() {
     }
@@ -52,6 +70,123 @@ public final class CampusBuildingStore {
             db.close();
         }
         return names;
+    }
+
+    public static List<BuildingSearchResult> searchBuildings(Context context, String keyword) {
+        String normalizedKeyword = normalizeToken(keyword);
+        Map<String, BuildingSearchResult> merged = new LinkedHashMap<>();
+
+        DbHelper helper = new DbHelper(context.getApplicationContext());
+        SQLiteDatabase db = helper.getReadableDatabase();
+        Cursor cursor = null;
+        try {
+            if (normalizedKeyword.isEmpty()) {
+                cursor = db.query(TABLE_BUILDING,
+                        new String[]{"building_name", "lat", "lng"},
+                        null, null, null, null,
+                        "id ASC");
+                while (cursor.moveToNext()) {
+                    String buildingName = cursor.getString(0);
+                    double lat = cursor.getDouble(1);
+                    double lng = cursor.getDouble(2);
+                    merged.put(buildingName, new BuildingSearchResult(buildingName, buildingName, lat, lng));
+                }
+            } else {
+                String sql = "SELECT a.alias, b.building_name, b.lat, b.lng "
+                        + "FROM " + TABLE_ALIAS + " a "
+                        + "INNER JOIN " + TABLE_BUILDING + " b ON a.building_name = b.building_name "
+                        + "WHERE a.alias LIKE ? OR b.building_name LIKE ? "
+                        + "ORDER BY LENGTH(a.alias) ASC, b.id ASC";
+                String like = "%" + normalizedKeyword + "%";
+                cursor = db.rawQuery(sql, new String[]{like, like});
+                while (cursor.moveToNext()) {
+                    String alias = normalizeToken(cursor.getString(0));
+                    String buildingName = cursor.getString(1);
+                    double lat = cursor.getDouble(2);
+                    double lng = cursor.getDouble(3);
+                    if (!merged.containsKey(buildingName)) {
+                        merged.put(buildingName, new BuildingSearchResult(buildingName, alias, lat, lng));
+                    }
+                }
+            }
+        } finally {
+            if (cursor != null) cursor.close();
+            db.close();
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    public static DeviceLocationInfo getCurrentDeviceLocation(Context context, boolean forceRefresh) {
+        if (!hasLocationPermission(context)) {
+            return DeviceLocationInfo.unavailable(REASON_NO_PERMISSION);
+        }
+        double[] device = getLastKnownDeviceLocation(context, forceRefresh);
+        if (device == null) {
+            return DeviceLocationInfo.unavailable(REASON_NO_LOCATION);
+        }
+        return DeviceLocationInfo.available(device[0], device[1]);
+    }
+
+    public static boolean setRealtimeDeviceLocationTracking(Context context, boolean enabled) {
+        Context appContext = context == null ? null : context.getApplicationContext();
+        synchronized (LOCATION_TRACK_LOCK) {
+            if (!enabled) {
+                stopRealtimeTrackingLocked();
+                return true;
+            }
+
+            if (appContext == null || !hasLocationPermission(appContext)) {
+                stopRealtimeTrackingLocked();
+                return false;
+            }
+
+            if (realtimeTrackingEnabled) {
+                return true;
+            }
+
+            LocationManager manager = (LocationManager) appContext.getSystemService(Context.LOCATION_SERVICE);
+            if (manager == null) {
+                stopRealtimeTrackingLocked();
+                return false;
+            }
+
+            LocationListener listener = location -> updateCachedLocation(location);
+            boolean requested = false;
+
+            try {
+                if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, GPS_MIN_TIME_MS, GPS_MIN_DISTANCE_M, listener, Looper.getMainLooper());
+                    requested = true;
+                }
+            } catch (Exception ignored) {
+            }
+
+            try {
+                if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, NETWORK_MIN_TIME_MS, NETWORK_MIN_DISTANCE_M, listener, Looper.getMainLooper());
+                    requested = true;
+                }
+            } catch (Exception ignored) {
+            }
+
+            if (!requested) {
+                try {
+                    manager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, NETWORK_MIN_TIME_MS, NETWORK_MIN_DISTANCE_M, listener, Looper.getMainLooper());
+                    requested = true;
+                } catch (Exception ignored) {
+                }
+            }
+
+            if (!requested) {
+                stopRealtimeTrackingLocked();
+                return false;
+            }
+
+            trackingLocationManager = manager;
+            trackingLocationListener = listener;
+            realtimeTrackingEnabled = true;
+            return true;
+        }
     }
 
     public static ResolvedLocation resolveLocation(Context context, String rawLocation) {
@@ -131,7 +266,7 @@ public final class CampusBuildingStore {
             building = "公共楼";
         }
         String room = normalizeRoom(roomNumber);
-        return room.isEmpty() ? building : (building + "-" + room);
+        return room.isEmpty() ? building : (building + room);
     }
 
     public static String toStandardLocation(Context context, String rawLocation) {
@@ -149,7 +284,11 @@ public final class CampusBuildingStore {
     }
 
     public static DistanceInfo estimateDistanceFromDevice(Context context, String rawLocation) {
-        double[] device = getLastKnownDeviceLocation(context);
+        return estimateDistanceFromDevice(context, rawLocation, false);
+    }
+
+    public static DistanceInfo estimateDistanceFromDevice(Context context, String rawLocation, boolean forceRefresh) {
+        double[] device = getLastKnownDeviceLocation(context, forceRefresh);
         if (device == null) {
             return DistanceInfo.unavailable(REASON_NO_LOCATION);
         }
@@ -172,9 +311,12 @@ public final class CampusBuildingStore {
         return DistanceInfo.available(resolved.buildingName, meters, etaMinutes);
     }
 
-    private static double[] getLastKnownDeviceLocation(Context context) {
+    private static double[] getLastKnownDeviceLocation(Context context, boolean forceRefresh) {
         long now = System.currentTimeMillis();
-        if (cachedDeviceLocation != null && now - lastDeviceLocationFetchMs < 15_000L) {
+        if (realtimeTrackingEnabled && cachedDeviceLocation != null) {
+            return cachedDeviceLocation;
+        }
+        if (!forceRefresh && cachedDeviceLocation != null && now - lastDeviceLocationFetchMs < 15_000L) {
             return cachedDeviceLocation;
         }
 
@@ -207,9 +349,70 @@ public final class CampusBuildingStore {
             return null;
         }
 
-        cachedDeviceLocation = new double[]{best.getLatitude(), best.getLongitude()};
-        lastDeviceLocationFetchMs = now;
+        updateCachedLocation(best);
         return cachedDeviceLocation;
+    }
+
+    private static void updateCachedLocation(Location location) {
+        if (location == null) return;
+        if (location.hasAccuracy() && location.getAccuracy() > IGNORE_ACCURACY_OVER_M) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        double lat = location.getLatitude();
+        double lng = location.getLongitude();
+        float accuracy = location.hasAccuracy() ? location.getAccuracy() : 35f;
+
+        if (cachedDeviceLocation == null) {
+            cachedDeviceLocation = new double[]{lat, lng};
+            lastAcceptedAccuracyMeters = accuracy;
+            lastDeviceLocationFetchMs = now;
+            return;
+        }
+
+        float[] jump = new float[1];
+        Location.distanceBetween(cachedDeviceLocation[0], cachedDeviceLocation[1], lat, lng, jump);
+        boolean withinJitterWindow = now - lastDeviceLocationFetchMs < JITTER_SUPPRESS_WINDOW_MS;
+        if (withinJitterWindow && jump[0] > MAX_SUDDEN_JUMP_M && accuracy > 30f) {
+            return;
+        }
+
+        // Blend by accuracy to suppress GPS/network shaking while keeping movement responsive.
+        float alpha;
+        if (accuracy <= 8f) {
+            alpha = 0.78f;
+        } else if (accuracy <= 16f) {
+            alpha = 0.62f;
+        } else if (accuracy <= 30f) {
+            alpha = 0.48f;
+        } else {
+            alpha = 0.34f;
+        }
+
+        if (lastAcceptedAccuracyMeters < accuracy) {
+            alpha *= 0.85f;
+        }
+
+        double smoothLat = cachedDeviceLocation[0] * (1f - alpha) + lat * alpha;
+        double smoothLng = cachedDeviceLocation[1] * (1f - alpha) + lng * alpha;
+
+        cachedDeviceLocation = new double[]{smoothLat, smoothLng};
+        lastAcceptedAccuracyMeters = accuracy;
+        lastDeviceLocationFetchMs = now;
+    }
+
+    private static void stopRealtimeTrackingLocked() {
+        if (trackingLocationManager != null && trackingLocationListener != null) {
+            try {
+                trackingLocationManager.removeUpdates(trackingLocationListener);
+            } catch (Exception ignored) {
+            }
+        }
+        trackingLocationManager = null;
+        trackingLocationListener = null;
+        realtimeTrackingEnabled = false;
+        lastAcceptedAccuracyMeters = Float.MAX_VALUE;
     }
 
     public static boolean hasLocationPermission(Context context) {
@@ -264,6 +467,50 @@ public final class CampusBuildingStore {
             this.hasCoordinate = hasCoordinate;
             this.lat = lat;
             this.lng = lng;
+        }
+    }
+
+    public static final class BuildingSearchResult {
+        public final String buildingName;
+        public final String matchedAlias;
+        public final double lat;
+        public final double lng;
+
+        BuildingSearchResult(String buildingName, String matchedAlias, double lat, double lng) {
+            this.buildingName = buildingName;
+            this.matchedAlias = matchedAlias;
+            this.lat = lat;
+            this.lng = lng;
+        }
+    }
+
+    public static final class DeviceLocationInfo {
+        public final boolean available;
+        public final double lat;
+        public final double lng;
+        public final String reason;
+
+        private DeviceLocationInfo(boolean available, double lat, double lng, String reason) {
+            this.available = available;
+            this.lat = lat;
+            this.lng = lng;
+            this.reason = reason;
+        }
+
+        static DeviceLocationInfo available(double lat, double lng) {
+            return new DeviceLocationInfo(true, lat, lng, null);
+        }
+
+        static DeviceLocationInfo unavailable(String reason) {
+            return new DeviceLocationInfo(false, 0d, 0d, reason);
+        }
+
+        public boolean isNoPermission() {
+            return REASON_NO_PERMISSION.equals(reason);
+        }
+
+        public boolean isNoLocation() {
+            return REASON_NO_LOCATION.equals(reason);
         }
     }
 
