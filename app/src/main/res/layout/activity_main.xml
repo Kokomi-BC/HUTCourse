@@ -37,7 +37,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="设置"
                 android:padding="6dp"
-                android:src="@android:drawable/ic_menu_manage"
+                android:src="@drawable/ic_more_vert"
                 app:tint="?attr/colorOnSurface" />
         </LinearLayout>
 
@@ -58,48 +58,65 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:paddingHorizontal="20dp"
-                    android:paddingTop="8dp"
+                    android:paddingTop="72dp"
                     android:paddingBottom="32dp">
 
-                    <TextView
-                        android:id="@+id/tvTodayWeek"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="周一"
-                        android:textSize="44sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tvTodayDate"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="-6dp"
-                        android:text="3月17日"
-                        android:textSize="24sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tvTodayAiHint"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:text="下滑进入AI对话"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="12sp" />
-
                     <LinearLayout
-                        android:id="@+id/todayCoursesContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:orientation="vertical" />
+                        android:layout_marginTop="6dp"
+                        android:gravity="top"
+                        android:orientation="horizontal">
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvTodayWeek"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="sans-serif-black"
+                                android:letterSpacing="0.01"
+                                android:text="周一"
+                                android:textSize="50sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvTodayDate"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:fontFamily="sans-serif-medium"
+                                android:letterSpacing="0.01"
+                                android:text="3月17日"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tvNowTime"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="30dp"
+                            android:layout_marginTop="2dp"
+                            android:fontFamily="sans-serif-medium"
+                            android:letterSpacing="0.01"
+                            android:gravity="end"
+                            android:text="21:50"
+                            android:textSize="50sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
 
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/cardTodayWeekOverview"
-                        style="@style/Widget.MyApplication.SettingsCard"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp">
+                        android:layout_marginTop="12dp"
+                        app:cardCornerRadius="24dp"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="1dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -149,6 +166,53 @@
                             </LinearLayout>
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
+
+                    <LinearLayout
+                        android:id="@+id/todayCoursesContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:orientation="vertical" />
+
+                    <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/cardNextCourseNotice"
+                        style="@style/Widget.MyApplication.SettingsCard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="10dp"
+                        android:clickable="false"
+                        android:focusable="false"
+                        android:visibility="gone"
+                        app:cardCornerRadius="24dp"
+                        app:cardElevation="0dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:padding="14dp">
+
+                            <TextView
+                                android:id="@+id/tvNextCourseNotice"
+                                style="@style/Widget.MyApplication.SettingsRowSummary"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="" />
+
+                            <ImageButton
+                                android:id="@+id/btnCloseNextCourseNotice"
+                                android:layout_width="28dp"
+                                android:layout_height="28dp"
+                                android:background="?attr/selectableItemBackgroundBorderless"
+                                android:contentDescription="关闭"
+                                android:padding="4dp"
+                                android:src="@drawable/ic_close_notice"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
                 </LinearLayout>
             </ScrollView>
 
@@ -177,52 +241,28 @@
             </LinearLayout>
         </FrameLayout>
 
-        <com.google.android.material.bottomnavigation.BottomNavigationView
-            android:id="@+id/bottomNav"
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:background="?android:attr/windowBackground"
-            app:labelVisibilityMode="labeled"
-            app:menu="@menu/bottom_nav_menu" />
+            android:layout_height="80dp"
+            android:paddingHorizontal="12dp"
+            android:paddingTop="0dp"
+            android:paddingBottom="12dp">
+
+            <com.google.android.material.bottomnavigation.BottomNavigationView
+                android:id="@+id/bottomNav"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bg_bottom_nav_top_rounded"
+                android:clipToOutline="true"
+                app:itemIconSize="22dp"
+                app:itemHorizontalTranslationEnabled="false"
+                app:itemPaddingBottom="4dp"
+                app:itemPaddingTop="4dp"
+                app:itemTextAppearanceActive="@style/TextAppearance.MyApplication.BottomNav"
+                app:itemTextAppearanceInactive="@style/TextAppearance.MyApplication.BottomNav"
+                app:labelVisibilityMode="labeled"
+                app:menu="@menu/bottom_nav_menu" />
+        </FrameLayout>
     </LinearLayout>
-
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/cardNextCourseNotice"
-        style="@style/Widget.MyApplication.SettingsCard"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="72dp"
-        android:clickable="false"
-        android:focusable="false"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:padding="14dp">
-
-            <TextView
-                android:id="@+id/tvNextCourseNotice"
-                style="@style/Widget.MyApplication.SettingsRowSummary"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="" />
-
-            <ImageButton
-                android:id="@+id/btnCloseNextCourseNotice"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="关闭"
-                android:padding="4dp"
-                android:src="@drawable/ic_close_notice"
-                app:tint="?attr/colorOnSurfaceVariant" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

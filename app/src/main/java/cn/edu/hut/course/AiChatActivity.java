@@ -3,22 +3,26 @@ package cn.edu.hut.course;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.ColorUtils;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import com.google.android.material.card.MaterialCardView;
 
-import com.google.android.material.appbar.MaterialToolbar;
-import com.google.android.material.button.MaterialButton;
-import com.google.android.material.color.MaterialColors;
+import io.noties.markwon.Markwon;
 
 import cn.edu.hut.course.ai.AiPromptCenter;
 
@@ -26,11 +30,18 @@ import java.util.List;
 
 public class AiChatActivity extends AppCompatActivity {
 
+    private static final String PREF_COURSE_STORAGE = "course_storage";
+    private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
+
     private LinearLayout chatContainer;
     private ScrollView chatScroll;
     private EditText etPrompt;
-    private MaterialButton btnSend;
+    private ImageButton btnSend;
+    private MaterialCardView composerCard;
     private TextView tvAiStatus;
+    private Markwon markwon;
+    private final Handler streamHandler = new Handler(Looper.getMainLooper());
+    private TextView streamingBubble;
     private boolean hasSentCurrentTimeToModel = false;
 
     @Override
@@ -40,47 +51,50 @@ public class AiChatActivity extends AppCompatActivity {
         setContentView(R.layout.activity_ai_chat);
         applyPageVisualStyle();
 
-        MaterialToolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-        UiStyleHelper.styleGlassToolbar(toolbar, this);
-        if (getSupportActionBar() != null) {
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setDisplayShowHomeEnabled(true);
-        }
-        toolbar.setNavigationOnClickListener(v -> finish());
-
         chatContainer = findViewById(R.id.chatContainer);
         chatScroll = findViewById(R.id.chatScroll);
         etPrompt = findViewById(R.id.etPrompt);
         btnSend = findViewById(R.id.btnSend);
+        composerCard = findViewById(R.id.composerCard);
         tvAiStatus = findViewById(R.id.tvAiStatus);
+        markwon = Markwon.create(this);
 
+        configurePromptInput();
+        applyImeInsetBehavior();
+        applyComposerStyle();
         refreshAiStatus();
-        addBubble(false, "你可以直接聊天。\n命令支持：/notes、/note <内容>、/note-edit <序号> <内容>、/note-del <序号或关键词>、/note-clear。", false);
+        addBubble(false, "你可以与我聊聊课程相关的问题", false);
 
         btnSend.setOnClickListener(v -> sendMessage());
-        findViewById(R.id.btnNoteQuick).setOnClickListener(v -> {
-            String text = etPrompt.getText() == null ? "" : etPrompt.getText().toString().trim();
-            if (text.isEmpty()) {
-                Toast.makeText(this, "请输入要记录的内容", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            String result = NoteSkillManager.appendNote(this, text);
-            addBubble(true, text, false);
-            addBubble(false, result, false);
-            etPrompt.setText("");
-        });
-        findViewById(R.id.btnReadNotes).setOnClickListener(v -> {
-            String notes = NoteSkillManager.readNotes(this);
-            addBubble(false, "当前注意事项：\n" + notes, false);
-        });
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         applyPageVisualStyle();
+        applyComposerStyle();
         refreshAiStatus();
+    }
+
+    private void configurePromptInput() {
+        if (etPrompt == null) return;
+        etPrompt.setMinLines(1);
+        etPrompt.setMaxLines(8);
+        etPrompt.setHorizontallyScrolling(false);
+    }
+
+    private void applyImeInsetBehavior() {
+        View root = findViewById(R.id.rootAiChat);
+        if (root == null) return;
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            Insets statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars());
+            Insets navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            boolean imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
+            int bottom = imeVisible ? Math.max(ime.bottom, navBars.bottom) : navBars.bottom;
+            v.setPadding(v.getPaddingLeft(), statusBars.top, v.getPaddingRight(), bottom);
+            return insets;
+        });
     }
 
     private void refreshAiStatus() {
@@ -90,6 +104,29 @@ public class AiChatActivity extends AppCompatActivity {
         String providerName = AiConfigStore.PROVIDER_SDK.equals(provider) ? "OpenAI SDK" : "Curl API";
         String keyState = key.isEmpty() ? "未配置Key" : "已配置Key";
         tvAiStatus.setText("当前模式：" + providerName + " | 模型：" + model + " | " + keyState);
+        tvAiStatus.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+    }
+
+    private void applyComposerStyle() {
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int outline = UiStyleHelper.resolveOutlineColor(this);
+        int accent = UiStyleHelper.resolveAccentColor(this);
+        int accentFill = ColorUtils.blendARGB(accent, Color.WHITE, 0.08f);
+
+        if (composerCard != null) {
+            composerCard.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+            composerCard.setStrokeColor(outline);
+            composerCard.setClipToOutline(true);
+            composerCard.setClipChildren(true);
+        }
+        if (etPrompt != null) {
+            etPrompt.setTextColor(onSurface);
+            etPrompt.setHintTextColor(ColorUtils.setAlphaComponent(onSurface, 136));
+        }
+        if (btnSend != null) {
+            btnSend.setBackgroundTintList(android.content.res.ColorStateList.valueOf(accentFill));
+            btnSend.setImageTintList(android.content.res.ColorStateList.valueOf(pickReadableTextColor(accentFill)));
+        }
     }
 
     private void sendMessage() {
@@ -168,8 +205,7 @@ public class AiChatActivity extends AppCompatActivity {
             final String finalReply = reply;
             runOnUiThread(() -> {
                 removeTypingBubble();
-                addBubble(false, finalReply, false);
-                btnSend.setEnabled(true);
+                streamAssistantReply(finalReply, () -> btnSend.setEnabled(true));
             });
         }).start();
     }
@@ -207,27 +243,99 @@ public class AiChatActivity extends AppCompatActivity {
     private void addBubble(boolean isUser, String text, boolean typing) {
         TextView tv = new TextView(this);
         tv.setTag(typing ? "typing" : null);
-        tv.setText(text);
-        tv.setTextSize(14f);
+        if (typing) {
+            tv.setText(text);
+        } else {
+            markwon.setMarkdown(tv, normalizeMarkdown(text));
+        }
+        tv.setTextSize(15f);
+        tv.setLineSpacing(0f, 1.15f);
         tv.setTextColor(pickTextColor(isUser));
-        int pad = dp(12);
+        int pad = dp(14);
         tv.setPadding(pad, pad, pad, pad);
 
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(12));
+        bg.setCornerRadius(dp(20));
         bg.setColor(pickBubbleColor(isUser));
+        bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 36));
         tv.setBackground(bg);
+        tv.setClipToOutline(true);
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.gravity = isUser ? Gravity.END : Gravity.START;
-        lp.setMargins(0, dp(6), 0, dp(6));
+        lp.setMargins(0, dp(8), 0, dp(8));
         tv.setLayoutParams(lp);
 
-        int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.82f);
+        int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.84f);
         tv.setMaxWidth(maxWidth);
 
         chatContainer.addView(tv);
         chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+    }
+
+    private TextView addAssistantStreamingBubble() {
+        TextView tv = new TextView(this);
+        tv.setTextSize(15f);
+        tv.setLineSpacing(0f, 1.15f);
+        tv.setTextColor(pickTextColor(false));
+        int pad = dp(14);
+        tv.setPadding(pad, pad, pad, pad);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(20));
+        bg.setColor(pickBubbleColor(false));
+        bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 36));
+        tv.setBackground(bg);
+        tv.setClipToOutline(true);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.START;
+        lp.setMargins(0, dp(8), 0, dp(8));
+        tv.setLayoutParams(lp);
+        tv.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.84f));
+
+        chatContainer.addView(tv);
+        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+        return tv;
+    }
+
+    private void streamAssistantReply(String rawReply, Runnable onDone) {
+        String normalized = normalizeMarkdown(rawReply);
+        if (streamingBubble != null) {
+            chatContainer.removeView(streamingBubble);
+            streamingBubble = null;
+        }
+        streamingBubble = addAssistantStreamingBubble();
+
+        if (normalized.isEmpty()) {
+            markwon.setMarkdown(streamingBubble, "");
+            streamingBubble = null;
+            if (onDone != null) onDone.run();
+            return;
+        }
+
+        final int[] cursor = {0};
+        final int total = normalized.length();
+        final int step = 3;
+
+        Runnable ticker = new Runnable() {
+            @Override
+            public void run() {
+                cursor[0] = Math.min(total, cursor[0] + step);
+                String partial = normalized.substring(0, cursor[0]);
+                if (streamingBubble != null) {
+                    markwon.setMarkdown(streamingBubble, partial);
+                    chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+                }
+                if (cursor[0] < total) {
+                    streamHandler.postDelayed(this, 18L);
+                } else {
+                    streamingBubble = null;
+                    if (onDone != null) onDone.run();
+                }
+            }
+        };
+        streamHandler.post(ticker);
     }
 
     private void removeTypingBubble() {
@@ -241,16 +349,28 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     private int pickBubbleColor(boolean isUser) {
-        int primary = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimaryContainer, Color.parseColor("#DAE7F7"));
+        int primary = UiStyleHelper.resolveAccentColor(this);
         int surface = UiStyleHelper.resolveGlassCardColor(this);
-        return isUser ? ColorUtils.setAlphaComponent(primary, 240) : surface;
+        return isUser ? ColorUtils.blendARGB(primary, Color.WHITE, 0.10f) : surface;
+    }
+
+    private String normalizeMarkdown(String raw) {
+        if (raw == null) return "";
+        String normalized = raw.replace("\r\n", "\n");
+        normalized = normalized.replace("\\t", "    ");
+        normalized = normalized.replace("\t", "    ");
+        return normalized;
     }
 
     private int pickTextColor(boolean isUser) {
         if (isUser) {
-            return MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimaryContainer, Color.BLACK);
+            return pickReadableTextColor(pickBubbleColor(true));
         }
-        return MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK);
+        return UiStyleHelper.resolveOnSurfaceColor(this);
+    }
+
+    private int pickReadableTextColor(int bgColor) {
+        return ColorUtils.calculateLuminance(bgColor) < 0.5 ? Color.WHITE : Color.BLACK;
     }
 
     private int dp(int value) {

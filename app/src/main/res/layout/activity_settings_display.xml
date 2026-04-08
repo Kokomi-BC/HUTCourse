@@ -33,92 +33,20 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:text="背景模式"
+                android:text="课表主题"
                 style="@style/Widget.MyApplication.SettingsRowTitle" />
 
-            <com.google.android.material.button.MaterialButtonToggleGroup
-                android:id="@+id/toggleBackgroundMode"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                app:selectionRequired="true"
-                app:singleSelection="true">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnModeColor"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="纯色" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnModeImage"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="图片" />
-            </com.google.android.material.button.MaterialButtonToggleGroup>
-
             <LinearLayout
-                android:id="@+id/groupColorOptions"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="20dp"
                 android:orientation="vertical">
 
                 <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/btnChooseBgColor"
-                    style="@style/Widget.MyApplication.SettingsCard"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:padding="16dp">
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                style="@style/Widget.MyApplication.SettingsRowTitle"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="背景颜色" />
-
-                            <TextView
-                                style="@style/Widget.MyApplication.SettingsRowSummary"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="选择纯色背景" />
-                        </LinearLayout>
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text=">"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="18sp" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <com.google.android.material.card.MaterialCardView
                     android:id="@+id/btnChooseThemeColor"
                     style="@style/Widget.MyApplication.SettingsCard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground">
@@ -147,7 +75,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="4dp"
-                                android:text="用于当前上课课程与当前节次高亮" />
+                                android:text="使用活力浅色高亮当前课程与当前节次" />
                         </LinearLayout>
 
                         <TextView
@@ -156,93 +84,6 @@
                             android:text=">"
                             android:textColor="?attr/colorOnSurfaceVariant"
                             android:textSize="18sp" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/groupImageOptions"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="20dp"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/btnSetBackground"
-                    style="@style/Widget.MyApplication.SettingsCard"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:padding="16dp">
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                style="@style/Widget.MyApplication.SettingsRowTitle"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="背景图片" />
-
-                            <TextView
-                                style="@style/Widget.MyApplication.SettingsRowSummary"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="从相册选择一张图片" />
-                        </LinearLayout>
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text=">"
-                            android:textColor="?attr/colorOnSurfaceVariant"
-                            android:textSize="18sp" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/btnClearBackground"
-                    style="@style/Widget.MyApplication.SettingsCard"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
-                    app:strokeColor="?attr/colorError">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="16dp">
-
-                        <TextView
-                            style="@style/Widget.MyApplication.SettingsRowTitle"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="清除背景图片"
-                            android:textColor="?attr/colorError" />
-
-                        <TextView
-                            style="@style/Widget.MyApplication.SettingsRowSummary"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="恢复为纯色背景" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>

@@ -3,26 +3,12 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rootAiChat"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
-
-    <com.google.android.material.appbar.AppBarLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        app:liftOnScroll="true">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            app:title="AI对话" />
-    </com.google.android.material.appbar.AppBarLayout>
+    android:layout_height="match_parent">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+        android:orientation="vertical">
 
         <TextView
             android:id="@+id/tvAiStatus"
@@ -30,7 +16,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingStart="16dp"
-            android:paddingTop="12dp"
+            android:paddingTop="16dp"
             android:paddingEnd="16dp"
             android:paddingBottom="8dp"
             android:text="当前模式" />
@@ -40,8 +26,9 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
+            android:paddingStart="14dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="14dp"
             android:paddingBottom="8dp">
 
             <LinearLayout
@@ -51,59 +38,57 @@
                 android:orientation="vertical" />
         </ScrollView>
 
-        <LinearLayout
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/composerCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="8dp">
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="14dp"
+            app:cardCornerRadius="26dp"
+            app:cardElevation="0dp"
+            app:strokeColor="#35FFFFFF"
+            app:strokeWidth="1dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnNoteQuick"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:layout_weight="1"
-                android:text="记录事项" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="14dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReadNotes"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:layout_weight="1"
-                android:text="查看事项" />
-        </LinearLayout>
+                <EditText
+                    android:id="@+id/etPrompt"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:hint="输入消息，或 /note 记录事项"
+                    android:gravity="start|center_vertical"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:maxLines="8"
+                    android:minHeight="44dp"
+                    android:overScrollMode="ifContentScrolls"
+                    android:scrollbars="vertical"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="8dp"
+                    android:textColor="@android:color/white"
+                    android:textColorHint="#88FFFFFF" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="14dp">
-
-            <EditText
-                android:id="@+id/etPrompt"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:background="@android:drawable/edit_text"
-                android:hint="输入消息，或 /note 记录事项"
-                android:minHeight="48dp"
-                android:padding="10dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSend"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="发送" />
-        </LinearLayout>
+                <ImageButton
+                    android:id="@+id/btnSend"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="@drawable/bg_send_circle"
+                    android:contentDescription="发送"
+                    android:padding="10dp"
+                    android:src="@drawable/ic_send_up"
+                    android:tint="@android:color/white" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

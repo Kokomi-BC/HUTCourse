@@ -14,4 +14,11 @@
     <style name="Widget.MyApplication.SettingsRowSummary" parent="TextAppearance.Material3.BodySmall">
         <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
     </style>
+
+    <style name="TextAppearance.MyApplication.BottomNav" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:textSize">11sp</item>
+        <item name="android:lineHeight">12sp</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
 </resources>

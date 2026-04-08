@@ -40,4 +40,5 @@ dependencies {
     implementation(libs.material)
     implementation("org.jsoup:jsoup:1.16.1")
     implementation("com.theokanning.openai-gpt3-java:service:0.18.2")
+    implementation("io.noties.markwon:core:4.6.2")
 }

@@ -147,11 +147,6 @@ public class SettingsDataActivity extends AppCompatActivity {
             new JSONArray(json);
 
                 CourseStorageManager.saveCoursesJson(this, json);
-                getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                    .edit()
-                    .putString("bg_mode", "color")
-                    .putInt("bg_color_index", 0)
-                    .apply();
 
             Intent i = new Intent();
             i.putExtra("action", "reload_courses");

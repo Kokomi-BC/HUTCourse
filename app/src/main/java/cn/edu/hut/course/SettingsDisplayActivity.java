@@ -19,18 +19,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
-import androidx.core.graphics.ColorUtils;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.google.android.material.button.MaterialButton;
-import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.card.MaterialCardView;
-import com.google.android.material.color.MaterialColors;
 
 import cn.edu.hut.course.data.CampusBuildingStore;
 import cn.edu.hut.course.data.CourseStorageManager;
@@ -50,9 +43,6 @@ public class SettingsDisplayActivity extends AppCompatActivity {
     private static final String KEY_SHOW_GRID_LINES = "show_grid_lines";
     private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
 
-    private ActivityResultLauncher<String[]> openDocumentLauncher;
-    private LinearLayout groupColorOptions;
-    private LinearLayout groupImageOptions;
     private final List<Course> allCourses = new ArrayList<>();
 
     @Override
@@ -71,73 +61,17 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         }
         toolbar.setNavigationOnClickListener(v -> finish());
 
-        groupColorOptions = findViewById(R.id.groupColorOptions);
-        groupImageOptions = findViewById(R.id.groupImageOptions);
-        MaterialButtonToggleGroup toggleBackgroundMode = findViewById(R.id.toggleBackgroundMode);
-        MaterialButton btnModeColor = findViewById(R.id.btnModeColor);
-        MaterialButton btnModeImage = findViewById(R.id.btnModeImage);
         com.google.android.material.materialswitch.MaterialSwitch switchGridLines = findViewById(R.id.switchGridLines);
 
-        openDocumentLauncher = registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
-            if (uri != null) {
-                try {
-                    getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                            .edit()
-                            .putString("bg_image_uri", uri.toString())
-                            .putString("bg_mode", "image")
-                            .apply();
-                    notifyMainToRefresh("refresh_bg");
-                    updateBackgroundModeUI("image");
-                    Toast.makeText(this, "背景图片已更新", Toast.LENGTH_SHORT).show();
-                } catch (Exception e) {
-                    Toast.makeText(this, "设置背景失败", Toast.LENGTH_SHORT).show();
-                }
-            }
-        });
-
         SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
-        String mode = prefs.getString("bg_mode", "color");
         switchGridLines.setChecked(prefs.getBoolean(KEY_SHOW_GRID_LINES, true));
-        if ("image".equals(mode)) {
-            btnModeImage.setChecked(true);
-        } else {
-            btnModeColor.setChecked(true);
-        }
-        updateBackgroundModeUI(mode);
 
         switchGridLines.setOnCheckedChangeListener((buttonView, isChecked) -> {
             prefs.edit().putBoolean(KEY_SHOW_GRID_LINES, isChecked).apply();
             notifyMainToRefresh("refresh_grid");
         });
 
-        toggleBackgroundMode.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
-            if (!isChecked) return;
-            String selectedMode = checkedId == R.id.btnModeImage ? "image" : "color";
-            getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                    .edit()
-                    .putString("bg_mode", selectedMode)
-                    .apply();
-            updateBackgroundModeUI(selectedMode);
-            notifyMainToRefresh("refresh_bg");
-            applyPageVisualStyle();
-        });
-
-        findViewById(R.id.btnChooseBgColor).setOnClickListener(v -> showBackgroundColorPicker());
         findViewById(R.id.btnChooseThemeColor).setOnClickListener(v -> showTimetableThemeColorPicker());
-        findViewById(R.id.btnSetBackground).setOnClickListener(v -> openDocumentLauncher.launch(new String[]{"image/*"}));
-        findViewById(R.id.btnClearBackground).setOnClickListener(v -> {
-            getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                    .edit()
-                    .remove("bg_image_uri")
-                    .putString("bg_mode", "color")
-                    .apply();
-            btnModeColor.setChecked(true);
-            updateBackgroundModeUI("color");
-            notifyMainToRefresh("refresh_bg");
-            applyPageVisualStyle();
-            Toast.makeText(this, "已清除背景照片", Toast.LENGTH_SHORT).show();
-        });
 
         loadCoursesForEditor();
     }
@@ -157,51 +91,12 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         UiStyleHelper.applyGlassCards(findViewById(android.R.id.content), this);
     }
 
-    private void updateBackgroundModeUI(String mode) {
-        boolean useImage = "image".equals(mode);
-        groupImageOptions.setVisibility(useImage ? View.VISIBLE : View.GONE);
-        groupColorOptions.setVisibility(useImage ? View.GONE : View.VISIBLE);
-    }
-
-    private int[] buildMaterialPalette() {
-        int colorSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface, ContextCompat.getColor(this, android.R.color.white));
-        int p = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimaryContainer, colorSurface);
-        int s = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondaryContainer, colorSurface);
-        int t = MaterialColors.getColor(this, com.google.android.material.R.attr.colorTertiaryContainer, colorSurface);
-        int pv = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, colorSurface);
-        int sv = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondary, colorSurface);
-        int tv = MaterialColors.getColor(this, com.google.android.material.R.attr.colorTertiary, colorSurface);
-        return new int[] {
-                colorSurface,
-                ColorUtils.blendARGB(colorSurface, p, 0.22f),
-                ColorUtils.blendARGB(colorSurface, s, 0.22f),
-                ColorUtils.blendARGB(colorSurface, t, 0.22f),
-                ColorUtils.blendARGB(colorSurface, p, 0.35f),
-                ColorUtils.blendARGB(colorSurface, s, 0.35f),
-                ColorUtils.blendARGB(colorSurface, t, 0.35f),
-                ColorUtils.blendARGB(colorSurface, pv, 0.16f),
-                ColorUtils.blendARGB(colorSurface, sv, 0.16f),
-                ColorUtils.blendARGB(colorSurface, tv, 0.16f),
-                ColorUtils.blendARGB(colorSurface, pv, 0.28f),
-                ColorUtils.blendARGB(colorSurface, sv, 0.28f)
-        };
-    }
-
-    private void showBackgroundColorPicker() {
-        int[] palette = buildMaterialPalette();
-        showColorPickerBottomSheet("背景颜色", palette, (index, color) -> {
-            getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                    .edit()
-                    .putInt("bg_color_index", index)
-                    .putString("bg_mode", "color")
-                    .apply();
-            notifyMainToRefresh("refresh_bg");
-            applyPageVisualStyle();
-        });
+    private int[] buildVibrantPalette() {
+        return ColorPaletteProvider.vibrantLightPalette();
     }
 
     private void showTimetableThemeColorPicker() {
-        int[] palette = buildMaterialPalette();
+        int[] palette = buildVibrantPalette();
         showColorPickerBottomSheet("课表主题色", palette, (index, color) -> {
             getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
                     .edit()
@@ -244,6 +139,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             TextView tv = new TextView(this);
             tv.setText("暂无课程可编辑");
             tv.setPadding(0, 16, 0, 16);
+            tv.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
             container.addView(tv);
             return;
         }
@@ -277,12 +173,12 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             title.setText(item.name + (item.isExperimental ? " [实验]" : ""));
             title.setTextSize(15f);
             title.setTypeface(null, android.graphics.Typeface.BOLD);
-            title.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, android.graphics.Color.BLACK));
+            title.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
 
             TextView summary = new TextView(this);
             summary.setText(item.isExperimental ? "实验课" : "教学课");
             summary.setTextSize(12f);
-            summary.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.DKGRAY));
+            summary.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
             summary.setPadding(0, 4, 0, 0);
 
             textCol.addView(title);
@@ -292,7 +188,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             TextView arrow = new TextView(this);
             arrow.setText(">");
             arrow.setTextSize(18f);
-            arrow.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.DKGRAY));
+            arrow.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
             row.addView(arrow);
 
             card.addView(row);
@@ -345,7 +241,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
             bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
             bg.setColor(color);
-            bg.setStroke(2, MaterialColors.getColor(this, com.google.android.material.R.attr.colorOutline, 0));
+            bg.setStroke(2, UiStyleHelper.resolveOutlineColor(this));
             colorDot.setBackground(bg);
             colorDot.setOnClickListener(v -> {
                 onColorSelect.onPick(colorIndex, color);
@@ -372,11 +268,11 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         title.setText(c.name + (c.isExperimental ? " [实验]" : ""));
         title.setTextSize(18f);
         title.setTypeface(null, Typeface.BOLD);
-        title.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK));
+        title.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
         layout.addView(title);
 
-        int labelColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.DKGRAY);
-        int valueColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.BLACK);
+        int labelColor = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+        int valueColor = UiStyleHelper.resolveOnSurfaceColor(this);
 
         LinearLayout rowsContainer = new LinearLayout(this);
         rowsContainer.setOrientation(LinearLayout.VERTICAL);
@@ -657,9 +553,13 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         if (mPrefs.contains(courseName)) {
             return mPrefs.getInt(courseName, 0);
         }
-        int[] palette = buildMaterialPalette();
+        int[] palette = buildVibrantPalette();
         int hash = Math.abs(courseName.hashCode());
-        return palette[hash % palette.length];
+        int color = palette[hash % palette.length];
+        if (isExperimental) {
+            color = mixColor(color, Color.WHITE, 0.08f);
+        }
+        return color;
     }
 
     private void renderColorSlider(LinearLayout container, Course c, String colorKey) {
@@ -667,7 +567,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         SharedPreferences prefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
         boolean hasCustom = prefs.contains(colorKey) || prefs.contains(c.name);
         int current = getCourseColor(c.name, c.isExperimental);
-        int[] palette = buildMaterialPalette();
+        int[] palette = buildVibrantPalette();
 
         addColorDot(container, Color.TRANSPARENT, !hasCustom, true, v -> {
             prefs.edit().remove(colorKey).remove(c.name).apply();
@@ -694,8 +594,9 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         dot.setRadius(size / 2f);
         dot.setCardElevation(0f);
         dot.setStrokeWidth(selected ? dp(2) : dp(1));
-        int outline = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOutline, Color.GRAY);
-        int selectedColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, Color.BLACK);
+        int outline = UiStyleHelper.resolveOutlineColor(this);
+        int selectedColor = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
+                .getInt(KEY_TIMETABLE_THEME_COLOR, ColorPaletteProvider.defaultThemeColor());
         dot.setStrokeColor(selected ? selectedColor : outline);
 
         if (isDefault) {
@@ -704,13 +605,21 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             icon.setText("⊘");
             icon.setGravity(Gravity.CENTER);
             icon.setTextSize(16f);
-            icon.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.DKGRAY));
+            icon.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
             dot.addView(icon, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         } else {
             dot.setCardBackgroundColor(color);
         }
         dot.setOnClickListener(click);
         container.addView(dot);
+    }
+
+    private int mixColor(int from, int to, float ratio) {
+        float clamped = Math.max(0f, Math.min(1f, ratio));
+        int r = Math.round(Color.red(from) * (1f - clamped) + Color.red(to) * clamped);
+        int g = Math.round(Color.green(from) * (1f - clamped) + Color.green(to) * clamped);
+        int b = Math.round(Color.blue(from) * (1f - clamped) + Color.blue(to) * clamped);
+        return Color.rgb(r, g, b);
     }
 
     private String formatWeeksForDisplay(List<Integer> weeks) {
@@ -735,11 +644,6 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         if (start == prev) sb.append(start);
         else sb.append(start).append("-").append(prev);
         return sb.toString();
-    }
-
-    private String sanitizeLocation(String raw) {
-        if (raw == null) return "";
-        return raw.replace("@", "").trim();
     }
 
     private int dp(int value) {

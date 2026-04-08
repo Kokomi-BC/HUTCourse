@@ -31,7 +31,9 @@
         <activity android:name=".SettingsDataActivity" />
         <activity android:name=".SettingsHomeActivity" />
         <activity android:name=".SettingsAiActivity" />
-        <activity android:name=".AiChatActivity" />
+        <activity
+            android:name=".AiChatActivity"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
 
         <activity
             android:name=".BrowserActivity"
