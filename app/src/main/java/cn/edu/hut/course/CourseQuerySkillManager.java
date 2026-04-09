@@ -101,7 +101,7 @@ public final class CourseQuerySkillManager {
         }
 
         sortByCourseTime(result);
-        return formatSearchList("教师查询", "教师关键词=" + keyword, result);
+        return formatSearchList("教师查询", "教师关键词=" + keyword, result, false);
     }
 
     public static String searchByCourseName(Context context, String courseNameKeyword) {
@@ -125,7 +125,32 @@ public final class CourseQuerySkillManager {
         }
 
         sortByCourseTime(result);
-        return formatSearchList("课程名查询", "课程关键词=" + keyword, result);
+        return formatSearchList("课程名查询", "课程关键词=" + keyword, result, true);
+    }
+
+    public static String searchByKeyword(Context context, String keywordInput) {
+        String keyword = keywordInput == null ? "" : keywordInput.trim();
+        if (keyword.isEmpty()) {
+            return "查询失败：关键词为空";
+        }
+
+        List<Course> allCourses = CourseStorageManager.loadCourses(context);
+        if (allCourses.isEmpty()) {
+            return "查询结果：暂无课程数据";
+        }
+
+        String keyLower = keyword.toLowerCase(Locale.ROOT);
+        List<Course> result = new ArrayList<>();
+        for (Course c : allCourses) {
+            if (!isNormalCourse(c)) continue;
+            String haystack = (safe(c.name) + " " + safe(c.teacher) + " " + sanitizeLocation(c.location)).toLowerCase(Locale.ROOT);
+            if (haystack.contains(keyLower)) {
+                result.add(c);
+            }
+        }
+
+        sortByCourseTime(result);
+        return formatSearchList("关键词查询", "关键词=" + keyword, result, true);
     }
 
     private static void sortByCourseTime(List<Course> result) {
@@ -158,7 +183,7 @@ public final class CourseQuerySkillManager {
         return sb.toString();
     }
 
-    private static String formatSearchList(String title, String condition, List<Course> courses) {
+    private static String formatSearchList(String title, String condition, List<Course> courses, boolean includeWeeks) {
         if (courses.isEmpty()) {
             return title + "：无匹配结果（" + condition + "）";
         }
@@ -169,7 +194,7 @@ public final class CourseQuerySkillManager {
             Course c = courses.get(i);
             sb.append(i + 1)
                     .append(". ")
-                    .append(buildCourseDisplay(c));
+                    .append(buildCourseDisplay(c, includeWeeks));
             if (i < courses.size() - 1) {
                 sb.append("\n");
             }
@@ -178,10 +203,17 @@ public final class CourseQuerySkillManager {
     }
 
     private static String buildCourseDisplay(Course c) {
+        return buildCourseDisplay(c, false);
+    }
+
+    private static String buildCourseDisplay(Course c, boolean includeWeeks) {
         StringBuilder sb = new StringBuilder();
         sb.append(safe(c.name));
         if (c.isExperimental) {
             sb.append("[实验]");
+        }
+        if (includeWeeks) {
+            sb.append(" | 周次 ").append(buildWeeksText(c.weeks));
         }
         sb.append(" | 时间 ").append(buildTimeText(c));
         sb.append(" | 地点 ").append(sanitizeLocation(c.location));
@@ -189,6 +221,22 @@ public final class CourseQuerySkillManager {
             sb.append(" | 教师 ").append(c.teacher.trim());
         }
         return sb.toString();
+    }
+
+    private static String buildWeeksText(List<Integer> weeks) {
+        if (weeks == null || weeks.isEmpty()) {
+            return "未知";
+        }
+        List<Integer> sorted = new ArrayList<>(weeks);
+        Collections.sort(sorted);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < sorted.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(sorted.get(i));
+        }
+        return sb.append("周").toString();
     }
 
     private static String buildTimeText(Course c) {

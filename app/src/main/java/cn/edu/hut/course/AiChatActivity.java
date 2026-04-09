@@ -1,71 +1,138 @@
 package cn.edu.hut.course;
 
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.graphics.Insets;
+import androidx.core.view.GravityCompat;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
 import com.google.android.material.card.MaterialCardView;
 
 import io.noties.markwon.Markwon;
 
 import cn.edu.hut.course.ai.AiPromptCenter;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class AiChatActivity extends AppCompatActivity {
 
-    private static final String PREF_COURSE_STORAGE = "course_storage";
-    private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
+    private static final String PREF_AI_CHAT_HISTORY = "ai_chat_history";
+    private static final String KEY_CHAT_HISTORY_JSON = "history_json";
+    private static final int MAX_HISTORY_SESSIONS = 30;
+    private static final Pattern TITLE_PATTERN = Pattern.compile("^(?:TITLE|标题)\\s*[:：]\\s*(.+)$", Pattern.CASE_INSENSITIVE);
 
+    private DrawerLayout drawerAiChat;
     private LinearLayout chatContainer;
     private ScrollView chatScroll;
     private EditText etPrompt;
     private ImageButton btnSend;
+    private ImageButton btnOpenHistory;
+    private TextView btnNewSession;
+    private ListView lvHistory;
+    private TextView tvHistoryEmpty;
     private MaterialCardView composerCard;
     private TextView tvAiStatus;
     private Markwon markwon;
     private final Handler streamHandler = new Handler(Looper.getMainLooper());
+    private final List<ChatSession> sessions = new ArrayList<>();
+    private final List<String> historyRows = new ArrayList<>();
+    private ArrayAdapter<String> historyAdapter;
+    private ChatSession activeSession;
     private TextView streamingBubble;
     private boolean hasSentCurrentTimeToModel = false;
+    private int baseComposerBottomMargin = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
         UiStyleHelper.hideStatusBar(this);
         setContentView(R.layout.activity_ai_chat);
         applyPageVisualStyle();
 
+        drawerAiChat = findViewById(R.id.drawerAiChat);
         chatContainer = findViewById(R.id.chatContainer);
         chatScroll = findViewById(R.id.chatScroll);
         etPrompt = findViewById(R.id.etPrompt);
         btnSend = findViewById(R.id.btnSend);
+        btnOpenHistory = findViewById(R.id.btnOpenHistory);
+        btnNewSession = findViewById(R.id.btnNewSession);
+        lvHistory = findViewById(R.id.lvHistory);
+        tvHistoryEmpty = findViewById(R.id.tvHistoryEmpty);
         composerCard = findViewById(R.id.composerCard);
         tvAiStatus = findViewById(R.id.tvAiStatus);
         markwon = Markwon.create(this);
 
+        if (composerCard != null) {
+            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) composerCard.getLayoutParams();
+            baseComposerBottomMargin = lp.bottomMargin;
+        }
+
         configurePromptInput();
+        setupHistoryDrawer();
+        loadHistory();
         applyImeInsetBehavior();
         applyComposerStyle();
         refreshAiStatus();
-        addBubble(false, "你可以与我聊聊课程相关的问题", false);
 
         btnSend.setOnClickListener(v -> sendMessage());
+        if (btnOpenHistory != null) {
+            btnOpenHistory.setOnClickListener(v -> {
+                if (drawerAiChat != null) {
+                    drawerAiChat.openDrawer(GravityCompat.START);
+                }
+            });
+        }
+        if (btnNewSession != null) {
+            btnNewSession.setOnClickListener(v -> {
+                startNewSession(true);
+                addBubble(false, "你可以与我聊聊课程相关的问题", false, true);
+                if (drawerAiChat != null) {
+                    drawerAiChat.closeDrawer(GravityCompat.START);
+                }
+            });
+        }
+
+        if (activeSession == null || activeSession.messages.isEmpty()) {
+            if (activeSession == null) {
+                startNewSession(false);
+            }
+            addBubble(false, "你可以与我聊聊课程相关的问题", false, true);
+        }
     }
 
     @Override
@@ -91,10 +158,208 @@ public class AiChatActivity extends AppCompatActivity {
             Insets navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
             Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
             boolean imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
-            int bottom = imeVisible ? Math.max(ime.bottom, navBars.bottom) : navBars.bottom;
-            v.setPadding(v.getPaddingLeft(), statusBars.top, v.getPaddingRight(), bottom);
+            int keyboardBottom = imeVisible ? ime.bottom : navBars.bottom;
+
+            v.setPadding(v.getPaddingLeft(), statusBars.top, v.getPaddingRight(), 0);
+            if (composerCard != null) {
+                ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) composerCard.getLayoutParams();
+                int targetBottomMargin = baseComposerBottomMargin + keyboardBottom + dp(8);
+                if (lp.bottomMargin != targetBottomMargin) {
+                    lp.bottomMargin = targetBottomMargin;
+                    composerCard.setLayoutParams(lp);
+                }
+            }
             return insets;
         });
+    }
+
+    private void setupHistoryDrawer() {
+        historyAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, historyRows);
+        if (lvHistory != null) {
+            lvHistory.setAdapter(historyAdapter);
+            lvHistory.setOnItemClickListener((AdapterView<?> parent, View view, int position, long id) -> {
+                if (position < 0 || position >= sessions.size()) {
+                    return;
+                }
+                activeSession = sessions.get(position);
+                renderActiveSession();
+                if (drawerAiChat != null) {
+                    drawerAiChat.closeDrawer(GravityCompat.START);
+                }
+            });
+        }
+    }
+
+    private void startNewSession(boolean forceSave) {
+        ChatSession session = new ChatSession();
+        session.id = UUID.randomUUID().toString();
+        session.title = "新对话";
+        session.updatedAt = System.currentTimeMillis();
+        session.messages = new ArrayList<>();
+        sessions.add(0, session);
+        trimHistoryIfNeeded();
+        activeSession = session;
+        chatContainer.removeAllViews();
+        refreshHistoryRows();
+        if (forceSave) {
+            saveHistory();
+        }
+    }
+
+    private void renderActiveSession() {
+        chatContainer.removeAllViews();
+        if (activeSession == null || activeSession.messages == null || activeSession.messages.isEmpty()) {
+            return;
+        }
+        for (ChatMessage one : activeSession.messages) {
+            boolean isUser = "user".equalsIgnoreCase(one.role);
+            addBubble(isUser, one.content, false, false);
+        }
+        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+    }
+
+    private void refreshHistoryRows() {
+        historyRows.clear();
+        SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
+        for (ChatSession one : sessions) {
+            String title = safe(one.title);
+            String time = sdf.format(new Date(one.updatedAt));
+            historyRows.add(title + "  ·  " + time);
+        }
+        if (historyAdapter != null) {
+            historyAdapter.notifyDataSetChanged();
+        }
+        if (tvHistoryEmpty != null) {
+            tvHistoryEmpty.setVisibility(historyRows.isEmpty() ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void loadHistory() {
+        sessions.clear();
+        SharedPreferences prefs = getSharedPreferences(PREF_AI_CHAT_HISTORY, MODE_PRIVATE);
+        String raw = prefs.getString(KEY_CHAT_HISTORY_JSON, "");
+        if (!TextUtils.isEmpty(raw)) {
+            try {
+                JSONArray arr = new JSONArray(raw);
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject obj = arr.optJSONObject(i);
+                    if (obj == null) continue;
+                    ChatSession session = new ChatSession();
+                    session.id = obj.optString("id", UUID.randomUUID().toString());
+                    session.title = obj.optString("title", "新对话");
+                    session.updatedAt = obj.optLong("updatedAt", System.currentTimeMillis());
+                    session.messages = new ArrayList<>();
+                    JSONArray msgArr = obj.optJSONArray("messages");
+                    if (msgArr != null) {
+                        for (int j = 0; j < msgArr.length(); j++) {
+                            JSONObject msgObj = msgArr.optJSONObject(j);
+                            if (msgObj == null) continue;
+                            ChatMessage msg = new ChatMessage();
+                            msg.role = msgObj.optString("role", "assistant");
+                            msg.content = msgObj.optString("content", "");
+                            if (!TextUtils.isEmpty(msg.content)) {
+                                session.messages.add(msg);
+                            }
+                        }
+                    }
+                    sessions.add(session);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        if (!sessions.isEmpty()) {
+            activeSession = sessions.get(0);
+            renderActiveSession();
+        }
+        refreshHistoryRows();
+    }
+
+    private void saveHistory() {
+        trimHistoryIfNeeded();
+        JSONArray arr = new JSONArray();
+        for (ChatSession one : sessions) {
+            try {
+                JSONObject obj = new JSONObject();
+                obj.put("id", one.id);
+                obj.put("title", safe(one.title));
+                obj.put("updatedAt", one.updatedAt);
+                JSONArray msgArr = new JSONArray();
+                if (one.messages != null) {
+                    for (ChatMessage msg : one.messages) {
+                        JSONObject msgObj = new JSONObject();
+                        msgObj.put("role", safe(msg.role));
+                        msgObj.put("content", safe(msg.content));
+                        msgArr.put(msgObj);
+                    }
+                }
+                obj.put("messages", msgArr);
+                arr.put(obj);
+            } catch (Exception ignored) {
+            }
+        }
+        getSharedPreferences(PREF_AI_CHAT_HISTORY, MODE_PRIVATE)
+                .edit()
+                .putString(KEY_CHAT_HISTORY_JSON, arr.toString())
+                .apply();
+    }
+
+    private void trimHistoryIfNeeded() {
+        while (sessions.size() > MAX_HISTORY_SESSIONS) {
+            sessions.remove(sessions.size() - 1);
+        }
+    }
+
+    private void touchActiveSession() {
+        if (activeSession == null) {
+            return;
+        }
+        activeSession.updatedAt = System.currentTimeMillis();
+        sessions.remove(activeSession);
+        sessions.add(0, activeSession);
+    }
+
+    private void appendMessageToHistory(boolean isUser, String text) {
+        if (TextUtils.isEmpty(text)) {
+            return;
+        }
+        if (activeSession == null) {
+            startNewSession(false);
+        }
+        ChatMessage msg = new ChatMessage();
+        msg.role = isUser ? "user" : "assistant";
+        msg.content = text;
+        if (activeSession.messages == null) {
+            activeSession.messages = new ArrayList<>();
+        }
+        activeSession.messages.add(msg);
+        if (isUser && (TextUtils.isEmpty(activeSession.title) || "新对话".equals(activeSession.title))) {
+            activeSession.title = makeFallbackTitle(text);
+        }
+        touchActiveSession();
+        refreshHistoryRows();
+        saveHistory();
+    }
+
+    private void updateSessionTitle(String title) {
+        if (TextUtils.isEmpty(title)) {
+            return;
+        }
+        if (activeSession == null) {
+            startNewSession(false);
+        }
+        activeSession.title = title.trim();
+        touchActiveSession();
+        refreshHistoryRows();
+        saveHistory();
+    }
+
+    private String makeFallbackTitle(String text) {
+        String oneLine = safe(text).replace('\n', ' ').trim();
+        if (oneLine.length() > 18) {
+            return oneLine.substring(0, 18) + "...";
+        }
+        return oneLine.isEmpty() ? "新对话" : oneLine;
     }
 
     private void refreshAiStatus() {
@@ -205,7 +470,19 @@ public class AiChatActivity extends AppCompatActivity {
             final String finalReply = reply;
             runOnUiThread(() -> {
                 removeTypingBubble();
-                streamAssistantReply(finalReply, () -> btnSend.setEnabled(true));
+                ReplyWithTitle parsed = extractTitle(finalReply);
+                if (!TextUtils.isEmpty(parsed.title)) {
+                    updateSessionTitle(parsed.title);
+                }
+                String visibleReply = parsed.replyBody;
+                if (TextUtils.isEmpty(visibleReply.trim())) {
+                    btnSend.setEnabled(true);
+                    return;
+                }
+                streamAssistantReply(visibleReply, () -> {
+                    appendMessageToHistory(false, visibleReply);
+                    btnSend.setEnabled(true);
+                });
             });
         }).start();
     }
@@ -241,6 +518,10 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     private void addBubble(boolean isUser, String text, boolean typing) {
+        addBubble(isUser, text, typing, true);
+    }
+
+    private void addBubble(boolean isUser, String text, boolean typing, boolean persistToHistory) {
         TextView tv = new TextView(this);
         tv.setTag(typing ? "typing" : null);
         if (typing) {
@@ -249,7 +530,7 @@ public class AiChatActivity extends AppCompatActivity {
             markwon.setMarkdown(tv, normalizeMarkdown(text));
         }
         tv.setTextSize(15f);
-        tv.setLineSpacing(0f, 1.15f);
+        tv.setLineSpacing(0f, 1.08f);
         tv.setTextColor(pickTextColor(isUser));
         int pad = dp(14);
         tv.setPadding(pad, pad, pad, pad);
@@ -271,12 +552,15 @@ public class AiChatActivity extends AppCompatActivity {
 
         chatContainer.addView(tv);
         chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+        if (!typing && persistToHistory) {
+            appendMessageToHistory(isUser, text);
+        }
     }
 
     private TextView addAssistantStreamingBubble() {
         TextView tv = new TextView(this);
         tv.setTextSize(15f);
-        tv.setLineSpacing(0f, 1.15f);
+        tv.setLineSpacing(0f, 1.08f);
         tv.setTextColor(pickTextColor(false));
         int pad = dp(14);
         tv.setPadding(pad, pad, pad, pad);
@@ -357,9 +641,31 @@ public class AiChatActivity extends AppCompatActivity {
     private String normalizeMarkdown(String raw) {
         if (raw == null) return "";
         String normalized = raw.replace("\r\n", "\n");
+        normalized = normalized.replace("\\r\\n", "\n");
+        normalized = normalized.replace("\\n", "\n");
+        normalized = normalized.replace("\r", "\n");
         normalized = normalized.replace("\\t", "    ");
         normalized = normalized.replace("\t", "    ");
-        return normalized;
+        normalized = normalized.replace('\u00A0', ' ');
+        normalized = normalized.replaceAll("(?m)[ \\t]+$", "");
+        normalized = normalized.replaceAll("\\n{4,}", "\\n\\n\\n");
+        return normalized.stripTrailing();
+    }
+
+    private ReplyWithTitle extractTitle(String rawReply) {
+        String raw = safe(rawReply).replace("\r\n", "\n");
+        int firstBreak = raw.indexOf('\n');
+        String firstLine = firstBreak >= 0 ? raw.substring(0, firstBreak).trim() : raw.trim();
+        Matcher matcher = TITLE_PATTERN.matcher(firstLine);
+        if (!matcher.matches()) {
+            return new ReplyWithTitle("", raw);
+        }
+        String title = matcher.group(1) == null ? "" : matcher.group(1).trim();
+        String rest = firstBreak >= 0 ? raw.substring(firstBreak + 1) : "";
+        if (rest.startsWith("\n")) {
+            rest = rest.substring(1);
+        }
+        return new ReplyWithTitle(title, rest);
     }
 
     private int pickTextColor(boolean isUser) {
@@ -377,11 +683,46 @@ public class AiChatActivity extends AppCompatActivity {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
     }
 
+    private String safe(String text) {
+        return text == null ? "" : text;
+    }
+
     private void applyPageVisualStyle() {
         View root = findViewById(R.id.rootAiChat);
         if (root != null) {
             UiStyleHelper.applySecondaryPageBackground(root, this);
         }
         UiStyleHelper.applyGlassCards(findViewById(android.R.id.content), this);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (drawerAiChat != null && drawerAiChat.isDrawerOpen(GravityCompat.START)) {
+            drawerAiChat.closeDrawer(GravityCompat.START);
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    private static final class ReplyWithTitle {
+        final String title;
+        final String replyBody;
+
+        ReplyWithTitle(String title, String replyBody) {
+            this.title = title;
+            this.replyBody = replyBody;
+        }
+    }
+
+    private static final class ChatMessage {
+        String role;
+        String content;
+    }
+
+    private static final class ChatSession {
+        String id;
+        String title;
+        long updatedAt;
+        List<ChatMessage> messages;
     }
 }

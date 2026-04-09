@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
 public final class SkillCommandCenter {
 
     private static final String SKILL_ROOT = "skills";
-    private static final Pattern CMD_PATTERN = Pattern.compile(".*?(?i)CMD\\s*[:：]\\s*(.+)$");
+    private static final Pattern CMD_PATTERN = Pattern.compile(".*?(?i)CMD\\s*[:：]\\s*(.*)$");
 
     private SkillCommandCenter() {
     }
@@ -120,11 +120,6 @@ public final class SkillCommandCenter {
             String result = CourseQuerySkillManager.queryCoursesByDate(context, dateArg);
             return new SingleExecution(result, "已查询指定日期课程");
         }
-        if (lower.startsWith("course.search.teacher ")) {
-            String keyword = cmd.substring("course.search.teacher ".length()).trim();
-            String result = CourseQuerySkillManager.searchByTeacher(context, keyword);
-            return new SingleExecution(result, "已按教师查询课程");
-        }
         if (lower.startsWith("course.search.name ")) {
             String keyword = cmd.substring("course.search.name ".length()).trim();
             String result = CourseQuerySkillManager.searchByCourseName(context, keyword);
@@ -132,13 +127,11 @@ public final class SkillCommandCenter {
         }
         if (lower.startsWith("course.search ")) {
             String keyword = cmd.substring("course.search ".length()).trim();
-            String byName = CourseQuerySkillManager.searchByCourseName(context, keyword);
-            String byTeacher = CourseQuerySkillManager.searchByTeacher(context, keyword);
-            String merged = "[按课程名]\n" + byName + "\n\n[按教师]\n" + byTeacher;
-            return new SingleExecution(merged, "已按关键词查询课程");
+            String result = CourseQuerySkillManager.searchByKeyword(context, keyword);
+            return new SingleExecution(result, "已按关键词查询课程");
         }
 
-        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.teacher <姓名> | course.search.name <课程名> | course.search <关键词>";
+        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词>";
         return new SingleExecution(unknown, "存在不支持的命令");
     }
 
@@ -266,16 +259,66 @@ public final class SkillCommandCenter {
     public static List<String> extractCommands(String modelText) {
         List<String> commands = new ArrayList<>();
         if (modelText == null || modelText.trim().isEmpty()) return commands;
-        for (String line : modelText.split("\n")) {
+        String normalized = modelText.replace("\r\n", "\n");
+        boolean inCmdBlock = false;
+        for (String line : normalized.split("\n")) {
             String one = line.trim();
             Matcher matcher = CMD_PATTERN.matcher(one);
             if (matcher.matches()) {
-                String cmd = matcher.group(1) == null ? "" : matcher.group(1).trim();
-                if (!cmd.isEmpty()) {
-                    commands.add(cmd);
-                }
+                inCmdBlock = true;
+                String payload = matcher.group(1) == null ? "" : matcher.group(1).trim();
+                appendExpandedCommands(payload, commands);
+                continue;
+            }
+
+            if (!inCmdBlock) {
+                continue;
+            }
+            if (one.isEmpty() || one.startsWith("```")) {
+                continue;
+            }
+
+            String candidate = stripBulletPrefix(one);
+            if (isLikelyCommand(candidate)) {
+                appendExpandedCommands(candidate, commands);
+            } else {
+                inCmdBlock = false;
             }
         }
         return commands;
+    }
+
+    private static void appendExpandedCommands(String payload, List<String> out) {
+        if (payload == null) {
+            return;
+        }
+        String text = payload.trim();
+        if (text.isEmpty()) {
+            return;
+        }
+        String[] parts = text.split("\\s*(?:;|；|&&|\\|\\|)\\s*");
+        for (String part : parts) {
+            String candidate = stripBulletPrefix(part.trim());
+            if (!candidate.isEmpty()) {
+                out.add(candidate);
+            }
+        }
+    }
+
+    private static String stripBulletPrefix(String line) {
+        if (line == null) {
+            return "";
+        }
+        String candidate = line.trim();
+        candidate = candidate.replaceFirst("^(?:[-*•]|\\d+[.)])\\s*", "");
+        return candidate.trim();
+    }
+
+    private static boolean isLikelyCommand(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return false;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        return lower.startsWith("skill.") || lower.startsWith("note.") || lower.startsWith("course.");
     }
 }
