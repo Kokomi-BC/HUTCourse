@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="HUTCourse ">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-04-08T16:57:50.638586700Z">
+        <DropdownSelection timestamp="2026-04-09T07:37:24.421064700Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="PhysicalDevice" identifier="serial=f3957bd5" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\Kokomi\.android\avd\Pixel_8_Pro.avd" />
             </handle>
           </Target>
         </DropdownSelection>

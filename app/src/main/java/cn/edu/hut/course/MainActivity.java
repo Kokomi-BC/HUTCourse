@@ -146,6 +146,21 @@ public class MainActivity extends AppCompatActivity {
         if (tvMainTitle != null) {
             tvMainTitle.setTextColor(colorOnSurface);
         }
+        if (tvNowTime != null) {
+            tvNowTime.setTextColor(colorPrimary);
+        }
+        if (tvTodayWeek != null) {
+            tvTodayWeek.setTextColor(colorOnSurfaceVariant);
+        }
+        if (tvTodayDate != null) {
+            tvTodayDate.setTextColor(colorOnSurfaceVariant);
+        }
+        if (tvTodayWeekTotal != null) {
+            tvTodayWeekTotal.setTextColor(colorOnSurfaceVariant);
+        }
+        if (tvTodayWeekDone != null) {
+            tvTodayWeekDone.setTextColor(colorOnSurfaceVariant);
+        }
 
         if (bottomNav != null) {
             int[][] states = new int[][]{
@@ -391,23 +406,39 @@ public class MainActivity extends AppCompatActivity {
         com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
         View view = getLayoutInflater().inflate(R.layout.dialog_week_selector, null);
         dialog.setContentView(view);
+
+        int accent = getTimetableThemeColor();
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int outline = ColorUtils.setAlphaComponent(onSurface, 56);
+        int glass = UiStyleHelper.resolveGlassCardColor(this);
         
         GridLayout grid = view.findViewById(R.id.gridWeeks);
         for (int i = 0; i < totalWeeks; i++) {
             final int week = i + 1;
             MaterialButton btn = new MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
             btn.setText(String.valueOf(week));
+            btn.setAllCaps(false);
+            btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+            btn.setCornerRadius(dp(14));
+            btn.setInsetTop(0);
+            btn.setInsetBottom(0);
+            btn.setStrokeWidth(dp(1));
+            btn.setStrokeColor(ColorStateList.valueOf(outline));
+            btn.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 80)));
+            btn.setBackgroundTintList(ColorStateList.valueOf(glass));
+            btn.setTextColor(onSurface);
+
             GridLayout.LayoutParams params = new GridLayout.LayoutParams();
             params.width = 0;
             params.height = GridLayout.LayoutParams.WRAP_CONTENT;
             params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
             params.setMargins(8, 8, 8, 8);
             btn.setLayoutParams(params);
+
             if (week == currentWeek) {
-                int selected = getTimetableThemeColor();
-                btn.setBackgroundTintList(ColorStateList.valueOf(
-                    selected
-                ));
+                int selected = ColorUtils.setAlphaComponent(accent, 224);
+                btn.setBackgroundTintList(ColorStateList.valueOf(selected));
+                btn.setStrokeColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 240)));
                 btn.setTextColor(pickReadableTextColor(selected));
             }
             btn.setOnClickListener(v -> {
