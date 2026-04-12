@@ -45,7 +45,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     private static final String SUCCESS_URL = BASE_URL + "/jsxsd/framework/xsMainV.htmlx";
     private static final String LOGIN_SUCCESS_PATH = "/jsxsd/framework/xsMainV.htmlx";
     private static final String CAS_LOGIN_PREFIX = "https://mycas.hut.edu.cn/cas";
-    private static final String EXTRACT_SUMMARY_DEFAULT = "从教务系统提取最新课程数据";
+    private static final String EXTRACT_SUMMARY_DEFAULT = "从教务同步最新课表";
     private static final long CLICK_GUARD_MS = 700L;
 
     private ActivityResultLauncher<Intent> browserLauncher;
@@ -89,6 +89,11 @@ public class SettingsAccountActivity extends AppCompatActivity {
                 boolean loginSuccess = data.getBooleanExtra("login_success", false);
                 if (loginSuccess) {
                     Toast.makeText(this, "登录成功", Toast.LENGTH_SHORT).show();
+                    Intent out = new Intent();
+                    out.putExtra("action", "extract_after_login");
+                    out.putExtra("cookie", data.getStringExtra("cookie"));
+                    setResult(RESULT_OK, out);
+                    finish();
                 }
             }
         });
@@ -139,13 +144,13 @@ public class SettingsAccountActivity extends AppCompatActivity {
         int savedCount = getSavedCourseCount();
         if (tvClearSummary != null) {
             if (savedCount > 0) {
-                tvClearSummary.setText("本地已保存" + savedCount + "门课程，点击可清除");
+                tvClearSummary.setText("已保存" + savedCount + "门课程，可清除");
             } else {
-                tvClearSummary.setText("当前无本地课表数据");
+                tvClearSummary.setText("暂无本地课表");
             }
         }
         if (tvLogoutSummary != null) {
-            tvLogoutSummary.setText(hasLocalLoginCookie() ? "登录状态：已登录" : "登录状态：未登录");
+            tvLogoutSummary.setText(hasLocalLoginCookie() ? "当前状态：已登录" : "当前状态：未登录");
         }
     }
 
@@ -175,7 +180,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
 
     private void showNotLoggedInHint() {
         runOnUiThread(() -> Toast.makeText(SettingsAccountActivity.this, "未登录或者登录信息失效", Toast.LENGTH_SHORT).show());
-        setExtractSummary("未登录或登录失效，请先登录教务系统");
+        setExtractSummary("未登录，请先登录教务");
     }
 
     private void applyPageVisualStyle() {

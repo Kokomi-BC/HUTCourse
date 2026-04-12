@@ -63,7 +63,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="教务登录、开学日期、刷新与清空" />
+                            android:text="登录教务、刷新课表与清理" />
                     </LinearLayout>
 
                     <TextView
@@ -200,7 +200,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="SDK或Curl接入模型与密钥校验" />
+                            android:text="模型地址、密钥与校验" />
                     </LinearLayout>
 
                     <TextView

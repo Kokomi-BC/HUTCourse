@@ -19,3 +19,11 @@
 # Google Services
 google-services.json
 
+# Local configurations
+gradle.properties
+gradle/wrapper/gradle-wrapper.properties
+.idea/
+
+# VS Code
+.vscode/
+

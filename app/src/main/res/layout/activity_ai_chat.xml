@@ -46,7 +46,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="10dp"
                     android:layout_weight="1"
-                    android:text="当前模式" />
+                    android:text=""
+                    android:visibility="gone" />
             </LinearLayout>
 
             <ScrollView
@@ -132,15 +133,15 @@
 
     <LinearLayout
         android:id="@+id/historyDrawer"
-        android:layout_width="304dp"
+        android:layout_width="266dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        android:background="@drawable/bg_ai_history_drawer"
+        android:background="@android:color/transparent"
         android:orientation="vertical"
-        android:paddingStart="12dp"
+        android:paddingStart="10dp"
         android:paddingTop="18dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="12dp">
+        android:paddingEnd="10dp"
+        android:paddingBottom="10dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -149,6 +150,7 @@
             android:orientation="horizontal">
 
             <TextView
+                android:id="@+id/tvHistoryDrawerTitle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -159,16 +161,14 @@
 
             <TextView
                 android:id="@+id/btnNewSession"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
                 android:background="@drawable/bg_send_circle"
-                android:paddingStart="12dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="12dp"
-                android:paddingBottom="6dp"
-                android:text="新建"
+                android:gravity="center"
+                android:text="+"
                 android:textColor="@android:color/white"
-                android:textSize="12sp" />
+                android:textSize="18sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <TextView
@@ -176,8 +176,9 @@
             style="@style/Widget.MyApplication.SettingsRowSummary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="最近会话" />
+            android:layout_marginTop="0dp"
+            android:text=""
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/tvHistoryEmpty"
@@ -193,12 +194,12 @@
             android:id="@+id/lvHistory"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="6dp"
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:cacheColorHint="@android:color/transparent"
             android:divider="@android:color/transparent"
-            android:dividerHeight="8dp"
+            android:dividerHeight="6dp"
             android:listSelector="@android:color/transparent"
             android:scrollbarStyle="outsideOverlay" />
     </LinearLayout>

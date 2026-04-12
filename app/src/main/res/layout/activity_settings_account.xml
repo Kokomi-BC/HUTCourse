@@ -110,7 +110,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="打开内置浏览器完成登录" />
+                            android:text="打开浏览器完成登录" />
                     </LinearLayout>
 
                     <TextView
@@ -157,7 +157,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="从教务系统提取最新课程数据" />
+                            android:text="从教务同步最新课表" />
                     </LinearLayout>
 
                     <TextView

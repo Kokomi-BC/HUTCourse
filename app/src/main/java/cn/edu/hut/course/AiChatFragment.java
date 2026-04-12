@@ -1,5 +1,6 @@
 package cn.edu.hut.course;
 
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -16,26 +17,29 @@ import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsAnimation;
 import android.view.WindowManager;
+import android.widget.ImageView;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
+import androidx.annotation.Nullable;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.graphics.Insets;
 import androidx.core.view.GravityCompat;
-import androidx.core.view.WindowInsetsAnimationCompat;
 import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.fragment.app.Fragment;
+
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import io.noties.markwon.Markwon;
 
@@ -53,7 +57,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class AiChatActivity extends AppCompatActivity {
+public class AiChatFragment extends Fragment {
 
     private static final String PREF_AI_CHAT_HISTORY = "ai_chat_history";
     private static final String KEY_CHAT_HISTORY_JSON = "history_json";
@@ -68,10 +72,10 @@ public class AiChatActivity extends AppCompatActivity {
     private ImageButton btnOpenHistory;
     private TextView btnNewSession;
     private ListView lvHistory;
+    private LinearLayout historyDrawer;
+    private TextView tvHistoryDrawerTitle;
     private TextView tvHistoryEmpty;
     private TextView tvHistoryMeta;
-    private LinearLayout mainAiChatContent;
-    private View historyDrawer;
     private MaterialCardView composerCard;
     private LinearLayout composerInner;
     private TextView tvAiStatus;
@@ -83,38 +87,43 @@ public class AiChatActivity extends AppCompatActivity {
     private TextView streamingBubble;
     private boolean hasSentCurrentTimeToModel = false;
     private int baseComposerBottomMargin = 0;
-    private int lastComposerBottomInset = Integer.MIN_VALUE;
-    private int currentKeyboardBottomInset = 0;
-    private int targetComposerBottomMargin = Integer.MIN_VALUE;
-    private int startComposerBottomMargin = Integer.MIN_VALUE;
-    private boolean imeAnimationRunning = false;
-    private boolean drawerMotionInstalled = false;
+    private View rootView;
+    private PopupWindow sessionMenuPopup;
+    private int rootBottomGap = 0;
+    private float lastTouchX = 0;
+    private float lastTouchY = 0;
+
+    public AiChatFragment() {
+        super();
+    }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
-        UiStyleHelper.hideStatusBar(this);
-        setContentView(R.layout.activity_ai_chat);
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+        rootView = inflater.inflate(R.layout.activity_ai_chat, container, false);
+        return rootView;
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
         applyPageVisualStyle();
 
-        drawerAiChat = findViewById(R.id.drawerAiChat);
-        chatContainer = findViewById(R.id.chatContainer);
-        chatScroll = findViewById(R.id.chatScroll);
-        etPrompt = findViewById(R.id.etPrompt);
-        btnSend = findViewById(R.id.btnSend);
-        btnOpenHistory = findViewById(R.id.btnOpenHistory);
-        btnNewSession = findViewById(R.id.btnNewSession);
-        lvHistory = findViewById(R.id.lvHistory);
-        tvHistoryEmpty = findViewById(R.id.tvHistoryEmpty);
-        tvHistoryMeta = findViewById(R.id.tvHistoryMeta);
-        mainAiChatContent = findViewById(R.id.mainAiChatContent);
-        historyDrawer = findViewById(R.id.historyDrawer);
-        composerCard = findViewById(R.id.composerCard);
-        composerInner = findViewById(R.id.composerInner);
-        tvAiStatus = findViewById(R.id.tvAiStatus);
-        markwon = Markwon.create(this);
+        drawerAiChat = view.findViewById(R.id.drawerAiChat);
+        chatContainer = view.findViewById(R.id.chatContainer);
+        chatScroll = view.findViewById(R.id.chatScroll);
+        etPrompt = view.findViewById(R.id.etPrompt);
+        btnSend = view.findViewById(R.id.btnSend);
+        btnOpenHistory = view.findViewById(R.id.btnOpenHistory);
+        btnNewSession = view.findViewById(R.id.btnNewSession);
+        lvHistory = view.findViewById(R.id.lvHistory);
+        historyDrawer = view.findViewById(R.id.historyDrawer);
+        tvHistoryDrawerTitle = view.findViewById(R.id.tvHistoryDrawerTitle);
+        tvHistoryEmpty = view.findViewById(R.id.tvHistoryEmpty);
+        tvHistoryMeta = view.findViewById(R.id.tvHistoryMeta);
+        composerCard = view.findViewById(R.id.composerCard);
+        composerInner = view.findViewById(R.id.composerInner);
+        tvAiStatus = view.findViewById(R.id.tvAiStatus);
+        markwon = Markwon.create(requireContext());
 
         if (composerCard != null) {
             ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) composerCard.getLayoutParams();
@@ -127,7 +136,6 @@ public class AiChatActivity extends AppCompatActivity {
         ensureFreshSessionOnEnter();
         ensureGreetingForActiveSession();
         applyImeInsetBehavior();
-        setupDrawerVisualBehavior();
         applyComposerStyle();
         refreshAiStatus();
 
@@ -151,12 +159,31 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
+        if (getActivity() != null && getActivity().getWindow() != null) {
+            // Let IME insets drive the composer movement.
+            getActivity().getWindow().setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                            | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
+            );
+        }
         applyPageVisualStyle();
-        setupDrawerVisualBehavior();
         applyComposerStyle();
         refreshAiStatus();
+    }
+
+    @Override
+    public void onDestroyView() {
+        if (sessionMenuPopup != null) {
+            sessionMenuPopup.dismiss();
+            sessionMenuPopup = null;
+        }
+        super.onDestroyView();
+    }
+
+    private Context ctx() {
+        return requireContext();
     }
 
     private void configurePromptInput() {
@@ -167,156 +194,77 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     private void applyImeInsetBehavior() {
-        View root = findViewById(R.id.rootAiChat);
+        View root = rootView == null ? null : rootView.findViewById(R.id.rootAiChat);
         if (root == null) return;
-
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             Insets statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars());
             Insets navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
             Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            int keyboardBottom = Math.max(ime.bottom, navBars.bottom);
+            boolean imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
+            rootBottomGap = resolveRootBottomGap(v);
+            int keyboardBottom = Math.max(0, ime.bottom - rootBottomGap);
 
             v.setPadding(v.getPaddingLeft(), statusBars.top, v.getPaddingRight(), 0);
-
             if (composerCard != null) {
                 ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) composerCard.getLayoutParams();
-                int newBottom = composeBottomMarginForKeyboard(keyboardBottom);
-                if (lp.bottomMargin != newBottom) {
-                    lp.bottomMargin = newBottom;
+                int targetBottomMargin = baseComposerBottomMargin + navBars.bottom + keyboardBottom;
+                if (lp.bottomMargin != targetBottomMargin) {
+                    lp.bottomMargin = targetBottomMargin;
                     composerCard.setLayoutParams(lp);
+                }
+            }
+            if (chatScroll != null) {
+                int targetPaddingBottom = imeVisible ? dp(8) : navBars.bottom + dp(8);
+                if (chatScroll.getPaddingBottom() != targetPaddingBottom) {
+                    chatScroll.setPadding(chatScroll.getPaddingLeft(), chatScroll.getPaddingTop(), chatScroll.getPaddingRight(), targetPaddingBottom);
                 }
             }
             return insets;
         });
 
-        ViewCompat.setWindowInsetsAnimationCallback(root,
-            new WindowInsetsAnimationCompat.Callback(WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_STOP) {
-
-                private int startBottomMargin = 0;
-                private int endBottomMargin = 0;
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            root.setWindowInsetsAnimationCallback(new WindowInsetsAnimation.Callback(WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
                 @Override
-                public void onPrepare(@NonNull WindowInsetsAnimationCompat animation) {
+                public WindowInsets onProgress(WindowInsets insets, List<WindowInsetsAnimation> runningAnimations) {
+                    WindowInsetsCompat compatInsets = WindowInsetsCompat.toWindowInsetsCompat(insets, root);
+                    Insets navBars = compatInsets.getInsets(WindowInsetsCompat.Type.navigationBars());
+                    Insets ime = compatInsets.getInsets(WindowInsetsCompat.Type.ime());
+                    boolean imeVisible = compatInsets.isVisible(WindowInsetsCompat.Type.ime());
+                    int keyboardBottom = Math.max(0, ime.bottom - rootBottomGap);
+
                     if (composerCard != null) {
                         ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) composerCard.getLayoutParams();
-                        startBottomMargin = lp.bottomMargin;
+                        int targetBottomMargin = baseComposerBottomMargin + navBars.bottom + keyboardBottom;
+                        if (lp.bottomMargin != targetBottomMargin) {
+                            lp.bottomMargin = targetBottomMargin;
+                            composerCard.setLayoutParams(lp);
+                        }
                     }
-                }
-
-                @NonNull
-                @Override
-                public WindowInsetsAnimationCompat.BoundsCompat onStart(
-                        @NonNull WindowInsetsAnimationCompat animation,
-                        @NonNull WindowInsetsAnimationCompat.BoundsCompat bounds
-                ) {
-                    if (composerCard != null) {
-                        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) composerCard.getLayoutParams();
-                        endBottomMargin = lp.bottomMargin;
-                        float offset = startBottomMargin - endBottomMargin;
-                        composerCard.setTranslationY(offset);
-                    }
-                    return bounds;
-                }
-
-                @NonNull
-                @Override
-                public WindowInsetsCompat onProgress(
-                        @NonNull WindowInsetsCompat insets,
-                        @NonNull List<WindowInsetsAnimationCompat> runningAnimations
-                ) {
-                    if (composerCard != null) {
-                        Insets navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
-                        Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-                        int currentBottom = Math.max(ime.bottom, navBars.bottom);
-                        
-                        int progressBottomMargin = composeBottomMarginForKeyboard(currentBottom);
-                        float offset = progressBottomMargin - endBottomMargin;
-                        composerCard.setTranslationY(offset);
+                    if (chatScroll != null) {
+                        int targetPaddingBottom = imeVisible ? dp(8) : navBars.bottom + dp(8);
+                        if (chatScroll.getPaddingBottom() != targetPaddingBottom) {
+                            chatScroll.setPadding(chatScroll.getPaddingLeft(), chatScroll.getPaddingTop(), chatScroll.getPaddingRight(), targetPaddingBottom);
+                        }
                     }
                     return insets;
                 }
-
-                @Override
-                public void onEnd(@NonNull WindowInsetsAnimationCompat animation) {
-                    if (composerCard != null) {
-                        composerCard.setTranslationY(0f);
-                    }
-                }
             });
+        }
+        ViewCompat.requestApplyInsets(root);
     }
 
-    private int composeBottomMarginForKeyboard(int keyboardBottom) {
-        return baseComposerBottomMargin + keyboardBottom + dp(8);
-    }
-
-    private void setupDrawerVisualBehavior() {
-        if (drawerAiChat == null) {
-            return;
+    private int resolveRootBottomGap(View root) {
+        if (root == null || getActivity() == null || getActivity().getWindow() == null) {
+            return 0;
         }
-
-        drawerAiChat.setScrimColor(Color.TRANSPARENT);
-        drawerAiChat.setDrawerElevation(0f);
-
-        if (historyDrawer != null) {
-            int panelBase = ColorUtils.blendARGB(
-                    UiStyleHelper.resolvePageBackgroundColor(this),
-                    UiStyleHelper.resolveGlassCardColor(this),
-                    0.62f
-            );
-            GradientDrawable panelBg = new GradientDrawable();
-            panelBg.setColor(panelBase);
-            panelBg.setCornerRadii(new float[]{0f, 0f, dp(18), dp(18), dp(18), dp(18), 0f, 0f});
-            panelBg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 26));
-            historyDrawer.setBackground(panelBg);
+        int[] location = new int[2];
+        root.getLocationInWindow(location);
+        int rootBottomInWindow = location[1] + root.getHeight();
+        int windowHeight = getActivity().getWindow().getDecorView().getHeight();
+        if (windowHeight <= 0) {
+            return 0;
         }
-
-        if (drawerMotionInstalled) {
-            return;
-        }
-        drawerAiChat.addDrawerListener(new DrawerLayout.SimpleDrawerListener() {
-            @Override
-            public void onDrawerSlide(@NonNull View drawerView, float slideOffset) {
-                if (mainAiChatContent == null) {
-                    return;
-                }
-                float progress = Math.max(0f, Math.min(1f, slideOffset));
-                float moveX = drawerView.getWidth() * 0.16f * progress;
-                mainAiChatContent.setTranslationX(moveX);
-                mainAiChatContent.setScaleX(1f - 0.02f * progress);
-                mainAiChatContent.setScaleY(1f - 0.02f * progress);
-                mainAiChatContent.setAlpha(1f - 0.06f * progress);
-            }
-
-            @Override
-            public void onDrawerClosed(@NonNull View drawerView) {
-                if (mainAiChatContent == null) {
-                    return;
-                }
-                mainAiChatContent.setTranslationX(0f);
-                mainAiChatContent.setScaleX(1f);
-                mainAiChatContent.setScaleY(1f);
-                mainAiChatContent.setAlpha(1f);
-            }
-        });
-        drawerMotionInstalled = true;
-    }
-
-    private void updateComposerBottomInset(int keyboardBottom, boolean forceApply) {
-        if (composerCard == null) {
-            return;
-        }
-        if (!forceApply && keyboardBottom == lastComposerBottomInset) {
-            return;
-        }
-        
-        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) composerCard.getLayoutParams();
-        int targetBottomMargin = composeBottomMarginForKeyboard(keyboardBottom);
-        if (forceApply || lp.bottomMargin != targetBottomMargin) {
-            lp.bottomMargin = targetBottomMargin;
-            composerCard.setLayoutParams(lp);
-        }
-        
-        lastComposerBottomInset = keyboardBottom;
+        return Math.max(0, windowHeight - rootBottomInWindow);
     }
 
     private void setupHistoryDrawer() {
@@ -334,10 +282,34 @@ public class AiChatActivity extends AppCompatActivity {
                     drawerAiChat.closeDrawer(GravityCompat.START);
                 }
             });
+            lvHistory.setOnTouchListener((v, event) -> {
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                    lastTouchX = event.getX();
+                    lastTouchY = event.getY();
+                }
+                return false;
+            });
+            lvHistory.setOnItemLongClickListener((parent, view, position, id) -> {
+                if (position < 0 || position >= sessions.size()) {
+                    return true;
+                }
+                showSessionActionMenu(view, position);
+                return true;
+            });
         }
     }
 
     private void startNewSession(boolean forceSave) {
+        if (!sessions.isEmpty()) {
+            ChatSession latest = sessions.get(0);
+            if (isUntouchedSession(latest)) {
+                activeSession = latest;
+                renderActiveSession();
+                refreshHistoryRows();
+                return;
+            }
+        }
+
         ChatSession session = new ChatSession();
         session.id = UUID.randomUUID().toString();
         session.title = "新对话";
@@ -392,8 +364,18 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     private void refreshHistoryRows() {
+        SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
         if (historyAdapter != null) {
             historyAdapter.notifyDataSetChanged();
+        }
+        if (tvHistoryMeta != null) {
+            if (sessions.isEmpty()) {
+                tvHistoryMeta.setText("最近会话");
+            } else {
+                ChatSession latest = sessions.get(0);
+                String latestTime = sdf.format(new Date(latest.updatedAt));
+                tvHistoryMeta.setText("最近会话 · " + sessions.size() + " 条 · 最新 " + latestTime);
+            }
         }
         if (tvHistoryEmpty != null) {
             tvHistoryEmpty.setVisibility(sessions.isEmpty() ? View.VISIBLE : View.GONE);
@@ -402,7 +384,7 @@ public class AiChatActivity extends AppCompatActivity {
 
     private void loadHistory() {
         sessions.clear();
-        SharedPreferences prefs = getSharedPreferences(PREF_AI_CHAT_HISTORY, MODE_PRIVATE);
+        SharedPreferences prefs = requireContext().getSharedPreferences(PREF_AI_CHAT_HISTORY, Context.MODE_PRIVATE);
         String raw = prefs.getString(KEY_CHAT_HISTORY_JSON, "");
         if (!TextUtils.isEmpty(raw)) {
             try {
@@ -464,7 +446,7 @@ public class AiChatActivity extends AppCompatActivity {
             } catch (Exception ignored) {
             }
         }
-        getSharedPreferences(PREF_AI_CHAT_HISTORY, MODE_PRIVATE)
+        requireContext().getSharedPreferences(PREF_AI_CHAT_HISTORY, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_CHAT_HISTORY_JSON, arr.toString())
                 .apply();
@@ -529,21 +511,17 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     private void refreshAiStatus() {
-        String provider = AiConfigStore.getProvider(this);
-        String model = AiConfigStore.getModel(this);
-        String key = AiConfigStore.getApiKey(this);
-        String providerName = AiConfigStore.PROVIDER_SDK.equals(provider) ? "OpenAI SDK" : "Curl API";
-        String keyState = key.isEmpty() ? "未配置Key" : "已配置Key";
-        tvAiStatus.setText("当前模式：" + providerName + " | 模型：" + model + " | " + keyState);
-        tvAiStatus.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        if (tvAiStatus != null) {
+            tvAiStatus.setVisibility(View.GONE);
+        }
     }
 
     private void applyComposerStyle() {
-        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
-        int outline = UiStyleHelper.resolveOutlineColor(this);
-        int accent = UiStyleHelper.resolveAccentColor(this);
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(ctx());
+        int outline = UiStyleHelper.resolveOutlineColor(ctx());
+        int accent = UiStyleHelper.resolveAccentColor(ctx());
         int accentFill = ColorUtils.blendARGB(accent, Color.WHITE, 0.08f);
-        int glass = UiStyleHelper.resolveGlassCardColor(this);
+        int glass = UiStyleHelper.resolveGlassCardColor(ctx());
 
         if (composerCard != null) {
             composerCard.setCardBackgroundColor(Color.TRANSPARENT);
@@ -581,8 +559,221 @@ public class AiChatActivity extends AppCompatActivity {
             btnNewSession.setTextColor(onSurface);
         }
         if (tvHistoryMeta != null) {
-            tvHistoryMeta.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+            tvHistoryMeta.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(ctx()));
         }
+        applyHistoryDrawerStyle();
+    }
+
+    private void applyHistoryDrawerStyle() {
+        if (historyDrawer == null) return;
+
+        boolean dark = isDarkMode();
+        int drawerBase = dark ? Color.BLACK : Color.WHITE;
+        int textPrimary = dark ? Color.WHITE : Color.BLACK;
+        int textSecondary = ColorUtils.setAlphaComponent(textPrimary, 168);
+        int stroke = ColorUtils.setAlphaComponent(textPrimary, 44);
+
+        GradientDrawable drawerBg = new GradientDrawable();
+        drawerBg.setShape(GradientDrawable.RECTANGLE);
+        drawerBg.setColor(drawerBase);
+        drawerBg.setCornerRadii(new float[]{0, 0, dp(24), dp(24), dp(24), dp(24), 0, 0});
+        drawerBg.setStroke(dp(1), stroke);
+        historyDrawer.setBackground(drawerBg);
+
+        if (drawerAiChat != null) {
+            drawerAiChat.setScrimColor(ColorUtils.setAlphaComponent(Color.BLACK, dark ? 140 : 110));
+        }
+        if (tvHistoryDrawerTitle != null) {
+            tvHistoryDrawerTitle.setTextColor(textPrimary);
+        }
+        if (tvHistoryMeta != null) {
+            tvHistoryMeta.setTextColor(textSecondary);
+        }
+        if (tvHistoryEmpty != null) {
+            tvHistoryEmpty.setTextColor(textSecondary);
+        }
+        if (btnNewSession != null) {
+            int accent = UiStyleHelper.resolveAccentColor(ctx());
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(dp(999));
+            bg.setColor(ColorUtils.setAlphaComponent(accent, dark ? 128 : 64));
+            bg.setStroke(dp(1), ColorUtils.setAlphaComponent(accent, dark ? 220 : 170));
+            btnNewSession.setBackground(bg);
+            btnNewSession.setTextColor(textPrimary);
+        }
+    }
+
+    private boolean isDarkMode() {
+        int mode = ctx().getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private void showSessionActionMenu(View anchor, int position) {
+        if (anchor == null || position < 0 || position >= sessions.size()) return;
+
+        dismissSessionMenu();
+
+        Context context = ctx();
+        boolean dark = isDarkMode();
+        int bgColor = dark ? Color.parseColor("#2C2C2C") : Color.WHITE;
+        int textPrimary = dark ? Color.WHITE : Color.BLACK;
+        int textDanger = Color.parseColor("#E84B4B");
+
+        LinearLayout container = new LinearLayout(context);
+        container.setOrientation(LinearLayout.VERTICAL);
+        
+        MaterialCardView card = new MaterialCardView(context);
+        card.setCardElevation(dp(4));
+        card.setRadius(dp(8));
+        card.setCardBackgroundColor(bgColor);
+        card.setStrokeWidth(dp(1));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(textPrimary, 20));
+        card.addView(container);
+
+        int itemHeight = dp(44);
+        int paddingHoriz = dp(16);
+        int textSize = 14;
+
+        // Rename
+        TextView actionRename = new TextView(context);
+        actionRename.setLayoutParams(new LinearLayout.LayoutParams(dp(120), itemHeight));
+        actionRename.setGravity(Gravity.CENTER_VERTICAL);
+        actionRename.setPadding(paddingHoriz, 0, paddingHoriz, 0);
+        actionRename.setText("重命名");
+        actionRename.setTextColor(textPrimary);
+        actionRename.setTextSize(textSize);
+        actionRename.setClickable(true);
+        actionRename.setFocusable(true);
+        TypedValue outValue = new TypedValue();
+        context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true);
+        actionRename.setBackgroundResource(outValue.resourceId);
+        actionRename.setOnClickListener(v -> {
+            dismissSessionMenu();
+            showRenameDialog(position);
+        });
+        container.addView(actionRename);
+
+        // Divider
+        View divider = new View(context);
+        divider.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+        divider.setBackgroundColor(ColorUtils.setAlphaComponent(textPrimary, 20));
+        container.addView(divider);
+
+        // Delete
+        TextView actionDelete = new TextView(context);
+        actionDelete.setLayoutParams(new LinearLayout.LayoutParams(dp(120), itemHeight));
+        actionDelete.setGravity(Gravity.CENTER_VERTICAL);
+        actionDelete.setPadding(paddingHoriz, 0, paddingHoriz, 0);
+        actionDelete.setText("删除");
+        actionDelete.setTextColor(textDanger);
+        actionDelete.setTextSize(textSize);
+        actionDelete.setClickable(true);
+        actionDelete.setFocusable(true);
+        actionDelete.setBackgroundResource(outValue.resourceId);
+        actionDelete.setOnClickListener(v -> {
+            dismissSessionMenu();
+            confirmDeleteDialog(position);
+        });
+        container.addView(actionDelete);
+
+        sessionMenuPopup = new PopupWindow(card,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true);
+        sessionMenuPopup.setOutsideTouchable(true);
+        sessionMenuPopup.setElevation(dp(8));
+
+        int[] loc = new int[2];
+        if (lvHistory != null) {
+            lvHistory.getLocationInWindow(loc);
+            int x = loc[0] + (int) lastTouchX;
+            int y = loc[1] + (int) lastTouchY;
+            sessionMenuPopup.showAtLocation(lvHistory, Gravity.NO_GRAVITY, x, y);
+        } else {
+            sessionMenuPopup.showAsDropDown(anchor, 0, 0);
+        }
+    }
+
+    private void dismissSessionMenu() {
+        if (sessionMenuPopup != null) {
+            sessionMenuPopup.dismiss();
+            sessionMenuPopup = null;
+        }
+    }
+
+    private void showRenameDialog(int position) {
+        if (position < 0 || position >= sessions.size()) return;
+        ChatSession session = sessions.get(position);
+
+        EditText input = new EditText(ctx());
+        input.setText(safe(session.title));
+        input.setHint("请输入对话名称");
+        input.setSelection(input.getText() == null ? 0 : input.getText().length());
+
+        new MaterialAlertDialogBuilder(ctx())
+                .setTitle("重命名对话")
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    String newTitle = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (newTitle.isEmpty()) {
+                        return;
+                    }
+                    session.title = newTitle;
+                    session.updatedAt = System.currentTimeMillis();
+                    touchActiveSessionIfNeeded(session);
+                    refreshHistoryRows();
+                    saveHistory();
+                })
+                .show();
+    }
+
+    private void confirmDeleteDialog(int position) {
+        if (position < 0 || position >= sessions.size()) return;
+        new MaterialAlertDialogBuilder(ctx())
+                .setTitle("删除对话")
+                .setMessage("删除后不可恢复，确认删除？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (dialog, which) -> deleteSessionAt(position))
+                .show();
+    }
+
+    private void pinSessionToTop(int position) {
+        if (position < 0 || position >= sessions.size()) return;
+        ChatSession session = sessions.remove(position);
+        sessions.add(0, session);
+        if (session == activeSession) {
+            activeSession = sessions.get(0);
+        }
+        refreshHistoryRows();
+        saveHistory();
+    }
+
+    private void deleteSessionAt(int position) {
+        if (position < 0 || position >= sessions.size()) return;
+        ChatSession removed = sessions.remove(position);
+
+        if (sessions.isEmpty()) {
+            activeSession = null;
+            startNewSession(false);
+            ensureGreetingForActiveSession();
+        } else if (removed == activeSession) {
+            activeSession = sessions.get(0);
+            renderActiveSession();
+        }
+
+        refreshHistoryRows();
+        saveHistory();
+    }
+
+    private void touchActiveSessionIfNeeded(ChatSession session) {
+        if (session == null) return;
+        if (session == activeSession) {
+            touchActiveSession();
+            return;
+        }
+        sessions.remove(session);
+        sessions.add(0, session);
     }
 
     private void sendMessage() {
@@ -597,11 +788,11 @@ public class AiChatActivity extends AppCompatActivity {
         etPrompt.setText("");
 
         if ("/notes".equalsIgnoreCase(userText)) {
-            addBubble(false, NoteSkillManager.readNotes(this), false);
+            addBubble(false, NoteSkillManager.readNotes(ctx()), false);
             return;
         }
         if (userText.startsWith("/note ")) {
-            String result = NoteSkillManager.appendNote(this, userText.substring(6));
+            String result = NoteSkillManager.appendNote(ctx(), userText.substring(6));
             addBubble(false, result, false);
             return;
         }
@@ -609,9 +800,9 @@ public class AiChatActivity extends AppCompatActivity {
             String arg = userText.substring(10).trim();
             String result;
             if (arg.matches("\\d+")) {
-                result = NoteSkillManager.deleteNoteByIndex(this, Integer.parseInt(arg));
+                result = NoteSkillManager.deleteNoteByIndex(ctx(), Integer.parseInt(arg));
             } else {
-                result = NoteSkillManager.deleteNoteByKeyword(this, arg);
+                result = NoteSkillManager.deleteNoteByKeyword(ctx(), arg);
             }
             addBubble(false, result, false);
             return;
@@ -623,34 +814,40 @@ public class AiChatActivity extends AppCompatActivity {
                 return;
             }
             int index = Integer.parseInt(parts[0]);
-            String result = NoteSkillManager.updateNoteByIndex(this, index, parts[1]);
+            String result = NoteSkillManager.updateNoteByIndex(ctx(), index, parts[1]);
             addBubble(false, result, false);
             return;
         }
         if ("/note-clear".equalsIgnoreCase(userText)) {
-            addBubble(false, NoteSkillManager.clearNotes(this), false);
+            addBubble(false, NoteSkillManager.clearNotes(ctx()), false);
             return;
         }
         if (userText.startsWith("/cmd ")) {
             String cmd = userText.substring(5).trim();
-            SkillCommandCenter.CommandBatchResult one = SkillCommandCenter.executeCommandsWithFeedback(this, java.util.Collections.singletonList(cmd));
+            SkillCommandCenter.CommandBatchResult one = SkillCommandCenter.executeCommandsWithFeedback(ctx(), java.util.Collections.singletonList(cmd));
             addBubble(false, one.userFeedback, false);
             return;
         }
 
-        String apiKey = AiConfigStore.getApiKey(this);
+        String apiKey = AiConfigStore.getApiKey(ctx());
         if (apiKey.isEmpty()) {
             addBubble(false, "请先到“设置 -> AI接入”配置API Key。", false);
+            return;
+        }
+
+        String configuredModel = AiConfigStore.getModel(ctx());
+        if (configuredModel.isEmpty()) {
+            addBubble(false, "请先到“设置 -> AI接入”填写模型名或接入点 ID。", false);
             return;
         }
 
         btnSend.setEnabled(false);
         addBubble(false, "思考中...", true);
 
-        final String provider = AiConfigStore.getProvider(this);
-        final String baseUrl = AiConfigStore.getBaseUrl(this);
-        final String model = AiConfigStore.getModel(this);
-        final String selectedText = getIntent().getStringExtra("selected_text");
+        final String provider = AiConfigStore.getProvider(ctx());
+        final String baseUrl = AiConfigStore.getBaseUrl(ctx());
+        final String model = configuredModel;
+        final String selectedText = getArguments() == null ? null : getArguments().getString("selected_text");
 
         new Thread(() -> {
             String reply;
@@ -661,7 +858,10 @@ public class AiChatActivity extends AppCompatActivity {
             }
 
             final String finalReply = reply;
-            runOnUiThread(() -> {
+            if (!isAdded()) {
+                return;
+            }
+            requireActivity().runOnUiThread(() -> {
                 removeTypingBubble();
                 ReplyWithTitle parsed = extractTitle(finalReply);
                 if (requestTitleInFinalAnswer && !TextUtils.isEmpty(parsed.title)) {
@@ -683,7 +883,7 @@ public class AiChatActivity extends AppCompatActivity {
     private String runModelWithSkillCommands(String provider, String baseUrl, String apiKey, String model,
                                              String userText, String selectedText,
                                              boolean requestTitleInFinalAnswer) throws Exception {
-        String skillIndex = SkillCommandCenter.buildSkillIndexFromFrontmatter(this);
+        String skillIndex = SkillCommandCenter.buildSkillIndexFromFrontmatter(ctx());
         String systemPrompt = AiPromptCenter.buildSystemPrompt();
         boolean includeCurrentTime = !hasSentCurrentTimeToModel;
         String firstTurnPrompt = AiPromptCenter.buildFirstTurnUserPrompt(
@@ -705,10 +905,12 @@ public class AiChatActivity extends AppCompatActivity {
                 return assistantOutput;
             }
 
-            SkillCommandCenter.CommandBatchResult batch = SkillCommandCenter.executeCommandsWithFeedback(this, commands);
+            SkillCommandCenter.CommandBatchResult batch = SkillCommandCenter.executeCommandsWithFeedback(ctx(), commands);
             String commandResult = batch.modelFeedback;
             String roundMessage = batch.userFeedback;
-            runOnUiThread(() -> addSystemMessage(roundMessage));
+            if (isAdded()) {
+                requireActivity().runOnUiThread(() -> addBubble(false, roundMessage, false));
+            }
 
                 String nextPrompt = AiPromptCenter.buildToolFollowupPrompt(
                     userText,
@@ -723,37 +925,12 @@ public class AiChatActivity extends AppCompatActivity {
         return assistantOutput + "\n\n(已达到最大命令轮次，若需继续请重试)";
     }
 
-    private void addSystemMessage(String text) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextSize(12f);
-        tv.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
-        tv.setGravity(Gravity.CENTER);
-        
-        int padH = dp(16);
-        int padV = dp(6);
-        tv.setPadding(padH, padV, padH, padV);
-
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(16));
-        bg.setColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 12));
-        tv.setBackground(bg);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.gravity = Gravity.CENTER_HORIZONTAL;
-        lp.setMargins(0, dp(6), 0, dp(6));
-        tv.setLayoutParams(lp);
-
-        chatContainer.addView(tv);
-        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
-    }
-
     private void addBubble(boolean isUser, String text, boolean typing) {
         addBubble(isUser, text, typing, true);
     }
 
     private void addBubble(boolean isUser, String text, boolean typing, boolean persistToHistory) {
-        TextView tv = new TextView(this);
+        TextView tv = new TextView(ctx());
         tv.setTag(typing ? "typing" : null);
         if (typing) {
             tv.setText(text);
@@ -769,7 +946,7 @@ public class AiChatActivity extends AppCompatActivity {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(20));
         bg.setColor(pickBubbleColor(isUser));
-        bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 36));
+        bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 36));
         tv.setBackground(bg);
         tv.setClipToOutline(true);
 
@@ -789,7 +966,7 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     private TextView addAssistantStreamingBubble() {
-        TextView tv = new TextView(this);
+        TextView tv = new TextView(ctx());
         tv.setTextSize(15f);
         tv.setLineSpacing(0f, 1.08f);
         tv.setTextColor(pickTextColor(false));
@@ -799,7 +976,7 @@ public class AiChatActivity extends AppCompatActivity {
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(20));
         bg.setColor(pickBubbleColor(false));
-        bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 36));
+        bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 36));
         tv.setBackground(bg);
         tv.setClipToOutline(true);
 
@@ -864,8 +1041,8 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     private int pickBubbleColor(boolean isUser) {
-        int primary = UiStyleHelper.resolveAccentColor(this);
-        int surface = UiStyleHelper.resolveGlassCardColor(this);
+        int primary = UiStyleHelper.resolveAccentColor(ctx());
+        int surface = UiStyleHelper.resolveGlassCardColor(ctx());
         return isUser ? ColorUtils.blendARGB(primary, Color.WHITE, 0.10f) : surface;
     }
 
@@ -903,7 +1080,7 @@ public class AiChatActivity extends AppCompatActivity {
         if (isUser) {
             return pickReadableTextColor(pickBubbleColor(true));
         }
-        return UiStyleHelper.resolveOnSurfaceColor(this);
+        return UiStyleHelper.resolveOnSurfaceColor(ctx());
     }
 
     private int pickReadableTextColor(int bgColor) {
@@ -944,20 +1121,22 @@ public class AiChatActivity extends AppCompatActivity {
     }
 
     private void applyPageVisualStyle() {
-        View root = findViewById(R.id.rootAiChat);
+        View root = rootView == null ? null : rootView.findViewById(R.id.rootAiChat);
         if (root != null) {
-            UiStyleHelper.applySecondaryPageBackground(root, this);
+            UiStyleHelper.applySecondaryPageBackground(root, ctx());
         }
-        UiStyleHelper.applyGlassCards(findViewById(android.R.id.content), this);
+        if (rootView != null) {
+            rootView.setBackgroundColor(Color.TRANSPARENT);
+            UiStyleHelper.applyGlassCards(rootView, ctx());
+        }
     }
 
-    @Override
-    public void onBackPressed() {
+    public boolean handleBackPressed() {
         if (drawerAiChat != null && drawerAiChat.isDrawerOpen(GravityCompat.START)) {
             drawerAiChat.closeDrawer(GravityCompat.START);
-            return;
+            return true;
         }
-        super.onBackPressed();
+        return false;
     }
 
     private static final class ReplyWithTitle {
@@ -990,7 +1169,7 @@ public class AiChatActivity extends AppCompatActivity {
 
     private final class HistorySessionAdapter extends BaseAdapter {
 
-        private final LayoutInflater inflater = LayoutInflater.from(AiChatActivity.this);
+        private final LayoutInflater inflater = LayoutInflater.from(ctx());
         private final SimpleDateFormat timeFormat = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
 
         @Override
@@ -1024,22 +1203,28 @@ public class AiChatActivity extends AppCompatActivity {
 
             ChatSession one = sessions.get(position);
             boolean selected = one == activeSession;
+            int messageCount = one.messages == null ? 0 : one.messages.size();
 
             holder.title.setText(safe(one.title));
-            holder.subtitle.setText(timeFormat.format(new Date(one.updatedAt)));
-            holder.title.setTextColor(UiStyleHelper.resolveOnSurfaceColor(AiChatActivity.this));
-            holder.subtitle.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(AiChatActivity.this));
+            holder.subtitle.setText(timeFormat.format(new Date(one.updatedAt)) + " · " + messageCount + "条消息");
+                boolean dark = isDarkMode();
+                int textPrimary = dark ? Color.WHITE : Color.BLACK;
+                int textSecondary = ColorUtils.setAlphaComponent(textPrimary, 168);
+                holder.title.setTextColor(textPrimary);
+                holder.subtitle.setTextColor(textSecondary);
 
-            int accent = UiStyleHelper.resolveAccentColor(AiChatActivity.this);
+                int accent = UiStyleHelper.resolveAccentColor(ctx());
+                int onSurface = textPrimary;
+                int drawerBase = dark ? Color.BLACK : Color.WHITE;
             int fill = selected
-                    ? ColorUtils.setAlphaComponent(accent, 52)
-                    : Color.TRANSPARENT;
+                    ? ColorUtils.setAlphaComponent(accent, dark ? 110 : 75)
+                    : ColorUtils.blendARGB(drawerBase, onSurface, dark ? 0.14f : 0.05f);
             int stroke = selected
-                    ? ColorUtils.setAlphaComponent(accent, 148)
-                    : Color.TRANSPARENT;
+                    ? ColorUtils.setAlphaComponent(accent, dark ? 230 : 180)
+                    : ColorUtils.setAlphaComponent(onSurface, dark ? 68 : 42);
 
             GradientDrawable bg = new GradientDrawable();
-                bg.setCornerRadius(dp(12));
+            bg.setCornerRadius(dp(14));
             bg.setColor(fill);
             bg.setStroke(dp(1), stroke);
             holder.root.setBackground(bg);

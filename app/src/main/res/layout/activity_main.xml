@@ -29,16 +29,6 @@
                 android:text="1"
                 android:textSize="24sp"
                 android:textStyle="bold" />
-
-            <ImageButton
-                android:id="@+id/btnOpenSettings"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="设置"
-                android:padding="6dp"
-                android:src="@drawable/ic_more_vert"
-                app:tint="?attr/colorOnSurface" />
         </LinearLayout>
 
         <FrameLayout
@@ -237,15 +227,151 @@
                     android:layout_height="0dp"
                     android:layout_weight="1" />
             </LinearLayout>
+
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/pageAi"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:visibility="gone" />
+
+            <ScrollView
+                android:id="@+id/pageProfile"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:overScrollMode="ifContentScrolls"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="20dp"
+                    android:paddingTop="60dp"
+                    android:paddingBottom="32dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        android:text="个人"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="24sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/cardProfileInfo"
+                        style="@style/Widget.MyApplication.SettingsCard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:cardCornerRadius="24dp"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <TextView
+                                style="@style/Widget.MyApplication.SettingsRowTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="个人信息" />
+
+                            <TextView
+                                android:id="@+id/tvProfileName"
+                                style="@style/Widget.MyApplication.SettingsRowSummary"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="10dp"
+                                android:text="姓名：--" />
+
+                            <TextView
+                                android:id="@+id/tvProfileStudentId"
+                                style="@style/Widget.MyApplication.SettingsRowSummary"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:text="学号：--" />
+
+                            <TextView
+                                android:id="@+id/tvProfileClass"
+                                style="@style/Widget.MyApplication.SettingsRowSummary"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:text="班级：--" />
+
+                            <TextView
+                                android:id="@+id/tvProfileCollege"
+                                style="@style/Widget.MyApplication.SettingsRowSummary"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:text="学院：--" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/itemSettingsEntry"
+                        style="@style/Widget.MyApplication.SettingsCard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?attr/selectableItemBackground"
+                        app:cardCornerRadius="24dp"
+                        app:cardElevation="0dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:padding="16dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    style="@style/Widget.MyApplication.SettingsRowTitle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="设置" />
+
+                                <TextView
+                                    style="@style/Widget.MyApplication.SettingsRowSummary"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="打开设置、数据管理与AI接入" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text=">"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:textSize="18sp" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
+            </ScrollView>
         </FrameLayout>
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="80dp"
+            android:layout_height="84dp"
             android:background="@android:color/transparent"
             android:paddingHorizontal="12dp"
             android:paddingTop="0dp"
-            android:paddingBottom="12dp">
+            android:paddingBottom="14dp">
 
             <com.google.android.material.bottomnavigation.BottomNavigationView
                 android:id="@+id/bottomNav"
@@ -255,8 +381,8 @@
                 android:clipToOutline="true"
                 app:itemIconSize="22dp"
                 app:itemHorizontalTranslationEnabled="false"
-                app:itemPaddingBottom="4dp"
-                app:itemPaddingTop="4dp"
+                app:itemPaddingBottom="12dp"
+                app:itemPaddingTop="12dp"
                 app:itemTextAppearanceActive="@style/TextAppearance.MyApplication.BottomNav"
                 app:itemTextAppearanceInactive="@style/TextAppearance.MyApplication.BottomNav"
                 app:labelVisibilityMode="labeled"

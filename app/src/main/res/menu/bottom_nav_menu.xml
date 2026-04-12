@@ -12,4 +12,8 @@
         android:id="@+id/nav_schedule"
         android:icon="@drawable/ic_schedule"
         android:title="课表" />
+    <item
+        android:id="@+id/nav_profile"
+        android:icon="@drawable/ic_profile"
+        android:title="个人" />
 </menu>

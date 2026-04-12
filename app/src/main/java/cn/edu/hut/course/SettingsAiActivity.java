@@ -50,9 +50,9 @@ public class SettingsAiActivity extends AppCompatActivity {
         providerGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
             if (isChecked) {
                 if (checkedId == R.id.btnProviderSdk) {
-                    tvVerifyResult.setText("当前方式：OpenAI SDK（校验使用 models.list()）");
+                    tvVerifyResult.setText("当前方式：SDK");
                 } else if (checkedId == R.id.btnProviderCurl) {
-                    tvVerifyResult.setText("当前方式：Curl（OpenAI兼容接口）");
+                    tvVerifyResult.setText("当前方式：Curl");
                 }
             }
         });
@@ -74,10 +74,12 @@ public class SettingsAiActivity extends AppCompatActivity {
         } else {
             btnProviderSdk.setChecked(true);
         }
-        etBaseUrl.setText(AiConfigStore.getBaseUrl(this));
+        String savedBaseUrl = AiConfigStore.getBaseUrl(this);
+        etBaseUrl.setText(savedBaseUrl.isEmpty() ? "" : savedBaseUrl);
         etApiKey.setText(AiConfigStore.getApiKey(this));
-        etModel.setText(AiConfigStore.getModel(this));
-        tvVerifyResult.setText("请输入配置后点击“校验密钥”");
+        String savedModel = AiConfigStore.getModel(this);
+        etModel.setText(savedModel.isEmpty() ? "" : savedModel);
+        tvVerifyResult.setText("填写后可先校验再保存");
     }
 
     private String currentProvider() {
@@ -111,17 +113,8 @@ public class SettingsAiActivity extends AppCompatActivity {
         String apiKey = safeText(etApiKey);
         String model = safeText(etModel);
 
-        if (baseUrl.isEmpty()) {
-            baseUrl = "https://api.openai.com/v1";
-            etBaseUrl.setText(baseUrl);
-        }
-        if (model.isEmpty()) {
-            model = "gpt-4o-mini";
-            etModel.setText(model);
-        }
-
         AiConfigStore.save(this, provider, baseUrl, apiKey, model);
-        Toast.makeText(this, "AI配置已保存", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show();
     }
 
     private String safeText(TextInputEditText et) {

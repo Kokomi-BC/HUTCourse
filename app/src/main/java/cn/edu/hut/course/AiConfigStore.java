@@ -14,8 +14,8 @@ public final class AiConfigStore {
     public static final String PROVIDER_SDK = "sdk";
     public static final String PROVIDER_CURL = "curl";
 
-    private static final String DEFAULT_BASE_URL = "https://api.openai.com/v1";
-    private static final String DEFAULT_MODEL = "gpt-4o-mini";
+    private static final String DEFAULT_BASE_URL = "";
+    private static final String DEFAULT_MODEL = "";
 
     private AiConfigStore() {
     }

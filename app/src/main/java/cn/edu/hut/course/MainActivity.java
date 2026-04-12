@@ -35,6 +35,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.ColorUtils;
+import androidx.fragment.app.Fragment;
 import androidx.viewpager2.widget.ViewPager2;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.activity.result.ActivityResultLauncher;
@@ -78,11 +79,16 @@ public class MainActivity extends AppCompatActivity {
     private static final String LOGIN_SUCCESS_PATH = "/jsxsd/framework/xsMainV.htmlx";
     private static final String TARGET_URL = BASE_URL + "/jsxsd/xskb/xskb_list.do?viweType=0";
     private static final String EXPERIMENT_URL = BASE_URL + "/jsxsd/syjx/toXskb.do";
+    private static final String PROFILE_URL = BASE_URL + "/jsxsd/framework/xsMainV_new.htmlx?t1=1";
     private static final String PREF_NAME = "course_storage";
     private static final String PREF_COURSE_COLORS = "course_colors";
     private static final String KEY_COURSES_JSON = "courses_json";
     private static final String KEY_SHOW_GRID_LINES = "show_grid_lines";
     private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
+    private static final String KEY_PROFILE_NAME = "profile_name";
+    private static final String KEY_PROFILE_STUDENT_ID = "profile_student_id";
+    private static final String KEY_PROFILE_CLASS = "profile_class";
+    private static final String KEY_PROFILE_COLLEGE = "profile_college";
     private static final String[] WEEK_DAY_LABELS = {"一", "二", "三", "四", "五", "六", "日"};
     private static final int[] SLOT_START_SECONDS = {8 * 3600, 10 * 3600, 14 * 3600, 16 * 3600, 19 * 3600};
     private static final int[] SLOT_END_SECONDS = {9 * 3600 + 40 * 60, 11 * 3600 + 40 * 60, 15 * 3600 + 40 * 60, 17 * 3600 + 40 * 60, 20 * 3600 + 40 * 60};
@@ -92,12 +98,12 @@ public class MainActivity extends AppCompatActivity {
     private com.google.android.material.card.MaterialCardView cardTodayWeekOverview;
     private TextView tvMainTitle, tvEmptyHint, tvNextCourseNotice;
     private TextView tvTodayWeek, tvTodayDate, tvTodayWeekTotal, tvTodayWeekDone, tvNowTime;
+    private TextView tvProfileName, tvProfileStudentId, tvProfileClass, tvProfileCollege;
     private ImageButton btnCloseNextCourseNotice;
-    private ImageButton btnOpenSettings;
     private BottomNavigationView bottomNav;
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
-    private View pageSchedule, pageToday, titleContainer, rootMain;
+    private View pageSchedule, pageToday, pageAi, pageProfile, titleContainer, rootMain;
     private LinearLayout todayCoursesContainer, layoutTodayWeekStrip;
 
     private final List<Course> allCourses = new ArrayList<>();
@@ -128,9 +134,6 @@ public class MainActivity extends AppCompatActivity {
         boolean scheduleVisible = pageSchedule != null && pageSchedule.getVisibility() == View.VISIBLE;
         if (tvMainTitle != null) {
             tvMainTitle.setText(scheduleVisible ? ("第" + currentWeek + "周课表") : "");
-        }
-        if (btnOpenSettings != null) {
-            btnOpenSettings.setVisibility(scheduleVisible ? View.VISIBLE : View.GONE);
         }
         if (titleContainer != null) {
             titleContainer.setVisibility(scheduleVisible ? View.VISIBLE : View.GONE);
@@ -194,8 +197,8 @@ public class MainActivity extends AppCompatActivity {
         normal.setCornerRadius(radius);
         normal.setColor(Color.TRANSPARENT);
 
-        InsetDrawable checkedInset = new InsetDrawable(checked, dp(26), dp(10), dp(26), dp(10));
-        InsetDrawable normalInset = new InsetDrawable(normal, dp(26), dp(10), dp(26), dp(10));
+        InsetDrawable checkedInset = new InsetDrawable(checked, dp(8), dp(4), dp(8), dp(4));
+        InsetDrawable normalInset = new InsetDrawable(normal, dp(8), dp(4), dp(8), dp(4));
 
         StateListDrawable stateList = new StateListDrawable();
         stateList.addState(new int[]{android.R.attr.state_checked}, checkedInset);
@@ -211,12 +214,13 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         tvMainTitle = findViewById(R.id.tvMainTitle);
-        btnOpenSettings = findViewById(R.id.btnOpenSettings);
         rootMain = findViewById(R.id.rootMain);
         titleContainer = findViewById(R.id.titleContainer);
         tvEmptyHint = findViewById(R.id.tvEmptyHint);
         pageSchedule = findViewById(R.id.pageSchedule);
         pageToday = findViewById(R.id.pageToday);
+        pageAi = findViewById(R.id.pageAi);
+        pageProfile = findViewById(R.id.pageProfile);
         tvTodayWeek = findViewById(R.id.tvTodayWeek);
         tvNowTime = findViewById(R.id.tvNowTime);
         tvTodayDate = findViewById(R.id.tvTodayDate);
@@ -230,16 +234,25 @@ public class MainActivity extends AppCompatActivity {
         cardNextCourseNotice = findViewById(R.id.cardNextCourseNotice);
         tvNextCourseNotice = findViewById(R.id.tvNextCourseNotice);
         btnCloseNextCourseNotice = findViewById(R.id.btnCloseNextCourseNotice);
+        tvProfileName = findViewById(R.id.tvProfileName);
+        tvProfileStudentId = findViewById(R.id.tvProfileStudentId);
+        tvProfileClass = findViewById(R.id.tvProfileClass);
+        tvProfileCollege = findViewById(R.id.tvProfileCollege);
 
-        if (btnOpenSettings != null) {
-            btnOpenSettings.setOnClickListener(v -> settingsLauncher.launch(new Intent(this, SettingsHomeActivity.class)));
+        View itemSettingsEntry = findViewById(R.id.itemSettingsEntry);
+        if (itemSettingsEntry != null) {
+            itemSettingsEntry.setOnClickListener(v -> settingsLauncher.launch(new Intent(this, SettingsHomeActivity.class)));
         }
-
         browserLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == RESULT_OK) {
                 Intent data = result.getData();
                 String cookie = data != null ? data.getStringExtra("cookie") : null;
-                extractAllTables(cookie);
+                boolean loginSuccess = data != null && data.getBooleanExtra("login_success", false);
+                if (loginSuccess) {
+                    extractAllTables(cookie);
+                } else {
+                    loadCoursesFromLocal();
+                }
             } else {
                 loadCoursesFromLocal();
             }
@@ -255,8 +268,11 @@ public class MainActivity extends AppCompatActivity {
                             intent.putExtra("url", LOGIN_URL);
                             browserLauncher.launch(intent);
                             break;
+                        case "extract_after_login":
+                            extractAllTables(result.getData().getStringExtra("cookie"));
+                            break;
                         case "extract":
-                            extractAllTables(null);
+                            Toast.makeText(this, "请在设置中登录教务系统后自动抓取", Toast.LENGTH_SHORT).show();
                             break;
                         case "clear_schedule_only":
                             clearCurrentSchedule(false);
@@ -316,11 +332,19 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
             if (id == R.id.nav_ai) {
-                startActivity(new Intent(this, AiChatActivity.class));
-                return false;
+                switchToAiPage();
+                updateNextCourseNotice();
+                updateTitle();
+                return true;
             }
             if (id == R.id.nav_schedule) {
                 switchToSchedulePage();
+                updateNextCourseNotice();
+                updateTitle();
+                return true;
+            }
+            if (id == R.id.nav_profile) {
+                switchToProfilePage();
                 updateNextCourseNotice();
                 updateTitle();
                 return true;
@@ -333,6 +357,10 @@ public class MainActivity extends AppCompatActivity {
                 updateNextCourseNotice();
             } else if (item.getItemId() == R.id.nav_today) {
                 refreshTodayPage();
+            } else if (item.getItemId() == R.id.nav_ai) {
+                ensureAiFragmentAttached();
+            } else if (item.getItemId() == R.id.nav_profile) {
+                renderProfileFromLocal();
             }
         });
 
@@ -346,7 +374,9 @@ public class MainActivity extends AppCompatActivity {
         semesterStartDateMs = prefs.getLong("semester_start_date", 0);
         applyMaterialScaffoldStyle();
         setupViewPager();
+        ensureAiFragmentAttached();
         loadCoursesFromLocal();
+        renderProfileFromLocal();
         updateBackground();
         switchToTodayPage();
         if (bottomNav != null) {
@@ -368,6 +398,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         loadCoursesFromLocal();
+        renderProfileFromLocal();
         updateBackground();
         refreshTodayPage();
         updateTodayHeaderClock();
@@ -386,6 +417,19 @@ public class MainActivity extends AppCompatActivity {
         noticeHandler.removeCallbacks(noticeTicker);
         CampusBuildingStore.setRealtimeDeviceLocationTracking(this, false);
         super.onDestroy();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (pageAi != null && pageAi.getVisibility() == View.VISIBLE) {
+            Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.pageAi);
+            if (fragment instanceof AiChatFragment) {
+                if (((AiChatFragment) fragment).handleBackPressed()) {
+                    return;
+                }
+            }
+        }
+        super.onBackPressed();
     }
 
     private void startNoticeTicker() {
@@ -455,6 +499,8 @@ public class MainActivity extends AppCompatActivity {
     private void switchToTodayPage() {
         if (pageToday != null) pageToday.setVisibility(View.VISIBLE);
         if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
+        if (pageAi != null) pageAi.setVisibility(View.GONE);
+        if (pageProfile != null) pageProfile.setVisibility(View.GONE);
         updateTitle();
         refreshTodayPage();
     }
@@ -462,7 +508,63 @@ public class MainActivity extends AppCompatActivity {
     private void switchToSchedulePage() {
         if (pageToday != null) pageToday.setVisibility(View.GONE);
         if (pageSchedule != null) pageSchedule.setVisibility(View.VISIBLE);
+        if (pageAi != null) pageAi.setVisibility(View.GONE);
+        if (pageProfile != null) pageProfile.setVisibility(View.GONE);
         updateTitle();
+    }
+
+    private void switchToAiPage() {
+        if (pageToday != null) pageToday.setVisibility(View.GONE);
+        if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
+        if (pageAi != null) pageAi.setVisibility(View.VISIBLE);
+        if (pageProfile != null) pageProfile.setVisibility(View.GONE);
+        updateTitle();
+    }
+
+    private void switchToProfilePage() {
+        if (pageToday != null) pageToday.setVisibility(View.GONE);
+        if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
+        if (pageAi != null) pageAi.setVisibility(View.GONE);
+        if (pageProfile != null) pageProfile.setVisibility(View.VISIBLE);
+        renderProfileFromLocal();
+        updateTitle();
+        styleProfileCards();
+    }
+
+    private void styleProfileCards() {
+        if (pageProfile == null) return;
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int strokeColor = ColorUtils.setAlphaComponent(onSurface, 24);
+        int glass = UiStyleHelper.resolveGlassCardColor(this);
+
+        MaterialCardView cardProfileInfo = findViewById(R.id.cardProfileInfo);
+        if (cardProfileInfo != null) {
+            cardProfileInfo.setCardElevation(0f);
+            cardProfileInfo.setRadius(dp(24));
+            cardProfileInfo.setStrokeWidth(dp(1));
+            cardProfileInfo.setStrokeColor(strokeColor);
+            cardProfileInfo.setCardBackgroundColor(glass);
+        }
+
+        MaterialCardView itemSettingsEntry = findViewById(R.id.itemSettingsEntry);
+        if (itemSettingsEntry != null) {
+            itemSettingsEntry.setCardElevation(0f);
+            itemSettingsEntry.setRadius(dp(24));
+            itemSettingsEntry.setStrokeWidth(dp(1));
+            itemSettingsEntry.setStrokeColor(strokeColor);
+            itemSettingsEntry.setCardBackgroundColor(glass);
+        }
+    }
+
+    private void ensureAiFragmentAttached() {
+        if (pageAi == null) return;
+        Fragment current = getSupportFragmentManager().findFragmentById(R.id.pageAi);
+        if (current == null) {
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.pageAi, new AiChatFragment())
+                    .commitNowAllowingStateLoss();
+        }
     }
 
     private void openCourseEditorFromAction(Intent data) {
@@ -1206,13 +1308,15 @@ private void extractAllTables(String passedCookie) {
         final String finalCookie = cookie;
         new Thread(() -> {
             try {
-                ExtractOutcome outcome = scrapeAllTablesOnce(finalCookie);
+                String activeCookie = finalCookie;
+                ExtractOutcome outcome = scrapeAllTablesOnce(activeCookie);
                 if (!outcome.hasAnySuccess || countNonRemarkCourses(outcome.courses) == 0) {
                     String refreshedCookie = trySilentLoginAndGetCookie(finalCookie);
                     if (refreshedCookie != null && !refreshedCookie.isEmpty()) {
                         ExtractOutcome retryOutcome = scrapeAllTablesOnce(refreshedCookie);
                         if (retryOutcome.hasAnySuccess && countNonRemarkCourses(retryOutcome.courses) > 0) {
                             outcome = retryOutcome;
+                            activeCookie = refreshedCookie;
                         }
                     }
                 }
@@ -1223,6 +1327,17 @@ private void extractAllTables(String passedCookie) {
                 }
                 
                 List<Course> finalResult = deduplicate(outcome.courses);
+                StudentProfile refreshedProfile = null;
+                try {
+                    refreshedProfile = fetchStudentProfile(activeCookie);
+                    if (refreshedProfile != null) {
+                        saveProfileToLocal(refreshedProfile);
+                    }
+                } catch (Exception profileEx) {
+                    Log.w(TAG, "Profile refresh failed", profileEx);
+                }
+
+                final StudentProfile finalProfile = refreshedProfile;
 
                 runOnUiThread(() -> {
                     allCourses.clear();
@@ -1232,7 +1347,13 @@ private void extractAllTables(String passedCookie) {
                     updateScheduleViewState();
                     moveToCurrentWeek(true, true);
                     drawGrid();
-                    Toast.makeText(this, "刷新完成，共 " + allCourses.size() + " 门课程", Toast.LENGTH_SHORT).show();
+                    if (finalProfile != null) {
+                        renderProfile(finalProfile);
+                    } else {
+                        renderProfileFromLocal();
+                    }
+                    String toast = "刷新完成，共 " + allCourses.size() + " 门课程";
+                    Toast.makeText(this, toast, Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 Log.e(TAG, "Extraction error", e);
@@ -1248,6 +1369,118 @@ private void extractAllTables(String passedCookie) {
         ExtractOutcome(List<Course> courses, boolean hasAnySuccess) {
             this.courses = courses;
             this.hasAnySuccess = hasAnySuccess;
+        }
+    }
+
+    private static class StudentProfile {
+        String name = "";
+        String studentId = "";
+        String className = "";
+        String college = "";
+    }
+
+    private StudentProfile fetchStudentProfile(String cookie) throws Exception {
+        if (cookie == null || cookie.trim().isEmpty()) {
+            throw new IllegalStateException("缺少教务Cookie");
+        }
+        String html = fetch(PROFILE_URL, cookie);
+        Document doc = Jsoup.parse(html);
+
+        Element title = doc.selectFirst(".infoContentTitle");
+        if (title == null || title.text().trim().isEmpty()) {
+            throw new IllegalStateException("未找到个人信息区域");
+        }
+
+        StudentProfile profile = new StudentProfile();
+        parseNameAndStudentId(title.text(), profile);
+
+        Elements detailTexts = doc.select(".infoContentBody .qz-detailtext");
+        for (Element detail : detailTexts) {
+            if (detail == null) continue;
+            String text = detail.text();
+            if (text == null || text.trim().isEmpty()) continue;
+
+            String normalized = text.replace('\u00A0', ' ');
+            String[] parts = normalized.split("[：:]", 2);
+            if (parts.length < 2) continue;
+
+            String rawLabel = parts[0] == null ? "" : parts[0];
+            String label = rawLabel.replace(" ", "").trim();
+            String value = parts[1] == null ? "" : parts[1].trim();
+            if (value.isEmpty()) continue;
+
+            if (label.contains("学院")) {
+                profile.college = value;
+            } else if (label.contains("班级")) {
+                profile.className = value;
+            }
+        }
+        return profile;
+    }
+
+    private void parseNameAndStudentId(String titleText, StudentProfile profile) {
+        String raw = titleText == null ? "" : titleText.trim();
+        if (raw.isEmpty()) return;
+
+        Matcher dashMatcher = Pattern.compile("^(.*?)[-－—]\\s*(\\d{6,})\\s*$").matcher(raw);
+        if (dashMatcher.find()) {
+            profile.name = dashMatcher.group(1).trim();
+            profile.studentId = dashMatcher.group(2).trim();
+            return;
+        }
+
+        Matcher idMatcher = Pattern.compile("(\\d{6,})$").matcher(raw);
+        if (idMatcher.find()) {
+            profile.studentId = idMatcher.group(1).trim();
+            String before = raw.substring(0, idMatcher.start()).trim();
+            before = before.replaceAll("[-－—]+$", "").trim();
+            profile.name = before;
+            return;
+        }
+
+        profile.name = raw;
+    }
+
+    private void saveProfileToLocal(StudentProfile profile) {
+        if (profile == null) return;
+        SharedPreferences.Editor editor = getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit();
+        editor.putString(KEY_PROFILE_NAME, profile.name == null ? "" : profile.name);
+        editor.putString(KEY_PROFILE_STUDENT_ID, profile.studentId == null ? "" : profile.studentId);
+        editor.putString(KEY_PROFILE_CLASS, profile.className == null ? "" : profile.className);
+        editor.putString(KEY_PROFILE_COLLEGE, profile.college == null ? "" : profile.college);
+        editor.apply();
+    }
+
+    private StudentProfile readProfileFromLocal() {
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        StudentProfile profile = new StudentProfile();
+        profile.name = prefs.getString(KEY_PROFILE_NAME, "");
+        profile.studentId = prefs.getString(KEY_PROFILE_STUDENT_ID, "");
+        profile.className = prefs.getString(KEY_PROFILE_CLASS, "");
+        profile.college = prefs.getString(KEY_PROFILE_COLLEGE, "");
+        return profile;
+    }
+
+    private void renderProfileFromLocal() {
+        renderProfile(readProfileFromLocal());
+    }
+
+    private void renderProfile(StudentProfile profile) {
+        if (profile == null) {
+            profile = new StudentProfile();
+        }
+
+        if (tvProfileName != null) {
+            tvProfileName.setText("姓名：" + (TextUtils.isEmpty(profile.name) ? "--" : profile.name));
+        }
+        if (tvProfileStudentId != null) {
+            tvProfileStudentId.setText("学号：" + (TextUtils.isEmpty(profile.studentId) ? "--" : profile.studentId));
+        }
+        if (tvProfileClass != null) {
+            tvProfileClass.setText("班级：" + (TextUtils.isEmpty(profile.className) ? "--" : profile.className));
+        }
+        if (tvProfileCollege != null) {
+            tvProfileCollege.setText("学院：" + (TextUtils.isEmpty(profile.college) ? "--" : profile.college));
         }
     }
 

@@ -165,10 +165,11 @@ public final class AiGateway {
         if (url.endsWith("/")) {
             url = url.substring(0, url.length() - 1);
         }
-        if (!url.endsWith("/v1")) {
-            url = url + "/v1";
+        String normalizedPath = path == null ? "" : path.trim();
+        if (!normalizedPath.isEmpty() && !normalizedPath.startsWith("/")) {
+            normalizedPath = "/" + normalizedPath;
         }
-        return url + path;
+        return url + normalizedPath;
     }
 
     private static String readBody(HttpURLConnection conn, boolean success) throws Exception {

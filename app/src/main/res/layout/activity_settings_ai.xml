@@ -65,7 +65,7 @@
                 style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Base URL (如 https://api.openai.com/v1)">
+                android:hint="Base URL（可留空）">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etBaseUrl"
@@ -92,7 +92,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:hint="模型名 (如 gpt-4o-mini)">
+                android:hint="模型名或接入点 ID">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etModel"
@@ -130,7 +130,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:text="请输入配置后点击“校验密钥”" />
+                android:text="填写后可先校验再保存" />
         </LinearLayout>
     </ScrollView>
 
