@@ -54,10 +54,10 @@ public final class UiStyleHelper {
 
     public static void hideStatusBar(AppCompatActivity activity) {
         if (activity == null) return;
-        WindowCompat.setDecorFitsSystemWindows(activity.getWindow(), false);
+        WindowCompat.setDecorFitsSystemWindows(activity.getWindow(), true);
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(activity.getWindow(), activity.getWindow().getDecorView());
         if (controller != null) {
-            controller.hide(WindowInsetsCompat.Type.statusBars());
+            controller.show(WindowInsetsCompat.Type.statusBars());
         }
     }
 

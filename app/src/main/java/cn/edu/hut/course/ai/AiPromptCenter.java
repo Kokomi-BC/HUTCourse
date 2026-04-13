@@ -21,6 +21,9 @@ public final class AiPromptCenter {
         system.append("当信息足够时输出最终答复，不要输出CMD。\n");
         system.append("若本轮要继续调用工具，只输出CMD行，不要输出TITLE。\n");
         system.append("是否需要TITLE由用户提示中的[标题策略]决定。\n");
+        system.append("时间语义规则: 用户提到明天/明日/次日时，优先使用 course.date <下一自然日>，不要用 course.today_remaining。\n");
+        system.append("当时间在 00:00-05:59，'今天'仍指当前自然日，'明天/明日'必须是下一自然日。\n");
+        system.append("最终答复不要出现工具调用过程口播（如'已查询...'、'已调用...'），只输出对用户有用的结论。\n");
         return system.toString();
     }
 
@@ -62,6 +65,8 @@ public final class AiPromptCenter {
         } else {
             nextPrompt.append("如果仍需要更多工具，继续输出CMD行；否则直接输出最终正文，不要输出TITLE行。\n");
         }
+        nextPrompt.append("注意: 最终正文不要复述工具执行过程（如已查询/已调用），只保留结果与解释。\n");
+
         return nextPrompt.toString();
     }
 }

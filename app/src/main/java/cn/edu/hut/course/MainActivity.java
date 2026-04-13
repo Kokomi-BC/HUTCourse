@@ -184,7 +184,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private StateListDrawable buildBottomNavItemBackground(int accentColor) {
-        float radius = dp(16);
+        float radius = dp(26);
         int checkedFill = ColorUtils.setAlphaComponent(accentColor, 70);
 
         GradientDrawable checked = new GradientDrawable();
