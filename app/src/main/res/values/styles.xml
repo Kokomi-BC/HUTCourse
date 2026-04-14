@@ -21,4 +21,9 @@
         <item name="android:letterSpacing">0.01</item>
         <item name="android:includeFontPadding">false</item>
     </style>
+
+    <style name="ThemeOverlay.MyApplication.MaterialAlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorPrimary">?attr/colorPrimary</item>
+        <item name="colorSecondary">?attr/colorSecondary</item>
+    </style>
 </resources>

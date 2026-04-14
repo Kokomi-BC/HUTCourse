@@ -17,7 +17,9 @@ public final class AiPromptCenter {
         system.append("你是本地课表AI助手。\n");
         system.append("第一阶段仅使用技能frontmatter索引判断可用工具，不得假设你已知技能全文。\n");
         system.append("如需工具，输出一行或多行命令，格式必须为: CMD: <command>。\n");
-        system.append("可用命令: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词>。\n");
+        system.append("可用命令: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>。\n");
+        system.append("agenda.create/agenda.update 的 JSON 字段建议使用: title, description, location, date, start/end（也兼容 startTime/endTime）, priority, repeat, monthlyStrategy；时间格式统一为 HH:mm；priority/repeat/location 可省略，默认 low/none/空地点。\n");
+        system.append("location 可留空；若为校内地点会自动标准化（楼栋+房间），否则按自定义地点保存。\n");
         system.append("当信息足够时输出最终答复，不要输出CMD。\n");
         system.append("若本轮要继续调用工具，只输出CMD行，不要输出TITLE。\n");
         system.append("是否需要TITLE由用户提示中的[标题策略]决定。\n");
@@ -27,7 +29,7 @@ public final class AiPromptCenter {
         return system.toString();
     }
 
-    public static String buildFirstTurnUserPrompt(String skillIndex, String selectedText, String userText,
+    public static String buildFirstTurnUserPrompt(String skillIndex, String userText,
                                                   boolean includeCurrentTime, boolean requestTitleInFinalAnswer) {
         StringBuilder userPrompt = new StringBuilder();
         if (includeCurrentTime) {
@@ -37,14 +39,11 @@ public final class AiPromptCenter {
         }
         userPrompt.append("[标题策略]\n");
         if (requestTitleInFinalAnswer) {
-            userPrompt.append("这是新会话首轮。最终答复必须先输出一行: TITLE: <20字以内标题>，下一行留空，再输出正文。\n\n");
+            userPrompt.append("这是新会话首轮，需要本次对话主题。最终答复必须先输出一行: TITLE: <20字以内标题>，下一行留空，再输出正文。\n\n");
         } else {
-            userPrompt.append("这不是新会话首轮。最终答复不要输出TITLE行，直接输出正文。\n\n");
+            userPrompt.append("直接输出正文即可。\n\n");
         }
         userPrompt.append("[技能索引]\n").append(skillIndex).append("\n\n");
-        if (selectedText != null && !selectedText.trim().isEmpty()) {
-            userPrompt.append("[用户选中文本]\n").append(selectedText.trim()).append("\n\n");
-        }
         userPrompt.append("[用户问题]\n").append(userText).append("\n");
         return userPrompt.toString();
     }

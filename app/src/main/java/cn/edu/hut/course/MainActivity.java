@@ -32,6 +32,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.ColorUtils;
@@ -43,9 +44,13 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.datepicker.MaterialDatePicker;
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.google.android.material.timepicker.MaterialTimePicker;
+import com.google.android.material.timepicker.TimeFormat;
 
 import cn.edu.hut.course.data.CampusBuildingStore;
+import cn.edu.hut.course.data.AgendaStorageManager;
 import cn.edu.hut.course.data.CourseJsonCodec;
 import cn.edu.hut.course.data.CourseStorageManager;
 
@@ -92,7 +97,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] WEEK_DAY_LABELS = {"一", "二", "三", "四", "五", "六", "日"};
     private static final int[] SLOT_START_SECONDS = {8 * 3600, 10 * 3600, 14 * 3600, 16 * 3600, 19 * 3600};
     private static final int[] SLOT_END_SECONDS = {9 * 3600 + 40 * 60, 11 * 3600 + 40 * 60, 15 * 3600 + 40 * 60, 17 * 3600 + 40 * 60, 20 * 3600 + 40 * 60};
+    private static final int NEXT_NOTICE_WINDOW_SECONDS = 40 * 60;
     private static final String[] SLOT_LABELS = {"第一大节", "第二大节", "第三大节", "第四大节", "第五大节"};
+    private static final int[] AGENDA_PRIORITY_VALUES = {Agenda.PRIORITY_LOW, Agenda.PRIORITY_MEDIUM, Agenda.PRIORITY_HIGH};
+    private static final String[] AGENDA_PRIORITY_LABELS = {"低优先", "中优先", "高优先"};
+    private static final String[] AGENDA_REPEAT_VALUES = {Agenda.REPEAT_NONE, Agenda.REPEAT_DAILY, Agenda.REPEAT_WEEKLY, Agenda.REPEAT_MONTHLY};
+    private static final String[] AGENDA_REPEAT_LABELS = {"不重复", "每天", "每周", "每月固定日"};
+    private static final String[] AGENDA_MONTHLY_VALUES = {Agenda.MONTHLY_SKIP, Agenda.MONTHLY_MONTH_END};
+    private static final String[] AGENDA_MONTHLY_LABELS = {"短月跳过", "短月改月底"};
 
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
     private com.google.android.material.card.MaterialCardView cardTodayWeekOverview;
@@ -100,6 +112,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvTodayWeek, tvTodayDate, tvTodayWeekTotal, tvTodayWeekDone, tvNowTime;
     private TextView tvProfileName, tvProfileStudentId, tvProfileClass, tvProfileCollege;
     private ImageButton btnCloseNextCourseNotice;
+    private FloatingActionButton fabAddAgenda;
     private BottomNavigationView bottomNav;
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
@@ -112,6 +125,7 @@ public class MainActivity extends AppCompatActivity {
     private long semesterStartDateMs = 0;
     private boolean nextCourseNoticeDismissed = false;
     private String selectedCourseColorKey = null;
+    private Calendar selectedTodayDate;
     private int lastRealtimeWeek = -1;
     private int lastRealtimeDay = -1;
     private int lastRealtimeSlot = -2;
@@ -181,6 +195,11 @@ public class MainActivity extends AppCompatActivity {
             bottomNav.setClipChildren(true);
             bottomNav.setElevation(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6, getResources().getDisplayMetrics()));
         }
+
+        if (fabAddAgenda != null) {
+            fabAddAgenda.setBackgroundTintList(ColorStateList.valueOf(colorPrimary));
+            fabAddAgenda.setImageTintList(ColorStateList.valueOf(pickReadableTextColor(colorPrimary)));
+        }
     }
 
     private StateListDrawable buildBottomNavItemBackground(int accentColor) {
@@ -234,10 +253,15 @@ public class MainActivity extends AppCompatActivity {
         cardNextCourseNotice = findViewById(R.id.cardNextCourseNotice);
         tvNextCourseNotice = findViewById(R.id.tvNextCourseNotice);
         btnCloseNextCourseNotice = findViewById(R.id.btnCloseNextCourseNotice);
+        fabAddAgenda = findViewById(R.id.fabAddAgenda);
         tvProfileName = findViewById(R.id.tvProfileName);
         tvProfileStudentId = findViewById(R.id.tvProfileStudentId);
         tvProfileClass = findViewById(R.id.tvProfileClass);
         tvProfileCollege = findViewById(R.id.tvProfileCollege);
+
+        if (fabAddAgenda != null) {
+            fabAddAgenda.setOnClickListener(v -> showAgendaEditorSheet(null, resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek())));
+        }
 
         View itemSettingsEntry = findViewById(R.id.itemSettingsEntry);
         if (itemSettingsEntry != null) {
@@ -351,6 +375,21 @@ public class MainActivity extends AppCompatActivity {
             }
             return false;
         });
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (pageAi != null && pageAi.getVisibility() == View.VISIBLE) {
+                    Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.pageAi);
+                    if (fragment instanceof AiChatFragment && ((AiChatFragment) fragment).handleBackPressed()) {
+                        return;
+                    }
+                }
+                setEnabled(false);
+                getOnBackPressedDispatcher().onBackPressed();
+                setEnabled(true);
+            }
+        });
         bottomNav.setOnItemReselectedListener(item -> {
             if (item.getItemId() == R.id.nav_schedule) {
                 jumpToActualCurrentWeek(true);
@@ -417,19 +456,6 @@ public class MainActivity extends AppCompatActivity {
         noticeHandler.removeCallbacks(noticeTicker);
         CampusBuildingStore.setRealtimeDeviceLocationTracking(this, false);
         super.onDestroy();
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (pageAi != null && pageAi.getVisibility() == View.VISIBLE) {
-            Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.pageAi);
-            if (fragment instanceof AiChatFragment) {
-                if (((AiChatFragment) fragment).handleBackPressed()) {
-                    return;
-                }
-            }
-        }
-        super.onBackPressed();
     }
 
     private void startNoticeTicker() {
@@ -501,6 +527,7 @@ public class MainActivity extends AppCompatActivity {
         if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
+        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.VISIBLE);
         updateTitle();
         refreshTodayPage();
     }
@@ -510,6 +537,7 @@ public class MainActivity extends AppCompatActivity {
         if (pageSchedule != null) pageSchedule.setVisibility(View.VISIBLE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
+        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         updateTitle();
     }
 
@@ -518,6 +546,7 @@ public class MainActivity extends AppCompatActivity {
         if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.VISIBLE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
+        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         updateTitle();
     }
 
@@ -526,6 +555,7 @@ public class MainActivity extends AppCompatActivity {
         if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.VISIBLE);
+        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         renderProfileFromLocal();
         updateTitle();
         styleProfileCards();
@@ -757,6 +787,7 @@ public class MainActivity extends AppCompatActivity {
         for (int i = 0; i < 7; i++) {
             TextView t = new TextView(this);
             Calendar dayCal = (Calendar) cal.clone();
+            Calendar clickDate = cloneAsDay(dayCal);
             String dateStr = sdf.format(cal.getTime());
             t.setText("周" + days[i] + "\n" + dateStr);
             t.setTextColor(colorOnSurfaceVariant);
@@ -773,6 +804,8 @@ public class MainActivity extends AppCompatActivity {
             }
             GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(0), GridLayout.spec(i + 1, 1f));
             p.width = 0; p.setGravity(Gravity.FILL_HORIZONTAL);
+            int targetWeek = week;
+            t.setOnClickListener(v -> showScheduleDayArrangementSheet(clickDate, targetWeek));
             grid.addView(t, p);
             cal.add(Calendar.DAY_OF_MONTH, 1);
         }
@@ -845,31 +878,90 @@ public class MainActivity extends AppCompatActivity {
     private void refreshTodayPage() {
         Calendar now = Calendar.getInstance();
         int actualWeek = getActualCurrentWeek();
-        int today = now.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY ? 7 : now.get(Calendar.DAY_OF_WEEK) - 1;
+        int currentDay = toMondayFirstDay(now);
         int currentSeconds = now.get(Calendar.HOUR_OF_DAY) * 3600 + now.get(Calendar.MINUTE) * 60 + now.get(Calendar.SECOND);
 
+        Calendar displayDate = resolveSelectedTodayDate(now, actualWeek);
+        int selectedDay = toMondayFirstDay(displayDate);
+        int targetWeek = getWeekForDate(displayDate);
+        boolean viewingToday = isSameDay(displayDate, now);
+
         if (tvTodayWeek != null) {
-            tvTodayWeek.setText("周" + WEEK_DAY_LABELS[today - 1]);
+            tvTodayWeek.setText("周" + WEEK_DAY_LABELS[selectedDay - 1]);
         }
         if (tvTodayDate != null) {
-            tvTodayDate.setText(String.format(Locale.getDefault(), "%d月%d日", now.get(Calendar.MONTH) + 1, now.get(Calendar.DAY_OF_MONTH)));
+            tvTodayDate.setText(String.format(Locale.getDefault(), "%d月%d日", displayDate.get(Calendar.MONTH) + 1, displayDate.get(Calendar.DAY_OF_MONTH)));
         }
         updateTodayHeaderClock();
 
-        List<TodayCourseItem> remaining = buildTodayRemainingCourses(actualWeek, today, currentSeconds);
-        renderTodayCourseCards(remaining);
-        renderTodayWeekOverview(actualWeek, today, currentSeconds);
+        List<TodayCourseItem> courses = buildDateCourseItems(targetWeek, selectedDay);
+        List<Agenda> agendas = AgendaStorageManager.queryAgendasByDate(this, displayDate);
+        renderTodayTimelineCards(courses, agendas, viewingToday);
+        renderTodayWeekOverview(actualWeek, selectedDay, currentDay, currentSeconds);
         styleTodayOverviewCard();
     }
 
-    private List<TodayCourseItem> buildTodayRemainingCourses(int actualWeek, int today, int currentSeconds) {
+    private Calendar resolveSelectedTodayDate(Calendar now, int actualWeek) {
+        Calendar today = cloneAsDay(now);
+        if (selectedTodayDate == null) {
+            selectedTodayDate = today;
+        }
+        Calendar selected = cloneAsDay(selectedTodayDate);
+        if (getWeekForDate(selected) != actualWeek) {
+            selected = today;
+            selectedTodayDate = selected;
+        }
+        return selected;
+    }
+
+    private Calendar cloneAsDay(Calendar source) {
+        Calendar copy = (Calendar) source.clone();
+        copy.set(Calendar.HOUR_OF_DAY, 0);
+        copy.set(Calendar.MINUTE, 0);
+        copy.set(Calendar.SECOND, 0);
+        copy.set(Calendar.MILLISECOND, 0);
+        return copy;
+    }
+
+    private int getWeekForDate(Calendar targetDate) {
+        Calendar start = getSemesterStartCalendar();
+        while (start.get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) {
+            start.add(Calendar.DAY_OF_MONTH, -1);
+        }
+        start = cloneAsDay(start);
+
+        Calendar target = cloneAsDay(targetDate);
+        long diff = target.getTimeInMillis() - start.getTimeInMillis();
+        return (int) (diff / (7L * 24L * 60L * 60L * 1000L)) + 1;
+    }
+
+    private Calendar buildDateInAcademicWeek(int week, int dayOfWeek) {
+        Calendar start = getSemesterStartCalendar();
+        while (start.get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) {
+            start.add(Calendar.DAY_OF_MONTH, -1);
+        }
+        start = cloneAsDay(start);
+        start.add(Calendar.DAY_OF_MONTH, Math.max(0, week - 1) * 7);
+        start.add(Calendar.DAY_OF_MONTH, Math.max(0, Math.min(6, dayOfWeek - 1)));
+        return start;
+    }
+
+    private int toMondayFirstDay(Calendar date) {
+        int raw = date.get(Calendar.DAY_OF_WEEK);
+        return raw == Calendar.SUNDAY ? 7 : raw - 1;
+    }
+
+    private boolean isSameDay(Calendar a, Calendar b) {
+        return a.get(Calendar.YEAR) == b.get(Calendar.YEAR)
+                && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR);
+    }
+
+    private List<TodayCourseItem> buildDateCourseItems(int targetWeek, int targetDay) {
         List<TodayCourseItem> result = new ArrayList<>();
         for (Course c : allCourses) {
-            if (c == null || c.isRemark || c.dayOfWeek != today) continue;
-            if (c.weeks == null || !c.weeks.contains(actualWeek)) continue;
+            if (c == null || c.isRemark || c.dayOfWeek != targetDay) continue;
+            if (c.weeks == null || !c.weeks.contains(targetWeek)) continue;
             int slot = Math.max(0, Math.min(SLOT_LABELS.length - 1, (c.startSection - 1) / 2));
-            int end = SLOT_END_SECONDS[slot];
-            if (end < currentSeconds) continue;
             result.add(new TodayCourseItem(c, slot));
         }
         Collections.sort(result, (a, b) -> Integer.compare(SLOT_START_SECONDS[a.slotIndex], SLOT_START_SECONDS[b.slotIndex]));
@@ -886,11 +978,26 @@ public class MainActivity extends AppCompatActivity {
         cardTodayWeekOverview.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
     }
 
-    private void renderTodayCourseCards(List<TodayCourseItem> courses) {
+    private void renderTodayTimelineCards(List<TodayCourseItem> courses, List<Agenda> agendas, boolean viewingToday) {
         if (todayCoursesContainer == null) return;
         todayCoursesContainer.removeAllViews();
 
-        if (courses.isEmpty()) {
+        List<TodayTimelineItem> timelineItems = new ArrayList<>();
+        for (TodayCourseItem item : courses) {
+            timelineItems.add(TodayTimelineItem.forCourse(item));
+        }
+        for (Agenda agenda : agendas) {
+            timelineItems.add(TodayTimelineItem.forAgenda(agenda));
+        }
+        timelineItems.sort((a, b) -> {
+            int byStart = Integer.compare(a.startMinute, b.startMinute);
+            if (byStart != 0) {
+                return byStart;
+            }
+            return Integer.compare(a.type, b.type);
+        });
+
+        if (timelineItems.isEmpty()) {
             MaterialCardView emptyCard = new MaterialCardView(this);
             emptyCard.setRadius(dp(22));
             emptyCard.setStrokeWidth(1);
@@ -899,7 +1006,7 @@ public class MainActivity extends AppCompatActivity {
             emptyCard.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
 
             TextView text = new TextView(this);
-            text.setText("今天没有剩余课程");
+            text.setText(viewingToday ? "今天暂无课程与日程" : "该日暂无课程与日程");
             text.setPadding(dp(18), dp(18), dp(18), dp(18));
             text.setTextSize(16f);
             text.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
@@ -908,86 +1015,203 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        int accent = getTimetableThemeColor();
-        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
-        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
-
-        for (TodayCourseItem item : courses) {
-            MaterialCardView card = new MaterialCardView(this);
-            card.setRadius(dp(24));
-            card.setCardElevation(0f);
-            card.setStrokeWidth(1);
-            card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
-            card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
-
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            cardLp.setMargins(0, 0, 0, dp(12));
-            card.setLayoutParams(cardLp);
-
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), dp(16), dp(16), dp(16));
-
-            LinearLayout leftCol = new LinearLayout(this);
-            leftCol.setOrientation(LinearLayout.VERTICAL);
-
-            TextView slot = new TextView(this);
-            slot.setText(SLOT_LABELS[item.slotIndex]);
-            slot.setTextColor(onSurface);
-            slot.setTextSize(13f);
-            slot.setTypeface(null, Typeface.BOLD);
-            leftCol.addView(slot);
-
-            TextView slotTime = new TextView(this);
-            slotTime.setText(String.format(Locale.getDefault(), "%02d:%02d", SLOT_START_SECONDS[item.slotIndex] / 3600, (SLOT_START_SECONDS[item.slotIndex] % 3600) / 60));
-            slotTime.setTextColor(onSurfaceVariant);
-            slotTime.setTextSize(11f);
-            slotTime.setPadding(0, dp(3), 0, 0);
-            leftCol.addView(slotTime);
-            row.addView(leftCol);
-
-            View divider = new View(this);
-            LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(dp(2), dp(34));
-            dividerLp.setMargins(dp(14), 0, dp(14), 0);
-            divider.setLayoutParams(dividerLp);
-            divider.setBackgroundColor(ColorUtils.setAlphaComponent(accent, 180));
-            row.addView(divider);
-
-            TextView name = new TextView(this);
-            String title = item.course.name + (item.course.isExperimental ? " [实验]" : "");
-            name.setText(formatCourseTitleForCard(title));
-            name.setTextColor(onSurface);
-            name.setTextSize(19f);
-            name.setTypeface(null, Typeface.BOLD);
-            name.setMaxLines(2);
-            name.setEllipsize(TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            name.setLayoutParams(nameLp);
-            row.addView(name);
-
-            String locationText = CampusBuildingStore.toStandardLocation(this, item.course.location);
-            if (locationText == null || locationText.trim().isEmpty()) {
-                locationText = "地点未定";
-            }
-            TextView location = new TextView(this);
-            location.setText(locationText);
-            location.setTextColor(ColorUtils.setAlphaComponent(accent, 220));
-            location.setTextSize(12f);
-            location.setTypeface(null, Typeface.BOLD);
-            location.setSingleLine(true);
-            location.setEllipsize(TextUtils.TruncateAt.END);
-            location.setMaxWidth(dp(110));
-            location.setPadding(dp(12), dp(8), dp(12), dp(8));
-            location.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(accent, 48), dp(14)));
-            row.addView(location);
-
-            card.addView(row);
+        for (TodayTimelineItem item : timelineItems) {
+            MaterialCardView card = item.type == TodayTimelineItem.TYPE_COURSE
+                    ? createCourseTimelineCard(item.courseItem)
+                    : createAgendaTimelineCard(item.agenda);
             todayCoursesContainer.addView(card);
         }
     }
 
-    private void renderTodayWeekOverview(int actualWeek, int today, int currentSeconds) {
+    private MaterialCardView createCourseTimelineCard(TodayCourseItem item) {
+        int accent = getTimetableThemeColor();
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+
+        MaterialCardView card = new MaterialCardView(this);
+        card.setRadius(dp(24));
+        card.setCardElevation(0f);
+        card.setStrokeWidth(1);
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+        card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardLp.setMargins(0, 0, 0, dp(12));
+        card.setLayoutParams(cardLp);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+        LinearLayout leftCol = new LinearLayout(this);
+        leftCol.setOrientation(LinearLayout.VERTICAL);
+
+        TextView slot = new TextView(this);
+        slot.setText(SLOT_LABELS[item.slotIndex]);
+        slot.setTextColor(onSurface);
+        slot.setTextSize(13f);
+        slot.setTypeface(null, Typeface.BOLD);
+        leftCol.addView(slot);
+
+        TextView slotTime = new TextView(this);
+        slotTime.setText(String.format(Locale.getDefault(), "%02d:%02d", SLOT_START_SECONDS[item.slotIndex] / 3600, (SLOT_START_SECONDS[item.slotIndex] % 3600) / 60));
+        slotTime.setTextColor(onSurfaceVariant);
+        slotTime.setTextSize(11f);
+        slotTime.setPadding(0, dp(3), 0, 0);
+        leftCol.addView(slotTime);
+        row.addView(leftCol);
+
+        View divider = new View(this);
+        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(dp(2), dp(34));
+        dividerLp.setMargins(dp(14), 0, dp(14), 0);
+        divider.setLayoutParams(dividerLp);
+        divider.setBackgroundColor(ColorUtils.setAlphaComponent(accent, 180));
+        row.addView(divider);
+
+        TextView name = new TextView(this);
+        String title = item.course.name + (item.course.isExperimental ? " [实验]" : "");
+        name.setText(formatCourseTitleForCard(title));
+        name.setTextColor(onSurface);
+        name.setTextSize(19f);
+        name.setTypeface(null, Typeface.BOLD);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        name.setLayoutParams(nameLp);
+        row.addView(name);
+
+        String locationText = CampusBuildingStore.toStandardLocation(this, item.course.location);
+        if (locationText == null || locationText.trim().isEmpty()) {
+            locationText = "地点未定";
+        }
+
+        TextView location = new TextView(this);
+        location.setText(locationText);
+        location.setTextColor(ColorUtils.setAlphaComponent(accent, 220));
+        location.setTextSize(12f);
+        location.setTypeface(null, Typeface.BOLD);
+        location.setSingleLine(true);
+        location.setEllipsize(TextUtils.TruncateAt.END);
+        location.setMaxWidth(dp(110));
+        location.setPadding(dp(12), dp(8), dp(12), dp(8));
+        location.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(accent, 48), dp(14)));
+        row.addView(location);
+
+        card.addView(row);
+        return card;
+    }
+
+    private MaterialCardView createAgendaTimelineCard(Agenda agenda) {
+        int accent = getTimetableThemeColor();
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+
+        MaterialCardView card = new MaterialCardView(this);
+        card.setRadius(dp(24));
+        card.setCardElevation(0f);
+        card.setStrokeWidth(1);
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+        card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardLp.setMargins(0, 0, 0, dp(12));
+        card.setLayoutParams(cardLp);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout leftCol = new LinearLayout(this);
+        leftCol.setOrientation(LinearLayout.VERTICAL);
+
+        TextView startTime = new TextView(this);
+        startTime.setText(formatMinute(agenda.startMinute));
+        startTime.setTextColor(onSurfaceVariant);
+        startTime.setTextSize(12f);
+        startTime.setTypeface(null, Typeface.BOLD);
+        leftCol.addView(startTime);
+
+        TextView endTime = new TextView(this);
+        endTime.setText(formatMinute(agenda.endMinute));
+        endTime.setTextColor(onSurfaceVariant);
+        endTime.setTextSize(12f);
+        endTime.setTypeface(null, Typeface.BOLD);
+        endTime.setPadding(0, dp(2), 0, 0);
+        leftCol.addView(endTime);
+        row.addView(leftCol);
+
+        View divider = new View(this);
+        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(dp(2), dp(36));
+        dividerLp.setMargins(dp(14), 0, dp(14), 0);
+        divider.setLayoutParams(dividerLp);
+        divider.setBackgroundColor(ColorUtils.setAlphaComponent(accent, 180));
+        row.addView(divider);
+
+        TextView title = new TextView(this);
+        title.setText(safeText(agenda.title));
+        title.setTextColor(onSurface);
+        title.setTextSize(18f);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        title.setLayoutParams(titleLp);
+        row.addView(title);
+
+        String locationText = CampusBuildingStore.toStandardLocation(this, safeText(agenda.location));
+        boolean hasLocation = !TextUtils.isEmpty(locationText) && !"未定".equals(locationText);
+
+        TextView badge = new TextView(this);
+        badge.setTextSize(12f);
+        badge.setTypeface(null, Typeface.BOLD);
+        badge.setPadding(dp(12), dp(7), dp(12), dp(7));
+        badge.setSingleLine(true);
+        badge.setEllipsize(TextUtils.TruncateAt.END);
+        badge.setMaxWidth(dp(138));
+        if (hasLocation) {
+            badge.setText(locationText);
+            int locationColor = ColorUtils.setAlphaComponent(accent, 228);
+            badge.setTextColor(locationColor);
+            badge.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(accent, 50), dp(14)));
+        } else {
+            badge.setText(priorityText(agenda.priority));
+            int priorityColor = priorityColor(agenda.priority, accent, onSurfaceVariant);
+            badge.setTextColor(ColorUtils.setAlphaComponent(priorityColor, 230));
+            badge.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(priorityColor, 48), dp(14)));
+        }
+        row.addView(badge);
+
+        content.addView(row);
+
+        String desc = safeText(agenda.description).trim();
+        if (!desc.isEmpty()) {
+            TextView descTv = new TextView(this);
+            descTv.setText(desc);
+            descTv.setTextColor(onSurfaceVariant);
+            descTv.setTextSize(13f);
+            descTv.setMaxLines(3);
+            descTv.setEllipsize(TextUtils.TruncateAt.END);
+            descTv.setPadding(0, dp(8), 0, 0);
+            content.addView(descTv);
+        }
+
+        card.addView(content);
+        card.setOnClickListener(v -> {
+            Calendar anchor = AgendaStorageManager.parseDateOrNull(agenda.date);
+            if (anchor == null) {
+                anchor = resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek());
+            }
+            showAgendaEditorSheet(agenda, anchor);
+        });
+        return card;
+    }
+
+    private void renderTodayWeekOverview(int actualWeek, int selectedDay, int currentDay, int currentSeconds) {
         if (layoutTodayWeekStrip == null) return;
         layoutTodayWeekStrip.removeAllViews();
         int accent = getTimetableThemeColor();
@@ -996,16 +1220,12 @@ public class MainActivity extends AppCompatActivity {
 
         int weekTotal = 0;
         int weekDone = 0;
-        Calendar now = Calendar.getInstance();
-        int currentDay = now.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY ? 7 : now.get(Calendar.DAY_OF_WEEK) - 1;
 
         for (int day = 1; day <= 7; day++) {
-            int dayCount = 0;
             for (Course c : allCourses) {
                 if (c == null || c.isRemark) continue;
                 if (c.dayOfWeek != day) continue;
                 if (c.weeks == null || !c.weeks.contains(actualWeek)) continue;
-                dayCount++;
                 weekTotal++;
                 int slot = Math.max(0, Math.min(SLOT_LABELS.length - 1, (c.startSection - 1) / 2));
                 if (day < currentDay || (day == currentDay && SLOT_END_SECONDS[slot] < currentSeconds)) {
@@ -1018,9 +1238,14 @@ public class MainActivity extends AppCompatActivity {
             chip.setGravity(Gravity.CENTER);
             chip.setTextSize(13f);
             chip.setTypeface(null, Typeface.BOLD);
-            chip.setTextColor(day == today ? pickReadableTextColor(accent) : onSurfaceVariant);
-            chip.setBackground(makeRoundedSolid(day == today ? accent : ColorUtils.setAlphaComponent(onSurface, 28), dp(14)));
+            chip.setTextColor(day == selectedDay ? pickReadableTextColor(accent) : onSurfaceVariant);
+            chip.setBackground(makeRoundedSolid(day == selectedDay ? accent : ColorUtils.setAlphaComponent(onSurface, 28), dp(14)));
             chip.setPadding(0, 0, 0, 0);
+            int targetDay = day;
+            chip.setOnClickListener(v -> {
+                selectedTodayDate = buildDateInAcademicWeek(actualWeek, targetDay);
+                refreshTodayPage();
+            });
 
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(54), 1f);
             lp.setMargins(dp(4), 0, dp(4), 0);
@@ -1034,6 +1259,50 @@ public class MainActivity extends AppCompatActivity {
         if (tvTodayWeekDone != null) {
             tvTodayWeekDone.setText("已上" + weekDone + "节");
         }
+    }
+
+    private int priorityColor(int priority, int accentColor, int fallback) {
+        if (priority == Agenda.PRIORITY_HIGH) {
+            return Color.parseColor("#D35400");
+        }
+        if (priority == Agenda.PRIORITY_LOW) {
+            return fallback;
+        }
+        return accentColor;
+    }
+
+    private String priorityText(int priority) {
+        if (priority == Agenda.PRIORITY_HIGH) {
+            return "高优先";
+        }
+        if (priority == Agenda.PRIORITY_LOW) {
+            return "低优先";
+        }
+        return "中优先";
+    }
+
+    private String repeatText(Agenda agenda) {
+        String repeat = agenda == null ? "" : safeText(agenda.repeatRule).toLowerCase(Locale.ROOT);
+        if (Agenda.REPEAT_DAILY.equals(repeat)) {
+            return "重复: 每天";
+        }
+        if (Agenda.REPEAT_WEEKLY.equals(repeat)) {
+            return "重复: 每周";
+        }
+        if (Agenda.REPEAT_MONTHLY.equals(repeat)) {
+            boolean monthEnd = Agenda.MONTHLY_MONTH_END.equals(safeText(agenda.monthlyStrategy).toLowerCase(Locale.ROOT));
+            return monthEnd ? "重复: 每月固定日(短月改月底)" : "重复: 每月固定日(短月跳过)";
+        }
+        return "重复: 不重复";
+    }
+
+    private String formatMinute(int minute) {
+        int clamped = Math.max(0, Math.min(24 * 60, minute));
+        return String.format(Locale.getDefault(), "%02d:%02d", clamped / 60, clamped % 60);
+    }
+
+    private String safeText(String text) {
+        return text == null ? "" : text;
     }
 
     private android.graphics.drawable.GradientDrawable makeRoundedSolid(int color, int radiusDp) {
@@ -1093,6 +1362,32 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private static final class TodayTimelineItem {
+        static final int TYPE_COURSE = 0;
+        static final int TYPE_AGENDA = 1;
+
+        final int type;
+        final int startMinute;
+        final TodayCourseItem courseItem;
+        final Agenda agenda;
+
+        private TodayTimelineItem(int type, int startMinute, TodayCourseItem courseItem, Agenda agenda) {
+            this.type = type;
+            this.startMinute = startMinute;
+            this.courseItem = courseItem;
+            this.agenda = agenda;
+        }
+
+        static TodayTimelineItem forCourse(TodayCourseItem item) {
+            int startMinute = SLOT_START_SECONDS[item.slotIndex] / 60;
+            return new TodayTimelineItem(TYPE_COURSE, startMinute, item, null);
+        }
+
+        static TodayTimelineItem forAgenda(Agenda agenda) {
+            return new TodayTimelineItem(TYPE_AGENDA, Math.max(0, agenda.startMinute), null, agenda);
+        }
+    }
+
     private void applyActiveHeaderStyle(TextView target, int backgroundColor, int outlineColor, boolean showGridLines) {
         if (target == null) return;
         target.setTextColor(pickReadableTextColor(backgroundColor));
@@ -1130,14 +1425,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        CampusBuildingStore.setRealtimeDeviceLocationTracking(this, true);
-
         NextCourseNotice next = buildTodayNextCourseMessage();
         if (next == null) {
             CampusBuildingStore.setRealtimeDeviceLocationTracking(this, false);
             cardNextCourseNotice.setVisibility(View.GONE);
             return;
         }
+
+        CampusBuildingStore.setRealtimeDeviceLocationTracking(this, true);
 
         applyNextCourseNoticeStyle();
         tvNextCourseNotice.setText(next.message);
@@ -1178,8 +1473,7 @@ public class MainActivity extends AppCompatActivity {
         int currentSeconds = now.get(Calendar.HOUR_OF_DAY) * 3600 + now.get(Calendar.MINUTE) * 60 + now.get(Calendar.SECOND);
         int[] starts = {8 * 3600, 10 * 3600, 14 * 3600, 16 * 3600, 19 * 3600};
 
-        Course nextCourse = null;
-        int nextStartSeconds = Integer.MAX_VALUE;
+        UpcomingNoticeItem best = null;
         for (Course c : allCourses) {
             if (c == null || c.isRemark) continue;
             if (c.dayOfWeek != today) continue;
@@ -1188,30 +1482,52 @@ public class MainActivity extends AppCompatActivity {
             int slot = (c.startSection - 1) / 2;
             if (slot < 0 || slot >= starts.length) continue;
             int start = starts[slot];
-            if (start > currentSeconds && start < nextStartSeconds) {
-                nextStartSeconds = start;
-                nextCourse = c;
+            if (start > currentSeconds && (best == null || start < best.startSeconds)) {
+                String courseLabel = c.name + (c.isExperimental ? "[实验]" : "");
+                best = UpcomingNoticeItem.forCourse(start, courseLabel, c.location);
             }
         }
 
-        if (nextCourse == null) return null;
-        int seconds = nextStartSeconds - currentSeconds;
-        String startTime = String.format(Locale.getDefault(), "%02d:%02d", nextStartSeconds / 3600, (nextStartSeconds % 3600) / 60);
-        String location = CampusBuildingStore.toStandardLocation(this, nextCourse.location);
-        String courseLabel = nextCourse.name + (nextCourse.isExperimental ? "[实验]" : "");
+        List<Agenda> todayAgendas = AgendaStorageManager.queryAgendasByDate(this, now);
+        for (Agenda agenda : todayAgendas) {
+            if (agenda == null) continue;
+            int start = Math.max(0, agenda.startMinute) * 60;
+            if (start <= currentSeconds) continue;
+            if (best == null || start < best.startSeconds) {
+                best = UpcomingNoticeItem.forAgenda(start, safeText(agenda.title), safeText(agenda.location));
+            }
+        }
+
+        if (best == null) return null;
+
+        int seconds = best.startSeconds - currentSeconds;
+        if (seconds <= 0 || seconds > NEXT_NOTICE_WINDOW_SECONDS) {
+            return null;
+        }
+
+        String startTime = String.format(Locale.getDefault(), "%02d:%02d", best.startSeconds / 3600, (best.startSeconds % 3600) / 60);
+        String location = CampusBuildingStore.toStandardLocation(this, best.locationRaw);
+        boolean hasLocation = !TextUtils.isEmpty(location) && !"未定".equals(location);
 
         StringBuilder plainBuilder = new StringBuilder();
-        plainBuilder.append("下节 ").append(startTime).append(" ").append(courseLabel)
-            .append("\n还有").append(formatDuration(seconds)).append("，地点:").append(location);
+        plainBuilder.append(best.isAgenda ? "即将开始 " : "下节课 ")
+                .append(startTime)
+                .append(" ")
+                .append(TextUtils.isEmpty(best.title) ? (best.isAgenda ? "未命名日程" : "未命名课程") : best.title)
+                .append("\n还有")
+                .append(formatDuration(seconds));
 
-        if (CampusBuildingStore.hasLocationPermission(this)) {
-            CampusBuildingStore.DistanceInfo distanceInfo = CampusBuildingStore.estimateDistanceFromDevice(this, nextCourse.location, false);
+        if (hasLocation) {
+            plainBuilder.append("，地点").append(location);
+        }
+
+        if (hasLocation && CampusBuildingStore.hasLocationPermission(this)) {
+            CampusBuildingStore.DistanceInfo distanceInfo = CampusBuildingStore.estimateDistanceFromDevice(this, best.locationRaw, false);
             if (distanceInfo.available) {
-                int walkSeconds = Math.max(1, Math.round(distanceInfo.meters / 1.35f));
                 if (distanceInfo.meters < 100f) {
-                    plainBuilder.append("\n在附近，步行约")
-                            .append(formatDuration(walkSeconds));
+                    plainBuilder.append("\n地点在附近");
                 } else {
+                    int walkSeconds = Math.max(1, Math.round(distanceInfo.meters / 1.35f));
                     plainBuilder.append("\n距离约")
                             .append(formatDistanceMeters(distanceInfo.meters))
                             .append("，步行约")
@@ -1226,11 +1542,33 @@ public class MainActivity extends AppCompatActivity {
         if (timeStart >= 0) {
             styled.setSpan(new StyleSpan(Typeface.BOLD), timeStart, timeStart + startTime.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-        int locStart = plain.lastIndexOf(location);
-        if (locStart >= 0) {
+        int locStart = hasLocation ? plain.lastIndexOf(location) : -1;
+        if (locStart >= 0 && hasLocation) {
             styled.setSpan(new StyleSpan(Typeface.BOLD), locStart, locStart + location.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         return new NextCourseNotice(styled);
+    }
+
+    private static final class UpcomingNoticeItem {
+        final boolean isAgenda;
+        final int startSeconds;
+        final String title;
+        final String locationRaw;
+
+        private UpcomingNoticeItem(boolean isAgenda, int startSeconds, String title, String locationRaw) {
+            this.isAgenda = isAgenda;
+            this.startSeconds = startSeconds;
+            this.title = title;
+            this.locationRaw = locationRaw;
+        }
+
+        static UpcomingNoticeItem forCourse(int startSeconds, String title, String locationRaw) {
+            return new UpcomingNoticeItem(false, startSeconds, title, locationRaw);
+        }
+
+        static UpcomingNoticeItem forAgenda(int startSeconds, String title, String locationRaw) {
+            return new UpcomingNoticeItem(true, startSeconds, title, locationRaw);
+        }
     }
 
     private static class NextCourseNotice {
@@ -1825,7 +2163,7 @@ private void extractAllTables(String passedCookie) {
         input.setText(c.teacher == null ? "" : c.teacher);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
 
-        new MaterialAlertDialogBuilder(this)
+        newMaterialYouDialogBuilder()
                 .setTitle("自定义教师")
                 .setView(input)
                 .setNegativeButton("取消", null)
@@ -1842,7 +2180,7 @@ private void extractAllTables(String passedCookie) {
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setText(currentRoom == null ? "" : currentRoom);
 
-        new MaterialAlertDialogBuilder(this)
+        newMaterialYouDialogBuilder()
                 .setTitle("设置教室位置 - " + buildingName)
                 .setView(input)
                 .setNegativeButton("取消", null)
@@ -2196,6 +2534,653 @@ private void extractAllTables(String passedCookie) {
         dialog.show();
     }
 
+    private void showScheduleDayArrangementSheet(Calendar date, int week) {
+        Calendar target = cloneAsDay(date);
+        int day = toMondayFirstDay(target);
+        List<TodayCourseItem> courses = buildDateCourseItems(week, day);
+        List<Agenda> agendas = AgendaStorageManager.queryAgendasByDate(this, target);
+
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(18), dp(18), dp(18), dp(18));
+        scrollView.addView(layout, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView title = new TextView(this);
+        title.setText("当日安排 " + formatDateWithWeek(target));
+        title.setTextSize(18f);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        layout.addView(title);
+
+        TextView courseSection = new TextView(this);
+        courseSection.setText("课程");
+        courseSection.setPadding(0, dp(14), 0, dp(8));
+        courseSection.setTextSize(14f);
+        courseSection.setTypeface(null, Typeface.BOLD);
+        courseSection.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        layout.addView(courseSection);
+
+        if (courses.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("当日无课程");
+            empty.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+            empty.setPadding(0, 0, 0, dp(8));
+            layout.addView(empty);
+        } else {
+            for (TodayCourseItem item : courses) {
+                MaterialCardView card = createCourseTimelineCard(item);
+                card.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    String colorKey = buildCourseColorKey(item.course.name, item.course.isExperimental);
+                    selectedCourseColorKey = colorKey;
+                    drawGrid();
+                    showCourseDetailSheet(item.course, colorKey);
+                });
+                layout.addView(card);
+            }
+        }
+
+        TextView agendaSection = new TextView(this);
+        agendaSection.setText("日程");
+        agendaSection.setPadding(0, dp(10), 0, dp(8));
+        agendaSection.setTextSize(14f);
+        agendaSection.setTypeface(null, Typeface.BOLD);
+        agendaSection.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        layout.addView(agendaSection);
+
+        if (agendas.isEmpty()) {
+            TextView emptyAgenda = new TextView(this);
+            emptyAgenda.setText("当日无日程");
+            emptyAgenda.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+            emptyAgenda.setPadding(0, 0, 0, dp(8));
+            layout.addView(emptyAgenda);
+        } else {
+            for (Agenda agenda : agendas) {
+                MaterialCardView card = createAgendaTimelineCard(agenda);
+                card.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    showAgendaEditorSheet(agenda, target);
+                });
+                layout.addView(card);
+            }
+        }
+
+        MaterialButton addButton = new MaterialButton(this);
+        addButton.setText("新增日程");
+        addButton.setAllCaps(false);
+        addButton.setCornerRadius(dp(12));
+        addButton.setBackgroundTintList(ColorStateList.valueOf(getTimetableThemeColor()));
+        addButton.setTextColor(pickReadableTextColor(getTimetableThemeColor()));
+        addButton.setOnClickListener(v -> {
+            dialog.dismiss();
+            showAgendaEditorSheet(null, target);
+        });
+        LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        addLp.setMargins(0, dp(8), 0, 0);
+        addButton.setLayoutParams(addLp);
+        layout.addView(addButton);
+
+        dialog.setContentView(scrollView);
+        dialog.show();
+    }
+
+    private void showAgendaEditorSheet(Agenda source, Calendar preferredDate) {
+        Calendar initialDate;
+        if (source != null) {
+            initialDate = AgendaStorageManager.parseDateOrNull(source.date);
+        } else {
+            initialDate = null;
+        }
+        if (initialDate == null) {
+            initialDate = preferredDate == null ? cloneAsDay(Calendar.getInstance()) : cloneAsDay(preferredDate);
+        }
+
+        final Calendar[] selectedDate = {cloneAsDay(initialDate)};
+        final int[] startMinute = {source == null ? 8 * 60 : Math.max(0, source.startMinute)};
+        final int[] endMinute = {source == null ? 9 * 60 : Math.min(24 * 60, source.endMinute)};
+        if (endMinute[0] <= startMinute[0]) {
+            endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
+        }
+
+        final int[] priority = {source == null ? Agenda.PRIORITY_LOW : normalizeAgendaPriority(source.priority)};
+        final String[] repeatRule = {source == null ? Agenda.REPEAT_NONE : normalizeAgendaRepeat(source.repeatRule)};
+        final String[] monthlyStrategy = {source == null ? Agenda.MONTHLY_SKIP : normalizeAgendaMonthlyStrategy(source.monthlyStrategy)};
+        final String[] locationValue = {source == null ? "" : normalizeAgendaLocationInput(source.location)};
+
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(20), dp(20), dp(20), dp(20));
+        scrollView.addView(layout, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView sheetTitle = new TextView(this);
+        sheetTitle.setText(source == null ? "新增日程" : "编辑日程");
+        sheetTitle.setTextSize(18f);
+        sheetTitle.setTypeface(null, Typeface.BOLD);
+        sheetTitle.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        layout.addView(sheetTitle);
+
+        EditText inputTitle = new EditText(this);
+        inputTitle.setHint("待办标题");
+        inputTitle.setText(source == null ? "" : safeText(source.title));
+        inputTitle.setSingleLine(true);
+        styleAgendaEditorInput(inputTitle);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.setMargins(0, dp(14), 0, 0);
+        inputTitle.setLayoutParams(titleLp);
+        layout.addView(inputTitle);
+
+        EditText inputDesc = new EditText(this);
+        inputDesc.setHint("详细描述（可选）");
+        inputDesc.setText(source == null ? "" : safeText(source.description));
+        inputDesc.setMinLines(3);
+        inputDesc.setMaxLines(6);
+        inputDesc.setGravity(Gravity.TOP | Gravity.START);
+        styleAgendaEditorInput(inputDesc);
+        LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        descLp.setMargins(0, dp(10), 0, 0);
+        inputDesc.setLayoutParams(descLp);
+        layout.addView(inputDesc);
+
+        MaterialButton btnDate = createAgendaEditorButton();
+        MaterialButton btnStart = createAgendaEditorButton();
+        MaterialButton btnEnd = createAgendaEditorButton();
+        MaterialButton btnPriority = createAgendaEditorButton();
+        MaterialButton btnRepeat = createAgendaEditorButton();
+        MaterialButton btnMonthlyStrategy = createAgendaEditorButton();
+        MaterialButton btnLocation = createAgendaEditorButton();
+
+        LinearLayout.LayoutParams dateLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dateLp.setMargins(0, dp(10), 0, 0);
+        btnDate.setLayoutParams(dateLp);
+        layout.addView(btnDate);
+        layout.addView(buildAgendaEditorButtonRow(btnStart, btnEnd));
+
+        LinearLayout.LayoutParams priorityLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        priorityLp.setMargins(0, dp(10), 0, 0);
+        btnPriority.setLayoutParams(priorityLp);
+        layout.addView(btnPriority);
+
+        LinearLayout.LayoutParams repeatLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        repeatLp.setMargins(0, dp(10), 0, 0);
+        btnRepeat.setLayoutParams(repeatLp);
+        layout.addView(btnRepeat);
+
+        LinearLayout.LayoutParams monthlyLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        monthlyLp.setMargins(0, dp(10), 0, 0);
+        btnMonthlyStrategy.setLayoutParams(monthlyLp);
+        layout.addView(btnMonthlyStrategy);
+
+        LinearLayout.LayoutParams locationLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        locationLp.setMargins(0, dp(10), 0, 0);
+        btnLocation.setLayoutParams(locationLp);
+        layout.addView(btnLocation);
+
+        refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+            selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+
+        btnDate.setOnClickListener(v -> showAgendaDatePicker(selectedDate[0], pickedDate -> {
+            selectedDate[0] = cloneAsDay(pickedDate);
+            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+        }));
+
+        btnStart.setOnClickListener(v -> showMinutePicker(startMinute[0], minute -> {
+            startMinute[0] = minute;
+            if (endMinute[0] <= startMinute[0]) {
+                endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
+            }
+            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+        }));
+
+        btnEnd.setOnClickListener(v -> showMinutePicker(endMinute[0], minute -> {
+            endMinute[0] = minute;
+            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+        }));
+
+        btnPriority.setOnClickListener(v -> {
+            try {
+                final int[] picked = {clampIndex(indexOfInt(AGENDA_PRIORITY_VALUES, priority[0]), AGENDA_PRIORITY_VALUES.length)};
+                newMaterialYouDialogBuilder()
+                        .setTitle("选择优先级")
+                        .setSingleChoiceItems(AGENDA_PRIORITY_LABELS, picked[0], (d, which) -> picked[0] = which)
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("确定", (d, which) -> {
+                            int index = clampIndex(picked[0], AGENDA_PRIORITY_VALUES.length);
+                            priority[0] = AGENDA_PRIORITY_VALUES[index];
+                            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+                        })
+                        .show();
+            } catch (Exception e) {
+                java.io.File f = new java.io.File(getExternalFilesDir(null), "err.txt"); try { java.io.PrintWriter pw = new java.io.PrintWriter(f); e.printStackTrace(pw); pw.close(); } catch(Exception ex){}
+            }
+        });
+
+        btnRepeat.setOnClickListener(v -> {
+            try {
+                final int[] picked = {clampIndex(indexOfString(AGENDA_REPEAT_VALUES, repeatRule[0]), AGENDA_REPEAT_VALUES.length)};
+                newMaterialYouDialogBuilder()
+                        .setTitle("选择重复")
+                        .setSingleChoiceItems(AGENDA_REPEAT_LABELS, picked[0], (d, which) -> picked[0] = which)
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("确定", (d, which) -> {
+                            int index = clampIndex(picked[0], AGENDA_REPEAT_VALUES.length);
+                            repeatRule[0] = AGENDA_REPEAT_VALUES[index];
+                            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+                        })
+                        .show();
+            } catch (Exception e) {
+                Toast.makeText(this, "打开重复规则失败", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        btnMonthlyStrategy.setOnClickListener(v -> {
+            try {
+                final int[] picked = {clampIndex(indexOfString(AGENDA_MONTHLY_VALUES, monthlyStrategy[0]), AGENDA_MONTHLY_VALUES.length)};
+                newMaterialYouDialogBuilder()
+                        .setTitle("短月策略")
+                        .setSingleChoiceItems(AGENDA_MONTHLY_LABELS, picked[0], (d, which) -> picked[0] = which)
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("确定", (d, which) -> {
+                            int index = clampIndex(picked[0], AGENDA_MONTHLY_VALUES.length);
+                            monthlyStrategy[0] = AGENDA_MONTHLY_VALUES[index];
+                            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+                        })
+                        .show();
+            } catch (Exception e) {
+                Toast.makeText(this, "打开短月策略失败", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        btnLocation.setOnClickListener(v -> showAgendaLocationPicker(locationValue[0], picked -> {
+            locationValue[0] = normalizeAgendaLocationInput(picked);
+            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+        }));
+
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.setPadding(0, dp(14), 0, 0);
+        layout.addView(actionRow);
+
+        if (source != null) {
+            MaterialButton deleteButton = createAgendaActionButton(false);
+            deleteButton.setText("删除");
+            LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            delLp.setMargins(0, 0, dp(8), 0);
+            deleteButton.setLayoutParams(delLp);
+            deleteButton.setOnClickListener(v -> newMaterialYouDialogBuilder()
+                    .setTitle("删除日程")
+                    .setMessage("确定删除该日程吗？")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("删除", (d, which) -> {
+                        if (AgendaStorageManager.deleteAgenda(this, source.id)) {
+                            Toast.makeText(this, "已删除日程", Toast.LENGTH_SHORT).show();
+                            dialog.dismiss();
+                            selectedTodayDate = cloneAsDay(selectedDate[0]);
+                            refreshTodayPage();
+                            drawGrid();
+                        } else {
+                            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .show());
+            actionRow.addView(deleteButton);
+        }
+
+            MaterialButton saveButton = createAgendaActionButton(true);
+        saveButton.setText(source == null ? "新增" : "保存");
+        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        saveButton.setLayoutParams(saveLp);
+        actionRow.addView(saveButton);
+
+        saveButton.setOnClickListener(v -> {
+            String title = safeText(inputTitle.getText() == null ? "" : inputTitle.getText().toString()).trim();
+            if (title.isEmpty()) {
+                Toast.makeText(this, "请输入日程标题", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (endMinute[0] <= startMinute[0]) {
+                Toast.makeText(this, "结束时间必须晚于开始时间", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            Agenda agenda = source == null ? new Agenda() : source.copy();
+            agenda.title = title;
+            agenda.description = safeText(inputDesc.getText() == null ? "" : inputDesc.getText().toString()).trim();
+            agenda.date = AgendaStorageManager.formatDate(selectedDate[0]);
+            agenda.startMinute = startMinute[0];
+            agenda.endMinute = endMinute[0];
+            agenda.location = normalizeAgendaLocationInput(locationValue[0]);
+            agenda.priority = priority[0];
+            agenda.repeatRule = repeatRule[0];
+            agenda.monthlyStrategy = Agenda.REPEAT_MONTHLY.equals(repeatRule[0]) ? monthlyStrategy[0] : Agenda.MONTHLY_SKIP;
+
+            boolean success;
+            if (source == null) {
+                long id = AgendaStorageManager.createAgenda(this, agenda);
+                success = id > 0;
+            } else {
+                success = AgendaStorageManager.updateAgenda(this, agenda);
+            }
+
+            if (!success) {
+                Toast.makeText(this, source == null ? "新增失败" : "保存失败", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            Toast.makeText(this, source == null ? "已新增日程" : "已保存日程", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+            selectedTodayDate = cloneAsDay(selectedDate[0]);
+            refreshTodayPage();
+            drawGrid();
+        });
+
+        dialog.setContentView(scrollView);
+        dialog.show();
+    }
+
+    private void refreshAgendaEditorButtons(MaterialButton btnDate, MaterialButton btnStart, MaterialButton btnEnd,
+                                            MaterialButton btnPriority, MaterialButton btnRepeat,
+                                            MaterialButton btnMonthlyStrategy, MaterialButton btnLocation,
+                                            Calendar date, int startMinute, int endMinute,
+                                            int priority, String repeatRule, String monthlyStrategy,
+                                            String locationText) {
+        btnDate.setText(formatDateWithWeek(date));
+        btnStart.setText(formatMinute(startMinute));
+        btnEnd.setText(formatMinute(endMinute));
+        btnPriority.setText(priorityText(priority));
+        btnRepeat.setText(agendaRepeatLabel(repeatRule));
+        btnMonthlyStrategy.setText(agendaMonthlyLabel(monthlyStrategy));
+        btnLocation.setText(formatAgendaLocationButtonText(locationText));
+        btnMonthlyStrategy.setVisibility(Agenda.REPEAT_MONTHLY.equals(repeatRule) ? View.VISIBLE : View.GONE);
+    }
+
+    private void styleAgendaEditorInput(EditText input) {
+        if (input == null) {
+            return;
+        }
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+        input.setTextColor(onSurface);
+        input.setHintTextColor(ColorUtils.setAlphaComponent(onSurfaceVariant, 180));
+        input.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 34), dp(14)));
+    }
+
+    private MaterialButton createAgendaEditorButton() {
+        MaterialButton button = new MaterialButton(this);
+        button.setAllCaps(false);
+        button.setCornerRadius(dp(14));
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setMinHeight(dp(48));
+        button.setStrokeWidth(0);
+        button.setSingleLine(true);
+        button.setEllipsize(TextUtils.TruncateAt.END);
+        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        button.setBackgroundTintList(ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 34)));
+        button.setTextColor(onSurface);
+        return button;
+    }
+
+    private MaterialButton createAgendaActionButton(boolean primary) {
+        MaterialButton button = createAgendaEditorButton();
+        button.setCornerRadius(dp(12));
+        if (primary) {
+            int accent = getTimetableThemeColor();
+            button.setBackgroundTintList(ColorStateList.valueOf(accent));
+            button.setTextColor(pickReadableTextColor(accent));
+        }
+        return button;
+    }
+
+    private LinearLayout buildAgendaEditorButtonRow(MaterialButton left, MaterialButton right) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowLp.setMargins(0, dp(10), 0, 0);
+        row.setLayoutParams(rowLp);
+
+        LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        leftLp.setMargins(0, 0, dp(6), 0);
+        left.setLayoutParams(leftLp);
+
+        LinearLayout.LayoutParams rightLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        rightLp.setMargins(dp(6), 0, 0, 0);
+        right.setLayoutParams(rightLp);
+
+        row.addView(left);
+        row.addView(right);
+        return row;
+    }
+
+    private String formatAgendaLocationButtonText(String locationText) {
+        String normalized = normalizeAgendaLocationInput(locationText);
+        if (normalized.isEmpty()) {
+            return "选择地点";
+        }
+        String standard = CampusBuildingStore.toStandardLocation(this, normalized);
+        if (!TextUtils.isEmpty(standard) && !"未定".equals(standard)) {
+            return standard;
+        }
+        return normalized;
+    }
+
+    private String normalizeAgendaLocationInput(String rawLocation) {
+        String raw = safeText(rawLocation).trim();
+        while (raw.startsWith("@") || raw.startsWith("＠")) {
+            raw = raw.substring(1).trim();
+        }
+        if (raw.isEmpty()) {
+            return "";
+        }
+        CampusBuildingStore.ResolvedLocation resolved = CampusBuildingStore.resolveLocation(this, raw);
+        if (resolved == null) {
+            return raw;
+        }
+        String merged = CampusBuildingStore.buildLocationText(resolved.buildingName, resolved.roomNumber);
+        return merged.isEmpty() ? safeText(resolved.buildingName) : merged;
+    }
+
+    private com.google.android.material.dialog.MaterialAlertDialogBuilder newMaterialYouDialogBuilder() {
+        // Use the activity's AppCompat/Material3 context directly to satisfy ThemeEnforcement.
+        return new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert));
+    }
+
+
+    private void showAgendaLocationPicker(String currentLocation, OnAgendaLocationPick callback) {
+        List<String> options = new ArrayList<>();
+        options.add("不设置");
+        try {
+            List<String> buildingNames = CampusBuildingStore.getBuildingNames(this);
+            if (buildingNames != null && !buildingNames.isEmpty()) {
+                options.addAll(buildingNames);
+            }
+        } catch (Exception ignored) {
+        }
+
+        CampusBuildingStore.ResolvedLocation resolved = null;
+        try {
+            resolved = CampusBuildingStore.resolveLocation(this, currentLocation);
+        } catch (Exception ignored) {
+        }
+
+        try {
+            String currentBuilding = resolved == null ? "" : safeText(resolved.buildingName);
+            String currentRoom = resolved == null ? "" : safeText(resolved.roomNumber);
+            int checked = currentBuilding.isEmpty() ? 0 : options.indexOf(currentBuilding);
+            checked = clampIndex(checked, options.size());
+
+            final int[] picked = {checked};
+            newMaterialYouDialogBuilder()
+                    .setTitle("设置地点")
+                    .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
+                    .setNeutralButton("自定义", (dialog, which) -> showAgendaCustomLocationInputDialog(currentLocation, callback))
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("确定", (dialog, which) -> {
+                        int index = clampIndex(picked[0], options.size());
+                        String selected = options.get(index);
+                        if ("不设置".equals(selected)) {
+                            if (callback != null) {
+                                callback.onPick("");
+                            }
+                            return;
+                        }
+                        String roomSeed = selected.equals(currentBuilding) ? currentRoom : "";
+                        showRoomNumberInputDialog(selected, roomSeed, room -> {
+                            if (callback != null) {
+                                callback.onPick(CampusBuildingStore.buildLocationText(selected, room));
+                            }
+                        });
+                    })
+                    .show();
+        } catch (Exception e) {
+            Toast.makeText(this, "地点选择器打开失败，已切换为手动输入", Toast.LENGTH_SHORT).show();
+            showAgendaCustomLocationInputDialog(currentLocation, callback);
+        }
+    }
+
+    private int clampIndex(int index, int size) {
+        if (size <= 0) {
+            return 0;
+        }
+        if (index < 0) {
+            return 0;
+        }
+        if (index >= size) {
+            return size - 1;
+        }
+        return index;
+    }
+
+    private void showAgendaCustomLocationInputDialog(String currentLocation, OnAgendaLocationPick callback) {
+        EditText input = new EditText(this);
+        input.setHint("输入自定义地点（可留空）");
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        input.setText(safeText(currentLocation));
+        styleAgendaEditorInput(input);
+
+        newMaterialYouDialogBuilder()
+                .setTitle("自定义地点")
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    String value = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (callback != null) {
+                        callback.onPick(value);
+                    }
+                })
+                .show();
+    }
+
+    private void showMinutePicker(int initialMinute, OnMinutePick callback) {
+        int hour = Math.max(0, Math.min(23, initialMinute / 60));
+        int minute = Math.max(0, Math.min(59, initialMinute % 60));
+        MaterialTimePicker picker = new MaterialTimePicker.Builder()
+                .setTitleText("选择时间")
+                .setTimeFormat(TimeFormat.CLOCK_24H)
+                .setHour(hour)
+                .setMinute(minute)
+                .build();
+        picker.addOnPositiveButtonClickListener(v -> {
+            if (callback != null) {
+                callback.onPick(picker.getHour() * 60 + picker.getMinute());
+            }
+        });
+        picker.show(getSupportFragmentManager(), "agenda_time_picker_" + System.currentTimeMillis());
+    }
+
+    private void showAgendaDatePicker(Calendar initialDate, OnDatePick callback) {
+        Calendar seed = initialDate == null ? cloneAsDay(Calendar.getInstance()) : cloneAsDay(initialDate);
+        MaterialDatePicker<Long> picker = MaterialDatePicker.Builder.datePicker()
+                .setTitleText("选择日期")
+                .setSelection(seed.getTimeInMillis())
+                .build();
+        picker.addOnPositiveButtonClickListener(selection -> {
+            if (selection == null) {
+                return;
+            }
+            Calendar picked = Calendar.getInstance();
+            picked.setTimeInMillis(selection);
+            picked = cloneAsDay(picked);
+            if (callback != null) {
+                callback.onPick(picked);
+            }
+        });
+        picker.show(getSupportFragmentManager(), "agenda_date_picker_" + System.currentTimeMillis());
+    }
+
+    private int normalizeAgendaPriority(int priority) {
+        if (priority < Agenda.PRIORITY_LOW || priority > Agenda.PRIORITY_HIGH) {
+            return Agenda.PRIORITY_LOW;
+        }
+        return priority;
+    }
+
+    private String normalizeAgendaRepeat(String repeatRule) {
+        String rule = safeText(repeatRule).toLowerCase(Locale.ROOT);
+        if (Agenda.REPEAT_DAILY.equals(rule) || Agenda.REPEAT_WEEKLY.equals(rule) || Agenda.REPEAT_MONTHLY.equals(rule)) {
+            return rule;
+        }
+        return Agenda.REPEAT_NONE;
+    }
+
+    private String normalizeAgendaMonthlyStrategy(String strategy) {
+        String value = safeText(strategy).toLowerCase(Locale.ROOT);
+        if (Agenda.MONTHLY_MONTH_END.equals(value)) {
+            return Agenda.MONTHLY_MONTH_END;
+        }
+        return Agenda.MONTHLY_SKIP;
+    }
+
+    private String formatDateWithWeek(Calendar date) {
+        Calendar target = cloneAsDay(date);
+        int day = toMondayFirstDay(target);
+        return String.format(Locale.getDefault(), "%04d-%02d-%02d 周%s",
+                target.get(Calendar.YEAR),
+                target.get(Calendar.MONTH) + 1,
+                target.get(Calendar.DAY_OF_MONTH),
+                WEEK_DAY_LABELS[Math.max(0, Math.min(6, day - 1))]);
+    }
+
+    private String agendaRepeatLabel(String repeatRule) {
+        int index = indexOfString(AGENDA_REPEAT_VALUES, normalizeAgendaRepeat(repeatRule));
+        return AGENDA_REPEAT_LABELS[index];
+    }
+
+    private String agendaMonthlyLabel(String strategy) {
+        int index = indexOfString(AGENDA_MONTHLY_VALUES, normalizeAgendaMonthlyStrategy(strategy));
+        return AGENDA_MONTHLY_LABELS[index];
+    }
+
+    private int indexOfInt(int[] array, int value) {
+        for (int i = 0; i < array.length; i++) {
+            if (array[i] == value) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private int indexOfString(String[] array, String value) {
+        String target = safeText(value);
+        for (int i = 0; i < array.length; i++) {
+            if (array[i].equals(target)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
     private TextView addEditableInfoRow(LinearLayout parent, String label, String value, View.OnClickListener editAction,
                                         int labelColor, int valueColor) {
         LinearLayout row = new LinearLayout(this);
@@ -2275,7 +3260,7 @@ private void extractAllTables(String passedCookie) {
             checked = options.size() - 1;
         }
         final int[] picked = {checked};
-        new MaterialAlertDialogBuilder(this)
+        newMaterialYouDialogBuilder()
                 .setTitle("选择教师")
                 .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
                 .setNeutralButton("自定义", (dialog, which) -> showCustomTeacherInputDialog(c, afterPick))
@@ -2300,7 +3285,7 @@ private void extractAllTables(String passedCookie) {
         if (checked < 0) checked = 0;
 
         final int[] picked = {checked};
-        new MaterialAlertDialogBuilder(this)
+        newMaterialYouDialogBuilder()
                 .setTitle("选择上课地点")
                 .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
                 .setNegativeButton("取消", null)
@@ -2333,7 +3318,7 @@ private void extractAllTables(String passedCookie) {
             checked[i] = weekSet.contains(weekNo);
         }
 
-        new MaterialAlertDialogBuilder(this)
+        newMaterialYouDialogBuilder()
                 .setTitle("选择上课周数")
                 .setMultiChoiceItems(labels, checked, (dialog, which, isChecked) -> checked[which] = isChecked)
                 .setNegativeButton("取消", null)
@@ -2436,6 +3421,18 @@ private void extractAllTables(String passedCookie) {
 
     private interface OnRoomConfirm {
         void onConfirm(String roomNumber);
+    }
+
+    private interface OnAgendaLocationPick {
+        void onPick(String location);
+    }
+
+    private interface OnMinutePick {
+        void onPick(int minute);
+    }
+
+    private interface OnDatePick {
+        void onPick(Calendar date);
     }
 
     private interface OnPalettePickListener {

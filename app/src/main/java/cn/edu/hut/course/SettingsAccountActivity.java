@@ -20,7 +20,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.datepicker.MaterialDatePicker;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import androidx.appcompat.app.AlertDialog;
 
 import cn.edu.hut.course.data.CourseStorageManager;
 
@@ -296,11 +296,6 @@ public class SettingsAccountActivity extends AppCompatActivity {
             }
 
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return false;
-            }
-
-            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return false;
             }
@@ -321,7 +316,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private void showConfirmActionDialog(String title, String message, Runnable onConfirm) {
-        new MaterialAlertDialogBuilder(this)
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
                 .setTitle(title)
                 .setMessage(message)
                 .setNegativeButton("取消", null)

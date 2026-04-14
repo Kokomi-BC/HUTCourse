@@ -363,6 +363,18 @@
                     </com.google.android.material.card.MaterialCardView>
                 </LinearLayout>
             </ScrollView>
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabAddAgenda"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_marginEnd="20dp"
+                android:layout_marginBottom="24dp"
+                android:contentDescription="新增日程"
+                android:src="@android:drawable/ic_input_add"
+                app:backgroundTint="?attr/colorPrimary"
+                app:tint="?attr/colorOnPrimary" />
         </FrameLayout>
 
         <FrameLayout

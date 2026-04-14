@@ -49,22 +49,50 @@ public final class SkillCommandCenter {
             return new CommandBatchResult("无命令可执行", "无可执行操作");
         }
         StringBuilder modelSb = new StringBuilder();
-        StringBuilder uiSb = new StringBuilder();
+        List<String> uiLines = new ArrayList<>();
         int index = 1;
         for (String raw : commands) {
             SingleExecution single = executeSingle(context, raw);
             modelSb.append(index).append(". ").append(raw).append(" => ").append(single.modelResult).append("\n");
             if (single.userFeedback != null && !single.userFeedback.trim().isEmpty()) {
-                uiSb.append(single.userFeedback.trim()).append("\n");
+                uiLines.add(toFormalFeedbackLine(single.userFeedback));
             }
             index++;
         }
         String modelFeedback = modelSb.toString().trim();
-        String userFeedback = uiSb.toString().trim();
-        if (userFeedback.isEmpty()) {
-            userFeedback = "已执行工具操作";
+
+        String userFeedback;
+        if (uiLines.isEmpty()) {
+            userFeedback = "工具执行情况：\n已完成本轮工具调用。";
+        } else if (uiLines.size() == 1) {
+            userFeedback = "工具执行情况：\n" + uiLines.get(0);
+        } else {
+            StringBuilder uiSb = new StringBuilder();
+            uiSb.append("工具执行情况：\n");
+            for (int i = 0; i < uiLines.size(); i++) {
+                uiSb.append("- ").append(uiLines.get(i));
+                if (i < uiLines.size() - 1) {
+                    uiSb.append("\n");
+                }
+            }
+            userFeedback = uiSb.toString();
         }
         return new CommandBatchResult(modelFeedback, userFeedback);
+    }
+
+    private static String toFormalFeedbackLine(String raw) {
+        String text = raw == null ? "" : raw.trim();
+        if (text.isEmpty()) {
+            return "已完成工具调用。";
+        }
+        String normalized = text.replaceAll("[。！？!?]+$", "");
+        if (normalized.startsWith("已")
+                || normalized.startsWith("无")
+                || normalized.startsWith("存在")
+                || normalized.contains("失败")) {
+            return normalized + "。";
+        }
+        return "已完成：" + normalized + "。";
     }
 
     private static SingleExecution executeSingle(Context context, String rawCommand) {
@@ -131,7 +159,45 @@ public final class SkillCommandCenter {
             return new SingleExecution(result, "已按关键词查询课程");
         }
 
-        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词>";
+        if ("agenda.read.today".equals(lower)) {
+            String result = AgendaSkillManager.readToday(context);
+            return new SingleExecution(result, "已查询今日日程");
+        }
+        if (lower.startsWith("agenda.read.date ")) {
+            String dateArg = cmd.substring("agenda.read.date ".length()).trim();
+            String result = AgendaSkillManager.readByDate(context, dateArg);
+            return new SingleExecution(result, "已查询指定日期日程");
+        }
+        if (lower.startsWith("agenda.search ")) {
+            String keyword = cmd.substring("agenda.search ".length()).trim();
+            String result = AgendaSkillManager.search(context, keyword);
+            return new SingleExecution(result, "已按关键词查询日程");
+        }
+        if (lower.startsWith("agenda.create ")) {
+            String payload = cmd.substring("agenda.create ".length()).trim();
+            String result = AgendaSkillManager.create(context, payload);
+            return new SingleExecution(result, result.startsWith("创建成功") ? "已创建日程" : result);
+        }
+        if (lower.startsWith("agenda.update ")) {
+            String[] parts = cmd.split("\\s+", 3);
+            if (parts.length < 3 || !parts[1].matches("\\d+")) {
+                return new SingleExecution("更新失败：命令格式应为 agenda.update <id> <json>", "更新失败：命令格式错误");
+            }
+            long id = Long.parseLong(parts[1]);
+            String result = AgendaSkillManager.update(context, id, parts[2]);
+            return new SingleExecution(result, result.startsWith("更新成功") ? "已更新日程" : result);
+        }
+        if (lower.startsWith("agenda.delete ")) {
+            String arg = cmd.substring("agenda.delete ".length()).trim();
+            if (!arg.matches("\\d+")) {
+                return new SingleExecution("删除失败：命令格式应为 agenda.delete <id>", "删除失败：命令格式错误");
+            }
+            long id = Long.parseLong(arg);
+            String result = AgendaSkillManager.delete(context, id);
+            return new SingleExecution(result, result.startsWith("删除成功") ? "已删除日程" : result);
+        }
+
+        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>";
         return new SingleExecution(unknown, "存在不支持的命令");
     }
 
@@ -296,12 +362,116 @@ public final class SkillCommandCenter {
         if (text.isEmpty()) {
             return;
         }
-        String[] parts = text.split("\\s*(?:;|；|&&|\\|\\|)\\s*");
+        List<String> parts = splitTopLevelCommands(text);
         for (String part : parts) {
             String candidate = stripBulletPrefix(part.trim());
             if (!candidate.isEmpty()) {
                 out.add(candidate);
             }
+        }
+    }
+
+    private static List<String> splitTopLevelCommands(String text) {
+        List<String> parts = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int braceDepth = 0;
+        int bracketDepth = 0;
+        int parenDepth = 0;
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+        boolean escaping = false;
+
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+
+            if (escaping) {
+                current.append(ch);
+                escaping = false;
+                continue;
+            }
+
+            if ((inSingleQuote || inDoubleQuote) && ch == '\\') {
+                current.append(ch);
+                escaping = true;
+                continue;
+            }
+
+            if (!inSingleQuote && ch == '"') {
+                inDoubleQuote = !inDoubleQuote;
+                current.append(ch);
+                continue;
+            }
+            if (!inDoubleQuote && ch == '\'') {
+                inSingleQuote = !inSingleQuote;
+                current.append(ch);
+                continue;
+            }
+
+            if (!inSingleQuote && !inDoubleQuote) {
+                if (ch == '{') {
+                    braceDepth++;
+                    current.append(ch);
+                    continue;
+                }
+                if (ch == '}' && braceDepth > 0) {
+                    braceDepth--;
+                    current.append(ch);
+                    continue;
+                }
+                if (ch == '[') {
+                    bracketDepth++;
+                    current.append(ch);
+                    continue;
+                }
+                if (ch == ']' && bracketDepth > 0) {
+                    bracketDepth--;
+                    current.append(ch);
+                    continue;
+                }
+                if (ch == '(') {
+                    parenDepth++;
+                    current.append(ch);
+                    continue;
+                }
+                if (ch == ')' && parenDepth > 0) {
+                    parenDepth--;
+                    current.append(ch);
+                    continue;
+                }
+
+                boolean topLevel = braceDepth == 0 && bracketDepth == 0 && parenDepth == 0;
+                if (topLevel) {
+                    if (ch == ';' || ch == '；') {
+                        appendCommandPart(parts, current);
+                        current.setLength(0);
+                        continue;
+                    }
+                    if (ch == '&' && i + 1 < text.length() && text.charAt(i + 1) == '&') {
+                        appendCommandPart(parts, current);
+                        current.setLength(0);
+                        i++;
+                        continue;
+                    }
+                    if (ch == '|' && i + 1 < text.length() && text.charAt(i + 1) == '|') {
+                        appendCommandPart(parts, current);
+                        current.setLength(0);
+                        i++;
+                        continue;
+                    }
+                }
+            }
+
+            current.append(ch);
+        }
+
+        appendCommandPart(parts, current);
+        return parts;
+    }
+
+    private static void appendCommandPart(List<String> parts, StringBuilder current) {
+        String one = current.toString().trim();
+        if (!one.isEmpty()) {
+            parts.add(one);
         }
     }
 
@@ -319,6 +489,9 @@ public final class SkillCommandCenter {
             return false;
         }
         String lower = text.toLowerCase(Locale.ROOT);
-        return lower.startsWith("skill.") || lower.startsWith("note.") || lower.startsWith("course.");
+        return lower.startsWith("skill.")
+            || lower.startsWith("note.")
+            || lower.startsWith("course.")
+            || lower.startsWith("agenda.");
     }
 }

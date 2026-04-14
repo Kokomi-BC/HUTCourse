@@ -15,6 +15,7 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
@@ -77,16 +78,6 @@ public class BrowserActivity extends AppCompatActivity {
             }
             
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
-                    returnLoginSuccess(url, true);
-                    return true;
-                }
-                view.loadUrl(url);
-                return true;
-            }
-
-            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
                 if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
@@ -121,6 +112,19 @@ public class BrowserActivity extends AppCompatActivity {
 
         String url = getIntent().getStringExtra("url");
         if (url != null) webView.loadUrl(url);
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (webView.canGoBack()) {
+                    webView.goBack();
+                    return;
+                }
+                setEnabled(false);
+                getOnBackPressedDispatcher().onBackPressed();
+                setEnabled(true);
+            }
+        });
     }
 
     private boolean isLoginSuccessUrl(String url) {
@@ -142,9 +146,4 @@ public class BrowserActivity extends AppCompatActivity {
         finish();
     }
 
-    @Override
-    public void onBackPressed() {
-        if (webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
-    }
 }

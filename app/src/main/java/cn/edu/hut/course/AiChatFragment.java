@@ -11,8 +11,10 @@ import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.AdapterView;
@@ -24,6 +26,7 @@ import android.widget.ListView;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -37,7 +40,6 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.fragment.app.Fragment;
 
 import com.google.android.material.card.MaterialCardView;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import io.noties.markwon.Markwon;
 
@@ -115,8 +117,8 @@ public class AiChatFragment extends Fragment {
     private Runnable activeStreamTicker;
     private View rootView;
     private PopupWindow sessionMenuPopup;
-    private float lastTouchX = 0;
-    private float lastTouchY = 0;
+    private float lastHistoryTouchRawX = -1f;
+    private float lastHistoryTouchRawY = -1f;
 
     public AiChatFragment() {
         super();
@@ -247,8 +249,14 @@ public class AiChatFragment extends Fragment {
         etPrompt.setHorizontallyScrolling(false);
         etPrompt.setOverScrollMode(View.OVER_SCROLL_NEVER);
         etPrompt.setOnTouchListener((v, event) -> {
-            if (event != null && event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
-                prepareForImeTransition();
+            ViewParent parent = v.getParent();
+            if (parent != null && event != null) {
+                int action = event.getActionMasked();
+                if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                    parent.requestDisallowInterceptTouchEvent(true);
+                } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    parent.requestDisallowInterceptTouchEvent(false);
+                }
             }
             return false;
         });
@@ -612,28 +620,10 @@ public class AiChatFragment extends Fragment {
                     drawerAiChat.closeDrawer(GravityCompat.START);
                 }
             });
-            lvHistory.setOnTouchListener((v, event) -> {
-                if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
-                    lastTouchX = event.getX();
-                    lastTouchY = event.getY();
+            lvHistory.setOnFocusChangeListener((v, hasFocus) -> {
+                if (!hasFocus) {
+                    clearHistoryHighlight();
                 }
-                return false;
-            });
-            lvHistory.setOnItemLongClickListener((parent, view, position, id) -> {
-                ChatSession target = getSessionForRow(position);
-                if (target == null) {
-                    return true;
-                }
-                int sessionIndex = sessions.indexOf(target);
-                if (sessionIndex < 0) {
-                    return true;
-                }
-                highlightedHistoryPosition = position;
-                if (historyAdapter != null) {
-                    historyAdapter.notifyDataSetChanged();
-                }
-                showSessionActionMenu(view, sessionIndex);
-                return true;
             });
         }
     }
@@ -686,13 +676,16 @@ public class AiChatFragment extends Fragment {
             refreshAiStatus();
             return;
         }
-        for (ChatMessage one : activeSession.messages) {
-            boolean isUser = "user".equalsIgnoreCase(one.role);
-            if (!isUser && isToolFeedbackMessage(one.content)) {
-                addSystemMessage(one.content);
+        for (int i = 0; i < activeSession.messages.size(); i++) {
+            ChatMessage one = activeSession.messages.get(i);
+            String role = safe(one.role).trim().toLowerCase(Locale.ROOT);
+            boolean isUser = "user".equals(role);
+            boolean isSystem = "system".equals(role);
+            if (isSystem || (!isUser && isToolFeedbackMessage(one.content))) {
+                addSystemMessage(one.content, false);
                 continue;
             }
-            addBubble(isUser, one.content, false, false);
+            addBubble(isUser, one.content, false, false, i);
         }
         refreshAiStatus();
         chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
@@ -911,6 +904,10 @@ public class AiChatFragment extends Fragment {
     }
 
     private void appendMessageToHistory(boolean isUser, String text) {
+        appendMessageToHistoryByRole(isUser ? "user" : "assistant", text);
+    }
+
+    private void appendMessageToHistoryByRole(@NonNull String role, String text) {
         if (TextUtils.isEmpty(text)) {
             return;
         }
@@ -918,7 +915,7 @@ public class AiChatFragment extends Fragment {
             startNewSession(false);
         }
         ChatMessage msg = new ChatMessage();
-        msg.role = isUser ? "user" : "assistant";
+        msg.role = role;
         msg.content = text;
         if (activeSession.messages == null) {
             activeSession.messages = new ArrayList<>();
@@ -1128,12 +1125,19 @@ public class AiChatFragment extends Fragment {
             clearHistoryHighlight();
         });
 
-        int[] loc = new int[2];
-        if (lvHistory != null) {
-            lvHistory.getLocationInWindow(loc);
-            int x = loc[0] + (int) lastTouchX;
-            int y = loc[1] + (int) lastTouchY;
-            sessionMenuPopup.showAtLocation(lvHistory, Gravity.NO_GRAVITY, x, y);
+        if (lastHistoryTouchRawX > 0f && lastHistoryTouchRawY > 0f) {
+            card.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            int popupW = card.getMeasuredWidth();
+            int popupH = card.getMeasuredHeight();
+            int screenW = getResources().getDisplayMetrics().widthPixels;
+            int screenH = getResources().getDisplayMetrics().heightPixels;
+            int x = (int) lastHistoryTouchRawX - dp(8);
+            int y = (int) lastHistoryTouchRawY - dp(8);
+            x = Math.max(0, Math.min(Math.max(0, screenW - popupW), x));
+            y = Math.max(0, Math.min(Math.max(0, screenH - popupH), y));
+            sessionMenuPopup.showAtLocation(anchor, Gravity.NO_GRAVITY, x, y);
+        } else if (lvHistory != null) {
+            sessionMenuPopup.showAsDropDown(anchor, dp(4), dp(4));
         } else {
             sessionMenuPopup.showAsDropDown(anchor, 0, 0);
         }
@@ -1166,7 +1170,7 @@ public class AiChatFragment extends Fragment {
         input.setHint("请输入对话名称");
         input.setSelection(input.getText() == null ? 0 : input.getText().length());
 
-        new MaterialAlertDialogBuilder(ctx())
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(ctx(), com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
                 .setTitle("重命名对话")
                 .setView(input)
                 .setNegativeButton("取消", null)
@@ -1186,7 +1190,7 @@ public class AiChatFragment extends Fragment {
 
     private void confirmDeleteDialog(int position) {
         if (position < 0 || position >= sessions.size()) return;
-        new MaterialAlertDialogBuilder(ctx())
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(ctx(), com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
                 .setTitle("删除对话")
                 .setMessage("删除后不可恢复，确认删除？")
                 .setNegativeButton("取消", null)
@@ -1285,7 +1289,7 @@ public class AiChatFragment extends Fragment {
         if (userText.startsWith("/cmd ")) {
             String cmd = userText.substring(5).trim();
             SkillCommandCenter.CommandBatchResult one = SkillCommandCenter.executeCommandsWithFeedback(ctx(), java.util.Collections.singletonList(cmd));
-            addSystemMessage(one.userFeedback);
+            addSystemMessage(one.userFeedback, true);
             return;
         }
 
@@ -1308,7 +1312,6 @@ public class AiChatFragment extends Fragment {
         final String provider = AiConfigStore.getProvider(ctx());
         final String baseUrl = AiConfigStore.getBaseUrl(ctx());
         final String model = configuredModel;
-        final String selectedText = getArguments() == null ? null : getArguments().getString("selected_text");
 
         Thread worker = new Thread(() -> {
             String reply = "";
@@ -1321,7 +1324,6 @@ public class AiChatFragment extends Fragment {
                         apiKey,
                         model,
                         userText,
-                        selectedText,
                         requestTitleInFinalAnswer,
                         requestToken
                 );
@@ -1363,11 +1365,12 @@ public class AiChatFragment extends Fragment {
                     finishAiConversationRequest(requestToken);
                     return;
                 }
-                streamAssistantReply(visibleReply, requestToken, () -> {
+                streamAssistantReply(visibleReply, requestToken, renderedView -> {
                     if (!isAiRequestActive(requestToken)) {
                         return;
                     }
                     appendMessageToHistory(false, visibleReply);
+                    bindMessageMetadata(renderedView, false, visibleReply, getActiveSessionLastMessageIndex());
                     finishAiConversationRequest(requestToken);
                 });
             });
@@ -1382,8 +1385,8 @@ public class AiChatFragment extends Fragment {
         }
     }
 
-    private String runModelWithSkillCommands(String provider, String baseUrl, String apiKey, String model,
-                                             String userText, String selectedText,
+        private String runModelWithSkillCommands(String provider, String baseUrl, String apiKey, String model,
+                             String userText,
                                              boolean requestTitleInFinalAnswer,
                                              long requestToken) throws Exception {
         String skillIndex = SkillCommandCenter.buildSkillIndexFromFrontmatter(ctx());
@@ -1391,7 +1394,6 @@ public class AiChatFragment extends Fragment {
         boolean includeCurrentTime = true;
         String firstTurnPrompt = AiPromptCenter.buildFirstTurnUserPrompt(
                 skillIndex,
-                selectedText,
                 userText,
                 includeCurrentTime,
                 requestTitleInFinalAnswer
@@ -1415,7 +1417,7 @@ public class AiChatFragment extends Fragment {
             if (isAdded() && isAiRequestActive(requestToken)) {
                 requireActivity().runOnUiThread(() -> {
                     if (isAiRequestActive(requestToken)) {
-                        addSystemMessage(roundMessage);
+                        addSystemMessage(roundMessage, true);
                     }
                 });
             }
@@ -1436,6 +1438,10 @@ public class AiChatFragment extends Fragment {
     }
 
     private void addSystemMessage(String text) {
+        addSystemMessage(text, false);
+    }
+
+    private void addSystemMessage(String text, boolean persistToHistory) {
         if (TextUtils.isEmpty(text)) {
             return;
         }
@@ -1447,14 +1453,18 @@ public class AiChatFragment extends Fragment {
         if (normalized.isEmpty()) {
             return;
         }
-        String singleLine = normalized.replace("\n", "  ");
-        String noticeText = singleLine.startsWith("工具") ? singleLine : "工具调用: " + singleLine;
+        String noticeText = normalized.startsWith("工具") ? normalized : "工具执行情况：\n" + normalized;
+
+        if (persistToHistory) {
+            appendMessageToHistoryByRole("system", noticeText);
+        }
 
         TextView tv = new TextView(ctx());
         tv.setText(noticeText);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
         tv.setTextColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 196));
         tv.setAlpha(0.94f);
+        tv.setLineSpacing(0f, 1.18f);
         tv.setGravity(Gravity.START);
         tv.setIncludeFontPadding(false);
         tv.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
@@ -1478,7 +1488,7 @@ public class AiChatFragment extends Fragment {
                 .replace("\r\n", "\n")
                 .replace("\r", "\n")
                 .trim();
-        if (normalized.isEmpty() || normalized.length() > 120) {
+        if (normalized.isEmpty() || normalized.length() > 400) {
             return false;
         }
 
@@ -1488,20 +1498,51 @@ public class AiChatFragment extends Fragment {
             if (one.isEmpty()) {
                 continue;
             }
-            boolean matched = one.startsWith("已读取技能")
-                    || one.startsWith("读取了笔记")
-                    || one.startsWith("已新增笔记")
-                    || one.startsWith("已修改笔记")
-                    || one.startsWith("已删除笔记")
-                    || one.startsWith("已清空笔记")
-                    || one.startsWith("已查询今日剩余课程")
-                    || one.startsWith("已查询指定日期课程")
-                    || one.startsWith("已按课程名查询课程")
-                    || one.startsWith("已按关键词查询课程")
-                    || one.startsWith("存在不支持的命令")
-                    || one.startsWith("无可执行操作")
-                    || one.startsWith("命令为空")
-                    || one.startsWith("工具调用:");
+            String candidate = one.replaceFirst("^(?:[-*•]|\\d+[.)、：:]?)\\s*", "").trim();
+            boolean matched = candidate.startsWith("工具执行情况")
+                    || candidate.startsWith("工具调用:")
+                    || candidate.startsWith("读取技能")
+                    || candidate.startsWith("已读取技能")
+                    || candidate.startsWith("读取了笔记")
+                    || candidate.startsWith("新增笔记")
+                    || candidate.startsWith("已新增笔记")
+                    || candidate.startsWith("修改笔记")
+                    || candidate.startsWith("已修改笔记")
+                    || candidate.startsWith("删除笔记")
+                    || candidate.startsWith("已删除笔记")
+                    || candidate.startsWith("清空笔记")
+                    || candidate.startsWith("已清空笔记")
+                    || candidate.startsWith("查询今日剩余课程")
+                    || candidate.startsWith("已查询今日剩余课程")
+                    || candidate.startsWith("查询指定日期课程")
+                    || candidate.startsWith("已查询指定日期课程")
+                    || candidate.startsWith("按课程名查询课程")
+                    || candidate.startsWith("已按课程名查询课程")
+                    || candidate.startsWith("按关键词查询课程")
+                    || candidate.startsWith("已按关键词查询课程")
+                    || candidate.startsWith("查询今日日程")
+                    || candidate.startsWith("已查询今日日程")
+                    || candidate.startsWith("查询指定日期日程")
+                    || candidate.startsWith("已查询指定日期日程")
+                    || candidate.startsWith("按关键词查询日程")
+                    || candidate.startsWith("已按关键词查询日程")
+                    || candidate.startsWith("创建日程")
+                    || candidate.startsWith("已创建日程")
+                    || candidate.startsWith("更新日程")
+                    || candidate.startsWith("已更新日程")
+                    || candidate.startsWith("删除日程")
+                    || candidate.startsWith("已删除日程")
+                    || candidate.startsWith("创建失败")
+                    || candidate.startsWith("更新失败")
+                    || candidate.startsWith("删除失败")
+                    || candidate.startsWith("查询失败")
+                    || candidate.startsWith("读取失败")
+                    || candidate.startsWith("修改失败")
+                    || candidate.startsWith("存在不支持的命令")
+                    || candidate.startsWith("无可执行操作")
+                    || candidate.startsWith("命令为空")
+                    || candidate.startsWith("已完成本轮工具调用")
+                    || candidate.startsWith("已完成：");
             if (!matched) {
                 return false;
             }
@@ -1537,72 +1578,102 @@ public class AiChatFragment extends Fragment {
     }
 
     private void addBubble(boolean isUser, String text, boolean typing) {
-        addBubble(isUser, text, typing, true);
+        addBubble(isUser, text, typing, true, -1);
     }
 
     private void addBubble(boolean isUser, String text, boolean typing, boolean persistToHistory) {
+        addBubble(isUser, text, typing, persistToHistory, -1);
+    }
+
+    private void addBubble(boolean isUser, String text, boolean typing, boolean persistToHistory, int historyIndexHint) {
+        int historyIndex = historyIndexHint;
+        if (!typing && persistToHistory) {
+            appendMessageToHistory(isUser, text);
+            historyIndex = getActiveSessionLastMessageIndex();
+        }
+
+        maybeAddAssistantSeparator(isUser, typing);
+
         TextView tv = new TextView(ctx());
-        tv.setTag(typing ? "typing" : null);
+        tv.setTag(new MessageViewMeta(isUser, safe(text), typing, historyIndex));
         if (typing) {
             tv.setText(text);
+        } else if (isUser) {
+            tv.setText(normalizePlainText(text));
         } else {
             markwon.setMarkdown(tv, normalizeMarkdown(text));
         }
-        tv.setTextSize(15f);
-        tv.setLineSpacing(0f, 1.08f);
-        tv.setTextColor(pickTextColor(isUser));
-        int pad = dp(14);
-        tv.setPadding(pad, pad, pad, pad);
 
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(20));
-        bg.setColor(pickBubbleColor(isUser));
-        bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 36));
-        tv.setBackground(bg);
-        tv.setClipToOutline(true);
+        if (isUser || typing) {
+            tv.setTextSize(15f);
+            tv.setLineSpacing(0f, 1.08f);
+            tv.setTextColor(pickTextColor(isUser));
+            int pad = dp(14);
+            tv.setPadding(pad, pad, pad, pad);
 
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.gravity = isUser ? Gravity.END : Gravity.START;
-        lp.setMargins(0, dp(8), 0, dp(8));
-        tv.setLayoutParams(lp);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(dp(20));
+            bg.setColor(pickBubbleColor(isUser));
+            bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 36));
+            tv.setBackground(bg);
+            tv.setClipToOutline(true);
 
-        int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.84f);
-        tv.setMaxWidth(maxWidth);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.gravity = isUser ? Gravity.END : Gravity.START;
+            lp.setMargins(0, dp(8), 0, dp(8));
+            tv.setLayoutParams(lp);
+
+            int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.84f);
+            tv.setMaxWidth(maxWidth);
+
+
+        } else {
+            tv.setTextSize(16f);
+            tv.setLineSpacing(0f, 1.2f);
+            tv.setTextColor(UiStyleHelper.resolveOnSurfaceColor(ctx()));
+            tv.setPadding(0, dp(2), 0, dp(2));
+            tv.setBackground(null);
+
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.gravity = Gravity.START;
+            lp.setMargins(0, dp(8), 0, dp(8));
+            tv.setLayoutParams(lp);
+
+
+        }
+
+        if (!typing) {
+            bindMessageMetadata(tv, isUser, text, historyIndex);
+        }
 
         chatContainer.addView(tv);
         chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
-        if (!typing && persistToHistory) {
-            appendMessageToHistory(isUser, text);
-        }
     }
 
     private TextView addAssistantStreamingBubble() {
+        maybeAddAssistantSeparator(false, false);
+
         TextView tv = new TextView(ctx());
-        tv.setTextSize(15f);
-        tv.setLineSpacing(0f, 1.08f);
-        tv.setTextColor(pickTextColor(false));
-        int pad = dp(14);
-        tv.setPadding(pad, pad, pad, pad);
+        tv.setTag(new MessageViewMeta(false, "", false, -1));
+        tv.setTextSize(16f);
+        tv.setLineSpacing(0f, 1.2f);
+        tv.setTextColor(UiStyleHelper.resolveOnSurfaceColor(ctx()));
+        tv.setPadding(0, dp(2), 0, dp(2));
+        tv.setBackground(null);
 
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(20));
-        bg.setColor(pickBubbleColor(false));
-        bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 36));
-        tv.setBackground(bg);
-        tv.setClipToOutline(true);
 
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.START;
         lp.setMargins(0, dp(8), 0, dp(8));
         tv.setLayoutParams(lp);
-        tv.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.84f));
 
         chatContainer.addView(tv);
         chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
         return tv;
     }
 
-    private void streamAssistantReply(String rawReply, long requestToken, Runnable onDone) {
+    private void streamAssistantReply(String rawReply, long requestToken, OnAssistantStreamDone onDone) {
         String normalized = normalizeMarkdown(rawReply);
         if (activeStreamTicker != null) {
             streamHandler.removeCallbacks(activeStreamTicker);
@@ -1613,11 +1684,12 @@ public class AiChatFragment extends Fragment {
             streamingBubble = null;
         }
         streamingBubble = addAssistantStreamingBubble();
+        final TextView targetView = streamingBubble;
 
         if (normalized.isEmpty()) {
             markwon.setMarkdown(streamingBubble, "");
             streamingBubble = null;
-            if (onDone != null) onDone.run();
+            if (onDone != null) onDone.onDone(targetView);
             return;
         }
 
@@ -1648,7 +1720,7 @@ public class AiChatFragment extends Fragment {
                 } else {
                     activeStreamTicker = null;
                     streamingBubble = null;
-                    if (onDone != null) onDone.run();
+                    if (onDone != null) onDone.onDone(targetView);
                 }
             }
         };
@@ -1656,10 +1728,28 @@ public class AiChatFragment extends Fragment {
         streamHandler.post(ticker);
     }
 
+    private int getActiveSessionLastMessageIndex() {
+        if (activeSession == null || activeSession.messages == null || activeSession.messages.isEmpty()) {
+            return -1;
+        }
+        return activeSession.messages.size() - 1;
+    }
+
+    private void bindMessageMetadata(@Nullable TextView bubbleView, boolean isUser, String rawText, int historyIndex) {
+        if (bubbleView == null) {
+            return;
+        }
+        MessageViewMeta meta = new MessageViewMeta(isUser, safe(rawText), false, historyIndex);
+        bubbleView.setTag(meta);
+        bubbleView.setOnTouchListener(null);
+        bubbleView.setOnLongClickListener(null);
+    }
+
     private void removeTypingBubble() {
         for (int i = chatContainer.getChildCount() - 1; i >= 0; i--) {
             View child = chatContainer.getChildAt(i);
-            if ("typing".equals(child.getTag())) {
+            Object tag = child.getTag();
+            if (tag instanceof MessageViewMeta && ((MessageViewMeta) tag).typing) {
                 chatContainer.removeViewAt(i);
                 return;
             }
@@ -1670,6 +1760,37 @@ public class AiChatFragment extends Fragment {
         int primary = UiStyleHelper.resolveAccentColor(ctx());
         int surface = UiStyleHelper.resolveGlassCardColor(ctx());
         return isUser ? ColorUtils.blendARGB(primary, Color.WHITE, 0.10f) : surface;
+    }
+
+    private void maybeAddAssistantSeparator(boolean isUser, boolean typing) {
+        if (typing || isUser || chatContainer == null) {
+            return;
+        }
+        MessageViewMeta lastMeta = findLastMessageMeta();
+        if (lastMeta == null || !lastMeta.isUser || lastMeta.typing) {
+            return;
+        }
+
+        View divider = new View(ctx());
+        divider.setBackgroundColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 58));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        lp.setMargins(dp(4), dp(2), dp(4), dp(8));
+        divider.setLayoutParams(lp);
+        chatContainer.addView(divider);
+    }
+
+    @Nullable
+    private MessageViewMeta findLastMessageMeta() {
+        if (chatContainer == null) {
+            return null;
+        }
+        for (int i = chatContainer.getChildCount() - 1; i >= 0; i--) {
+            Object tag = chatContainer.getChildAt(i).getTag();
+            if (tag instanceof MessageViewMeta) {
+                return (MessageViewMeta) tag;
+            }
+        }
+        return null;
     }
 
     private String normalizeMarkdown(String raw) {
@@ -1684,6 +1805,13 @@ public class AiChatFragment extends Fragment {
         normalized = normalized.replaceAll("(?m)[ \\t]+$", "");
         normalized = normalized.replaceAll("\\n{4,}", "\\n\\n\\n");
         return normalized.stripTrailing();
+    }
+
+    private String normalizePlainText(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.replace("\r\n", "\n").replace("\r", "\n");
     }
 
     private ReplyWithTitle extractTitle(String rawReply) {
@@ -1775,6 +1903,24 @@ public class AiChatFragment extends Fragment {
         }
     }
 
+    private interface OnAssistantStreamDone {
+        void onDone(@Nullable TextView renderedView);
+    }
+
+    private static final class MessageViewMeta {
+        final boolean isUser;
+        final String rawText;
+        final boolean typing;
+        final int historyIndex;
+
+        MessageViewMeta(boolean isUser, String rawText, boolean typing, int historyIndex) {
+            this.isUser = isUser;
+            this.rawText = rawText;
+            this.typing = typing;
+            this.historyIndex = historyIndex;
+        }
+    }
+
     private static final class ChatMessage {
         String role;
         String content;
@@ -1809,6 +1955,7 @@ public class AiChatFragment extends Fragment {
     }
 
     private static final class HistoryItemHolder {
+        MaterialCardView card;
         LinearLayout root;
         TextView title;
         TextView subtitle;
@@ -1881,6 +2028,7 @@ public class AiChatFragment extends Fragment {
             if (convertView == null || convertView instanceof TextView) {
                 convertView = inflater.inflate(R.layout.item_ai_history_session, parent, false);
                 holder = new HistoryItemHolder();
+                holder.card = convertView.findViewById(R.id.historyItemCard);
                 holder.root = convertView.findViewById(R.id.historyItemRoot);
                 holder.title = convertView.findViewById(R.id.tvHistoryTitle);
                 holder.subtitle = convertView.findViewById(R.id.tvHistorySubtitle);
@@ -1890,7 +2038,8 @@ public class AiChatFragment extends Fragment {
             }
 
             ChatSession one = row.session;
-            boolean selected = one == activeSession || position == highlightedHistoryPosition;
+            boolean selected = one == activeSession;
+            boolean outlined = position == highlightedHistoryPosition;
 
             holder.title.setText(safe(one.title));
             holder.subtitle.setVisibility(View.GONE);
@@ -1898,14 +2047,68 @@ public class AiChatFragment extends Fragment {
             int textPrimary = dark ? Color.WHITE : Color.BLACK;
             holder.title.setTextColor(textPrimary);
 
-            if (selected) {
+            holder.root.setBackgroundColor(Color.TRANSPARENT);
+
+            if (holder.card != null) {
                 int accent = UiStyleHelper.resolveAccentColor(ctx());
-                GradientDrawable bg = new GradientDrawable();
-                bg.setCornerRadius(dp(14));
-                bg.setColor(ColorUtils.setAlphaComponent(accent, dark ? 110 : 75));
-                holder.root.setBackground(bg);
-            } else {
-                holder.root.setBackgroundColor(Color.TRANSPARENT);
+                if (selected || outlined) {
+                    if (selected) {
+                        holder.card.setCardBackgroundColor(ColorUtils.setAlphaComponent(accent, dark ? 110 : 75));
+                    } else {
+                        holder.card.setCardBackgroundColor(dark ? Color.parseColor("#333333") : Color.WHITE);
+                    }
+                } else {
+                    holder.card.setCardBackgroundColor(ColorUtils.setAlphaComponent(textPrimary, dark ? 12 : 8));
+                }
+
+                if (outlined) {
+                    holder.card.setCardElevation(dp(8));
+                    holder.card.setStrokeWidth(dp(1));
+                    holder.card.setStrokeColor(ColorUtils.setAlphaComponent(accent, 120));
+                } else {
+                    holder.card.setCardElevation(0f);
+                    holder.card.setStrokeWidth(0);
+                }
+
+                holder.card.setOnTouchListener((v, event) -> {
+                    if (event != null) {
+                        int action = event.getActionMasked();
+                        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                            lastHistoryTouchRawX = event.getRawX();
+                            lastHistoryTouchRawY = event.getRawY();
+                        }
+                    }
+                    return false;
+                });
+
+                holder.card.setOnClickListener(v -> {
+                    ChatSession target = getSessionForRow(position);
+                    if (target == null) {
+                        return;
+                    }
+                    clearHistoryHighlight();
+                    activeSession = target;
+                    renderActiveSession();
+                    notifyDataSetChanged();
+                    if (drawerAiChat != null) {
+                        drawerAiChat.closeDrawer(GravityCompat.START);
+                    }
+                });
+
+                holder.card.setOnLongClickListener(v -> {
+                    ChatSession target = getSessionForRow(position);
+                    if (target == null) {
+                        return true;
+                    }
+                    int sessionIndex = sessions.indexOf(target);
+                    if (sessionIndex < 0) {
+                        return true;
+                    }
+                    highlightedHistoryPosition = position;
+                    notifyDataSetChanged();
+                    showSessionActionMenu(v, sessionIndex);
+                    return true;
+                });
             }
 
             return convertView;

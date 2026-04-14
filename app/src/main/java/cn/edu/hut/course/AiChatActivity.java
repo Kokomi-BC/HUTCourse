@@ -2,6 +2,7 @@ package cn.edu.hut.course;
 
 import android.os.Bundle;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.WindowCompat;
@@ -18,24 +19,23 @@ public class AiChatActivity extends AppCompatActivity {
 
         if (savedInstanceState == null) {
             AiChatFragment fragment = new AiChatFragment();
-            if (getIntent() != null && getIntent().hasExtra("selected_text")) {
-                Bundle args = new Bundle();
-                args.putString("selected_text", getIntent().getStringExtra("selected_text"));
-                fragment.setArguments(args);
-            }
             getSupportFragmentManager()
                     .beginTransaction()
                     .replace(R.id.aiChatFragmentContainer, fragment)
                     .commit();
         }
-    }
 
-    @Override
-    public void onBackPressed() {
-        Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.aiChatFragmentContainer);
-        if (fragment instanceof AiChatFragment && ((AiChatFragment) fragment).handleBackPressed()) {
-            return;
-        }
-        super.onBackPressed();
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.aiChatFragmentContainer);
+                if (fragment instanceof AiChatFragment && ((AiChatFragment) fragment).handleBackPressed()) {
+                    return;
+                }
+                setEnabled(false);
+                getOnBackPressedDispatcher().onBackPressed();
+                setEnabled(true);
+            }
+        });
     }
 }
