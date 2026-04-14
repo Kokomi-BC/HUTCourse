@@ -2651,99 +2651,139 @@ private void extractAllTables(String passedCookie) {
 
         com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
         ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(20), dp(20), dp(20), dp(20));
+        layout.setPadding(dp(16), dp(14), dp(16), dp(20));
+        layout.setBackgroundColor(ColorUtils.blendARGB(UiStyleHelper.resolvePageBackgroundColor(this), Color.WHITE, 0.12f));
         scrollView.addView(layout, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+ 
         TextView sheetTitle = new TextView(this);
         sheetTitle.setText(source == null ? "新增日程" : "编辑日程");
-        sheetTitle.setTextSize(18f);
+        sheetTitle.setTextSize(20f);
         sheetTitle.setTypeface(null, Typeface.BOLD);
-        sheetTitle.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        sheetTitle.setTextColor(onSurface);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.setMargins(dp(2), 0, dp(2), 0);
+        sheetTitle.setLayoutParams(titleLp);
         layout.addView(sheetTitle);
+
+        MaterialCardView infoCard = createAgendaEditorSectionCard();
+        LinearLayout infoBody = new LinearLayout(this);
+        infoBody.setOrientation(LinearLayout.VERTICAL);
+        infoCard.addView(infoBody);
+        layout.addView(infoCard);
 
         EditText inputTitle = new EditText(this);
         inputTitle.setHint("待办标题");
         inputTitle.setText(source == null ? "" : safeText(source.title));
-        inputTitle.setSingleLine(true);
-        styleAgendaEditorInput(inputTitle);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        titleLp.setMargins(0, dp(14), 0, 0);
-        inputTitle.setLayoutParams(titleLp);
-        layout.addView(inputTitle);
+        styleAgendaEditorInlineInput(inputTitle, false);
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.setPadding(dp(14), dp(2), dp(12), dp(2));
+        titleRow.addView(createAgendaRowIcon(android.R.drawable.ic_menu_edit));
+        LinearLayout.LayoutParams titleInputLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        titleInputLp.setMargins(dp(10), 0, 0, 0);
+        inputTitle.setLayoutParams(titleInputLp);
+        titleRow.addView(inputTitle);
+        infoBody.addView(titleRow);
+        infoBody.addView(createAgendaEditorDivider());
 
         EditText inputDesc = new EditText(this);
         inputDesc.setHint("详细描述（可选）");
         inputDesc.setText(source == null ? "" : safeText(source.description));
-        inputDesc.setMinLines(3);
-        inputDesc.setMaxLines(6);
-        inputDesc.setGravity(Gravity.TOP | Gravity.START);
-        styleAgendaEditorInput(inputDesc);
-        LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        descLp.setMargins(0, dp(10), 0, 0);
-        inputDesc.setLayoutParams(descLp);
-        layout.addView(inputDesc);
+        styleAgendaEditorInlineInput(inputDesc, true);
 
-        MaterialButton btnDate = createAgendaEditorButton();
-        MaterialButton btnStart = createAgendaEditorButton();
-        MaterialButton btnEnd = createAgendaEditorButton();
-        MaterialButton btnPriority = createAgendaEditorButton();
-        MaterialButton btnRepeat = createAgendaEditorButton();
-        MaterialButton btnMonthlyStrategy = createAgendaEditorButton();
-        MaterialButton btnLocation = createAgendaEditorButton();
+        LinearLayout descRow = new LinearLayout(this);
+        descRow.setOrientation(LinearLayout.HORIZONTAL);
+        descRow.setGravity(Gravity.TOP);
+        descRow.setPadding(dp(14), dp(2), dp(12), dp(2));
+        ImageView descIcon = createAgendaRowIcon(android.R.drawable.ic_menu_info_details);
+        LinearLayout.LayoutParams descIconLp = new LinearLayout.LayoutParams(dp(20), dp(20));
+        descIconLp.setMargins(0, dp(10), 0, 0);
+        descRow.addView(descIcon, descIconLp);
+        LinearLayout.LayoutParams descInputLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        descInputLp.setMargins(dp(10), 0, 0, 0);
+        inputDesc.setLayoutParams(descInputLp);
+        descRow.addView(inputDesc);
+        infoBody.addView(descRow);
 
-        LinearLayout.LayoutParams dateLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        dateLp.setMargins(0, dp(10), 0, 0);
-        btnDate.setLayoutParams(dateLp);
-        layout.addView(btnDate);
-        layout.addView(buildAgendaEditorButtonRow(btnStart, btnEnd));
+        MaterialCardView settingsCard = createAgendaEditorSectionCard();
+        LinearLayout settingsBody = new LinearLayout(this);
+        settingsBody.setOrientation(LinearLayout.VERTICAL);
+        settingsCard.addView(settingsBody);
+        layout.addView(settingsCard);
 
-        LinearLayout.LayoutParams priorityLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        priorityLp.setMargins(0, dp(10), 0, 0);
-        btnPriority.setLayoutParams(priorityLp);
-        layout.addView(btnPriority);
+        TextView locationValueView = createAgendaSettingValueView();
+        LinearLayout rowLocation = createAgendaEditorSettingRow(android.R.drawable.ic_menu_mylocation, "地点", locationValueView);
+        settingsBody.addView(rowLocation);
+        settingsBody.addView(createAgendaEditorDivider());
 
-        LinearLayout.LayoutParams repeatLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        repeatLp.setMargins(0, dp(10), 0, 0);
-        btnRepeat.setLayoutParams(repeatLp);
-        layout.addView(btnRepeat);
+        TextView dateValueView = createAgendaSettingValueView();
+        LinearLayout rowDate = createAgendaEditorSettingRow(android.R.drawable.ic_menu_my_calendar, "日期", dateValueView);
+        settingsBody.addView(rowDate);
+        settingsBody.addView(createAgendaEditorDivider());
 
-        LinearLayout.LayoutParams monthlyLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        monthlyLp.setMargins(0, dp(10), 0, 0);
-        btnMonthlyStrategy.setLayoutParams(monthlyLp);
-        layout.addView(btnMonthlyStrategy);
+        TextView startValueView = createAgendaSettingValueView();
+        LinearLayout rowStart = createAgendaEditorSettingRow(android.R.drawable.ic_lock_idle_alarm, "开始", startValueView);
+        settingsBody.addView(rowStart);
+        settingsBody.addView(createAgendaEditorDivider());
 
-        LinearLayout.LayoutParams locationLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        locationLp.setMargins(0, dp(10), 0, 0);
-        btnLocation.setLayoutParams(locationLp);
-        layout.addView(btnLocation);
+        TextView endValueView = createAgendaSettingValueView();
+        LinearLayout rowEnd = createAgendaEditorSettingRow(android.R.drawable.ic_lock_idle_alarm, "结束", endValueView);
+        settingsBody.addView(rowEnd);
+        settingsBody.addView(createAgendaEditorDivider());
 
-        refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+        TextView repeatValueView = createAgendaSettingValueView();
+        LinearLayout rowRepeat = createAgendaEditorSettingRow(android.R.drawable.ic_menu_rotate, "重复", repeatValueView);
+        settingsBody.addView(rowRepeat);
+        settingsBody.addView(createAgendaEditorDivider());
+
+        TextView priorityValueView = createAgendaSettingValueView();
+        LinearLayout rowPriority = createAgendaEditorSettingRow(android.R.drawable.ic_dialog_alert, "重要提醒", priorityValueView);
+        settingsBody.addView(rowPriority);
+
+        LinearLayout monthlyContainer = new LinearLayout(this);
+        monthlyContainer.setOrientation(LinearLayout.VERTICAL);
+        monthlyContainer.addView(createAgendaEditorDivider());
+        TextView monthlyValueView = createAgendaSettingValueView();
+        LinearLayout rowMonthlyStrategy = createAgendaEditorSettingRow(android.R.drawable.ic_menu_my_calendar, "短月策略", monthlyValueView);
+        monthlyContainer.addView(rowMonthlyStrategy);
+        settingsBody.addView(monthlyContainer);
+
+        refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+            monthlyContainer,
             selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
 
-        btnDate.setOnClickListener(v -> showAgendaDatePicker(selectedDate[0], pickedDate -> {
+        rowDate.setOnClickListener(v -> showAgendaDatePicker(selectedDate[0], pickedDate -> {
             selectedDate[0] = cloneAsDay(pickedDate);
-            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                    monthlyContainer,
                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
 
-        btnStart.setOnClickListener(v -> showMinutePicker(startMinute[0], minute -> {
+        rowStart.setOnClickListener(v -> showMinutePicker(startMinute[0], minute -> {
             startMinute[0] = minute;
             if (endMinute[0] <= startMinute[0]) {
                 endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
             }
-            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                monthlyContainer,
                 selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
 
-        btnEnd.setOnClickListener(v -> showMinutePicker(endMinute[0], minute -> {
+        rowEnd.setOnClickListener(v -> showMinutePicker(endMinute[0], minute -> {
             endMinute[0] = minute;
-            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                monthlyContainer,
                 selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
 
-        btnPriority.setOnClickListener(v -> {
+        rowPriority.setOnClickListener(v -> {
             try {
                 final int[] picked = {clampIndex(indexOfInt(AGENDA_PRIORITY_VALUES, priority[0]), AGENDA_PRIORITY_VALUES.length)};
                 newMaterialYouDialogBuilder()
@@ -2753,7 +2793,8 @@ private void extractAllTables(String passedCookie) {
                         .setPositiveButton("确定", (d, which) -> {
                             int index = clampIndex(picked[0], AGENDA_PRIORITY_VALUES.length);
                             priority[0] = AGENDA_PRIORITY_VALUES[index];
-                            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                                    monthlyContainer,
                                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
                         })
                         .show();
@@ -2762,7 +2803,7 @@ private void extractAllTables(String passedCookie) {
             }
         });
 
-        btnRepeat.setOnClickListener(v -> {
+        rowRepeat.setOnClickListener(v -> {
             try {
                 final int[] picked = {clampIndex(indexOfString(AGENDA_REPEAT_VALUES, repeatRule[0]), AGENDA_REPEAT_VALUES.length)};
                 newMaterialYouDialogBuilder()
@@ -2772,7 +2813,8 @@ private void extractAllTables(String passedCookie) {
                         .setPositiveButton("确定", (d, which) -> {
                             int index = clampIndex(picked[0], AGENDA_REPEAT_VALUES.length);
                             repeatRule[0] = AGENDA_REPEAT_VALUES[index];
-                            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                                    monthlyContainer,
                                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
                         })
                         .show();
@@ -2781,7 +2823,7 @@ private void extractAllTables(String passedCookie) {
             }
         });
 
-        btnMonthlyStrategy.setOnClickListener(v -> {
+        rowMonthlyStrategy.setOnClickListener(v -> {
             try {
                 final int[] picked = {clampIndex(indexOfString(AGENDA_MONTHLY_VALUES, monthlyStrategy[0]), AGENDA_MONTHLY_VALUES.length)};
                 newMaterialYouDialogBuilder()
@@ -2791,7 +2833,8 @@ private void extractAllTables(String passedCookie) {
                         .setPositiveButton("确定", (d, which) -> {
                             int index = clampIndex(picked[0], AGENDA_MONTHLY_VALUES.length);
                             monthlyStrategy[0] = AGENDA_MONTHLY_VALUES[index];
-                            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+                            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                                    monthlyContainer,
                                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
                         })
                         .show();
@@ -2800,49 +2843,14 @@ private void extractAllTables(String passedCookie) {
             }
         });
 
-        btnLocation.setOnClickListener(v -> showAgendaLocationPicker(locationValue[0], picked -> {
+        rowLocation.setOnClickListener(v -> showAgendaLocationPicker(locationValue[0], picked -> {
             locationValue[0] = normalizeAgendaLocationInput(picked);
-            refreshAgendaEditorButtons(btnDate, btnStart, btnEnd, btnPriority, btnRepeat, btnMonthlyStrategy, btnLocation,
+            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                    monthlyContainer,
                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
 
-        LinearLayout actionRow = new LinearLayout(this);
-        actionRow.setOrientation(LinearLayout.HORIZONTAL);
-        actionRow.setPadding(0, dp(14), 0, 0);
-        layout.addView(actionRow);
-
-        if (source != null) {
-            MaterialButton deleteButton = createAgendaActionButton(false);
-            deleteButton.setText("删除");
-            LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            delLp.setMargins(0, 0, dp(8), 0);
-            deleteButton.setLayoutParams(delLp);
-            deleteButton.setOnClickListener(v -> newMaterialYouDialogBuilder()
-                    .setTitle("删除日程")
-                    .setMessage("确定删除该日程吗？")
-                    .setNegativeButton("取消", null)
-                    .setPositiveButton("删除", (d, which) -> {
-                        if (AgendaStorageManager.deleteAgenda(this, source.id)) {
-                            Toast.makeText(this, "已删除日程", Toast.LENGTH_SHORT).show();
-                            dialog.dismiss();
-                            selectedTodayDate = cloneAsDay(selectedDate[0]);
-                            refreshTodayPage();
-                            drawGrid();
-                        } else {
-                            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show();
-                        }
-                    })
-                    .show());
-            actionRow.addView(deleteButton);
-        }
-
-            MaterialButton saveButton = createAgendaActionButton(true);
-        saveButton.setText(source == null ? "新增" : "保存");
-        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        saveButton.setLayoutParams(saveLp);
-        actionRow.addView(saveButton);
-
-        saveButton.setOnClickListener(v -> {
+        Runnable saveAction = () -> {
             String title = safeText(inputTitle.getText() == null ? "" : inputTitle.getText().toString()).trim();
             if (title.isEmpty()) {
                 Toast.makeText(this, "请输入日程标题", Toast.LENGTH_SHORT).show();
@@ -2882,26 +2890,172 @@ private void extractAllTables(String passedCookie) {
             selectedTodayDate = cloneAsDay(selectedDate[0]);
             refreshTodayPage();
             drawGrid();
-        });
+        };
+
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actionRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionRowLp.setMargins(0, dp(12), 0, 0);
+        actionRow.setLayoutParams(actionRowLp);
+
+        if (source != null) {
+            MaterialButton deleteButton = createAgendaActionButton(false);
+            deleteButton.setText("删除日程");
+            deleteButton.setTextColor(Color.parseColor("#B00020"));
+            LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            deleteLp.setMargins(0, 0, dp(8), 0);
+            deleteButton.setLayoutParams(deleteLp);
+            deleteButton.setOnClickListener(v -> newMaterialYouDialogBuilder()
+                    .setTitle("删除日程")
+                    .setMessage("确定删除该日程吗？")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("删除", (d, which) -> {
+                        if (AgendaStorageManager.deleteAgenda(this, source.id)) {
+                            Toast.makeText(this, "已删除日程", Toast.LENGTH_SHORT).show();
+                            dialog.dismiss();
+                            selectedTodayDate = cloneAsDay(selectedDate[0]);
+                            refreshTodayPage();
+                            drawGrid();
+                        } else {
+                            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .show());
+            actionRow.addView(deleteButton);
+        }
+
+        MaterialButton saveButton = createAgendaActionButton(true);
+        saveButton.setText(source == null ? "新增" : "保存");
+        LinearLayout.LayoutParams saveLp = source == null
+                ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                : new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        saveButton.setLayoutParams(saveLp);
+        saveButton.setOnClickListener(v -> saveAction.run());
+        actionRow.addView(saveButton);
+
+        layout.addView(actionRow);
 
         dialog.setContentView(scrollView);
         dialog.show();
     }
 
-    private void refreshAgendaEditorButtons(MaterialButton btnDate, MaterialButton btnStart, MaterialButton btnEnd,
-                                            MaterialButton btnPriority, MaterialButton btnRepeat,
-                                            MaterialButton btnMonthlyStrategy, MaterialButton btnLocation,
+    private void refreshAgendaEditorButtons(TextView dateValueView, TextView startValueView, TextView endValueView,
+                                            TextView priorityValueView, TextView repeatValueView,
+                                            TextView monthlyValueView, TextView locationValueView,
+                                            View monthlyContainer,
                                             Calendar date, int startMinute, int endMinute,
                                             int priority, String repeatRule, String monthlyStrategy,
                                             String locationText) {
-        btnDate.setText(formatDateWithWeek(date));
-        btnStart.setText(formatMinute(startMinute));
-        btnEnd.setText(formatMinute(endMinute));
-        btnPriority.setText(priorityText(priority));
-        btnRepeat.setText(agendaRepeatLabel(repeatRule));
-        btnMonthlyStrategy.setText(agendaMonthlyLabel(monthlyStrategy));
-        btnLocation.setText(formatAgendaLocationButtonText(locationText));
-        btnMonthlyStrategy.setVisibility(Agenda.REPEAT_MONTHLY.equals(repeatRule) ? View.VISIBLE : View.GONE);
+        dateValueView.setText(formatDateWithWeek(date));
+        startValueView.setText(formatMinute(startMinute));
+        endValueView.setText(formatMinute(endMinute));
+        priorityValueView.setText(priorityText(priority));
+        repeatValueView.setText(agendaRepeatLabel(repeatRule));
+        monthlyValueView.setText(agendaMonthlyLabel(monthlyStrategy));
+        locationValueView.setText(formatAgendaLocationButtonText(locationText));
+        monthlyContainer.setVisibility(Agenda.REPEAT_MONTHLY.equals(repeatRule) ? View.VISIBLE : View.GONE);
+    }
+
+    private MaterialCardView createAgendaEditorSectionCard() {
+        MaterialCardView card = new MaterialCardView(this);
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        card.setRadius(dp(18));
+        card.setCardElevation(0f);
+        card.setStrokeWidth(1);
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 20));
+        card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardLp.setMargins(0, dp(12), 0, 0);
+        card.setLayoutParams(cardLp);
+        return card;
+    }
+
+    private ImageView createAgendaRowIcon(int iconRes) {
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setImageTintList(ColorStateList.valueOf(UiStyleHelper.resolveOnSurfaceVariantColor(this)));
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(20), dp(20));
+        icon.setLayoutParams(iconLp);
+        return icon;
+    }
+
+    private void styleAgendaEditorInlineInput(EditText input, boolean multiLine) {
+        if (input == null) {
+            return;
+        }
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+        input.setTextColor(onSurface);
+        input.setHintTextColor(ColorUtils.setAlphaComponent(onSurfaceVariant, 180));
+        input.setTextSize(17f);
+        input.setBackgroundColor(Color.TRANSPARENT);
+        input.setPadding(dp(4), dp(11), dp(4), dp(11));
+        input.setMinHeight(dp(48));
+        if (multiLine) {
+            input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+            input.setMinLines(2);
+            input.setMaxLines(4);
+            input.setGravity(Gravity.TOP | Gravity.START);
+            input.setHorizontallyScrolling(false);
+        } else {
+            input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            input.setSingleLine(true);
+            input.setMaxLines(1);
+            input.setEllipsize(TextUtils.TruncateAt.END);
+            input.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        }
+    }
+
+    private View createAgendaEditorDivider() {
+        View divider = new View(this);
+        divider.setBackgroundColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceVariantColor(this), 48));
+        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        dividerLp.setMargins(dp(44), 0, dp(12), 0);
+        divider.setLayoutParams(dividerLp);
+        return divider;
+    }
+
+    private TextView createAgendaSettingValueView() {
+        TextView value = new TextView(this);
+        value.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        value.setTextSize(16f);
+        value.setSingleLine(true);
+        value.setEllipsize(TextUtils.TruncateAt.END);
+        value.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams valueLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        value.setLayoutParams(valueLp);
+        return value;
+    }
+
+    private LinearLayout createAgendaEditorSettingRow(int iconRes, String label, TextView valueView) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(14), dp(7), dp(12), dp(7));
+
+        ImageView icon = createAgendaRowIcon(iconRes);
+        row.addView(icon);
+
+        TextView labelView = new TextView(this);
+        labelView.setText(label);
+        labelView.setTextSize(17f);
+        labelView.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        labelView.setSingleLine(true);
+        labelView.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelLp.setMargins(dp(10), 0, dp(10), 0);
+        labelView.setLayoutParams(labelLp);
+        row.addView(labelView);
+
+        row.addView(valueView);
+
+        TextView chevron = new TextView(this);
+        chevron.setText("›");
+        chevron.setTextSize(24f);
+        chevron.setTextColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceVariantColor(this), 180));
+        row.addView(chevron);
+        return row;
     }
 
     private void styleAgendaEditorInput(EditText input) {
@@ -2913,6 +3067,8 @@ private void extractAllTables(String passedCookie) {
         input.setTextColor(onSurface);
         input.setHintTextColor(ColorUtils.setAlphaComponent(onSurfaceVariant, 180));
         input.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 34), dp(14)));
+        input.setPadding(dp(14), dp(10), dp(14), dp(10));
+        input.setMinHeight(dp(46));
     }
 
     private MaterialButton createAgendaEditorButton() {
