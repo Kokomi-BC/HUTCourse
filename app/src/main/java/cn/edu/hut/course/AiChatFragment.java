@@ -3,16 +3,19 @@ package cn.edu.hut.course;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.WindowManager;
@@ -65,6 +68,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AiChatFragment extends Fragment {
+
+    private static final int IME_GAP_DP = 6;
+    private static final long INSETS_PRIORITY_HOLD_MS = 160L;
+    private static final long IME_PROBE_INTERVAL_MS = 32L;
+    private static final long IME_PROBE_DURATION_MS = 1800L;
 
     private static final String PREF_AI_CHAT_HISTORY = "ai_chat_history";
     private static final String KEY_CHAT_HISTORY_JSON = "history_json";
@@ -119,6 +127,16 @@ public class AiChatFragment extends Fragment {
     private PopupWindow sessionMenuPopup;
     private float lastHistoryTouchRawX = -1f;
     private float lastHistoryTouchRawY = -1f;
+    private long lastInsetsDispatchUptime = 0L;
+    @Nullable
+    private View imeFallbackRoot;
+    @Nullable
+    private ViewTreeObserver.OnGlobalLayoutListener imeGlobalLayoutListener;
+    @Nullable
+    private Runnable imeProbeTicker;
+    private long imeProbeDeadlineUptime = 0L;
+    private int lastGlobalKeyboardHeight = Integer.MIN_VALUE;
+    private boolean lastGlobalImeVisible = false;
 
     public AiChatFragment() {
         super();
@@ -227,6 +245,8 @@ public class AiChatFragment extends Fragment {
             ViewCompat.setOnApplyWindowInsetsListener(root, null);
             ViewCompat.setWindowInsetsAnimationCallback(root, null);
         }
+        clearImeGlobalLayoutFallback();
+        stopImeProbe();
         restoreSoftInputModeIfNeeded();
         ensureMainBottomNavVisible();
         mainBottomNavHost = null;
@@ -253,6 +273,10 @@ public class AiChatFragment extends Fragment {
             if (parent != null && event != null) {
                 int action = event.getActionMasked();
                 if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                    if (action == MotionEvent.ACTION_DOWN) {
+                        // 每次点击输入框都重新准备一次，避免仅首次点击触发整体上移。
+                        prepareForImeTransition();
+                    }
                     parent.requestDisallowInterceptTouchEvent(true);
                 } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
                     parent.requestDisallowInterceptTouchEvent(false);
@@ -270,6 +294,7 @@ public class AiChatFragment extends Fragment {
     private void prepareForImeTransition() {
         keepChatAnchoredToBottomOnIme = isChatNearBottom();
         pendingBottomScrollOnImeOpen = keepChatAnchoredToBottomOnIme;
+        startImeProbe();
     }
 
     private void configureSoftInputModeForChat() {
@@ -463,7 +488,43 @@ public class AiChatFragment extends Fragment {
             return 0;
         }
         int startThreshold = baseComposerBottomMargin + Math.max(0, mainBottomNavHostHeight);
-        return Math.max(0, keyboard - startThreshold + dp(6));
+        return Math.max(0, keyboard - startThreshold + dp(IME_GAP_DP));
+    }
+
+    private int computeEffectiveImeBottom(@NonNull View root, @NonNull WindowInsetsCompat insets) {
+        int imeBottom = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom);
+        int navBottom = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom);
+        if (!insets.isVisible(WindowInsetsCompat.Type.ime())) {
+            return imeBottom;
+        }
+
+        // 某些国产 Android 12 机型会出现 ime.bottom 过小，使用可见区域差值兜底。
+        if (imeBottom <= navBottom + dp(2)) {
+            int fallbackByVisibleFrame = estimateKeyboardHeightByVisibleFrame(root);
+            if (fallbackByVisibleFrame > imeBottom) {
+                imeBottom = fallbackByVisibleFrame;
+            }
+        }
+        return imeBottom;
+    }
+
+    private int estimateKeyboardHeightByVisibleFrame(@NonNull View root) {
+        Rect visibleFrame = new Rect();
+        root.getWindowVisibleDisplayFrame(visibleFrame);
+        View rootView = root.getRootView();
+        int rootHeight = rootView == null ? 0 : rootView.getHeight();
+        if (rootHeight <= 0) {
+            return 0;
+        }
+        return Math.max(0, rootHeight - visibleFrame.bottom);
+    }
+
+    private void markInsetsDispatched() {
+        lastInsetsDispatchUptime = SystemClock.uptimeMillis();
+    }
+
+    private boolean isInsetsDispatchActive() {
+        return SystemClock.uptimeMillis() - lastInsetsDispatchUptime <= INSETS_PRIORITY_HOLD_MS;
     }
 
     private void applyImeInsetBehavior() {
@@ -474,7 +535,7 @@ public class AiChatFragment extends Fragment {
             boolean imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
             Insets statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars());
             Insets navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
-            int imeBottom = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom);
+            int imeBottom = computeEffectiveImeBottom(root, insets);
             int targetBottomPadding = navBars.bottom;
 
             if (root.getPaddingTop() != statusBars.top || root.getPaddingBottom() != targetBottomPadding) {
@@ -486,21 +547,23 @@ public class AiChatFragment extends Fragment {
                 );
             }
 
-            if (!imeAnimationRunning) {
-                int lift = imeVisible ? computeComposerLiftForIme(imeBottom) : 0;
-                applyComposerImeOffset(lift);
-                applyChatScrollBottomPadding(lift);
-                anchorChatToBottomIfNeeded();
-            }
+            int lift = imeVisible ? computeComposerLiftForIme(imeBottom) : 0;
+            // 无论动画状态如何都应用一次稳态值，规避部分机型只首轮触发的问题。
+            applyComposerImeOffset(lift);
+            applyChatScrollBottomPadding(lift);
+            anchorChatToBottomIfNeeded();
+            markInsetsDispatched();
 
             if (imeVisible && !lastImeVisible) {
                 if (pendingBottomScrollOnImeOpen && chatScroll != null) {
                     chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
                 }
                 pendingBottomScrollOnImeOpen = false;
+                startImeProbe();
             } else if (!imeVisible && lastImeVisible) {
                 keepChatAnchoredToBottomOnIme = false;
                 pendingBottomScrollOnImeOpen = false;
+                stopImeProbe();
             }
             lastImeVisible = imeVisible;
 
@@ -530,11 +593,12 @@ public class AiChatFragment extends Fragment {
                             }
                         }
                         if (hasImeAnimationRunning) {
-                            int imeBottom = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom);
+                            int imeBottom = computeEffectiveImeBottom(root, insets);
                             int lift = computeComposerLiftForIme(imeBottom);
                             applyComposerImeOffset(lift);
                             applyChatScrollBottomPadding(lift);
                             anchorChatToBottomIfNeeded();
+                            markInsetsDispatched();
                         }
                         return insets;
                     }
@@ -547,18 +611,160 @@ public class AiChatFragment extends Fragment {
                                     && currentInsets.isVisible(WindowInsetsCompat.Type.ime());
                             int imeBottomNow = currentInsets == null
                                     ? 0
-                                    : Math.max(0, currentInsets.getInsets(WindowInsetsCompat.Type.ime()).bottom);
+                                    : computeEffectiveImeBottom(root, currentInsets);
                             imeAnimationRunning = false;
                             int lift = imeVisibleNow ? computeComposerLiftForIme(imeBottomNow) : 0;
                             applyComposerImeOffset(lift);
                             applyChatScrollBottomPadding(lift);
                             anchorChatToBottomIfNeeded();
+                            markInsetsDispatched();
                             ViewCompat.requestApplyInsets(root);
                         }
                     }
                 });
 
         ViewCompat.requestApplyInsets(root);
+        setupImeGlobalLayoutFallback(root);
+        startImeProbe();
+    }
+
+    private void startImeProbe() {
+        View root = imeFallbackRoot;
+        if (root == null && rootView != null) {
+            root = rootView.findViewById(R.id.rootAiChat);
+        }
+        if (root == null) {
+            return;
+        }
+        imeProbeDeadlineUptime = SystemClock.uptimeMillis() + IME_PROBE_DURATION_MS;
+        if (imeProbeTicker != null) {
+            return;
+        }
+        imeProbeTicker = new Runnable() {
+            @Override
+            public void run() {
+                View probeRoot = imeFallbackRoot;
+                if (probeRoot == null && rootView != null) {
+                    probeRoot = rootView.findViewById(R.id.rootAiChat);
+                }
+                if (probeRoot == null) {
+                    stopImeProbe();
+                    return;
+                }
+
+                // WindowInsets 正常分发时，优先由其驱动动画，probe 仅作兜底。
+                if (isInsetsDispatchActive()) {
+                    if (SystemClock.uptimeMillis() < imeProbeDeadlineUptime) {
+                        streamHandler.postDelayed(this, IME_PROBE_INTERVAL_MS);
+                    } else {
+                        stopImeProbe();
+                    }
+                    return;
+                }
+
+                WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(probeRoot);
+                int fallbackVisibleHeight = estimateKeyboardHeightByVisibleFrame(probeRoot);
+                int navBottom = insets == null
+                        ? 0
+                        : Math.max(0, insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom);
+                int visibleThreshold = Math.max(dp(80), navBottom + dp(24));
+
+                boolean imeVisibleByInsets = insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
+                boolean imeLikelyVisible = imeVisibleByInsets || fallbackVisibleHeight > visibleThreshold;
+                int imeBottom = 0;
+                if (insets != null && imeVisibleByInsets) {
+                    imeBottom = computeEffectiveImeBottom(probeRoot, insets);
+                }
+                if (imeBottom <= 0 && imeLikelyVisible) {
+                    imeBottom = fallbackVisibleHeight;
+                }
+
+                int lift = imeLikelyVisible ? computeComposerLiftForIme(imeBottom) : 0;
+                applyComposerImeOffset(lift);
+                applyChatScrollBottomPadding(lift);
+                anchorChatToBottomIfNeeded();
+
+                boolean keepRunning = SystemClock.uptimeMillis() < imeProbeDeadlineUptime;
+                if (keepRunning) {
+                    streamHandler.postDelayed(this, IME_PROBE_INTERVAL_MS);
+                } else {
+                    stopImeProbe();
+                }
+            }
+        };
+        streamHandler.post(imeProbeTicker);
+    }
+
+    private void stopImeProbe() {
+        if (imeProbeTicker != null) {
+            streamHandler.removeCallbacks(imeProbeTicker);
+            imeProbeTicker = null;
+            imeProbeDeadlineUptime = 0L;
+        }
+    }
+
+    private void setupImeGlobalLayoutFallback(@NonNull View root) {
+        clearImeGlobalLayoutFallback();
+        imeFallbackRoot = root;
+        lastGlobalKeyboardHeight = Integer.MIN_VALUE;
+        lastGlobalImeVisible = false;
+
+        imeGlobalLayoutListener = () -> {
+            View fallbackRoot = imeFallbackRoot;
+            if (fallbackRoot == null) {
+                return;
+            }
+
+            if (isInsetsDispatchActive()) {
+                return;
+            }
+
+            int fallbackVisibleHeight = estimateKeyboardHeightByVisibleFrame(fallbackRoot);
+            WindowInsetsCompat currentInsets = ViewCompat.getRootWindowInsets(fallbackRoot);
+            int navBottom = currentInsets == null
+                    ? 0
+                    : Math.max(0, currentInsets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom);
+            int visibleThreshold = Math.max(dp(80), navBottom + dp(24));
+            boolean imeVisibleByInsets = currentInsets != null && currentInsets.isVisible(WindowInsetsCompat.Type.ime());
+            int imeBottomByInsets = currentInsets == null ? 0 : computeEffectiveImeBottom(fallbackRoot, currentInsets);
+            boolean imeLikelyVisible = imeVisibleByInsets || fallbackVisibleHeight > visibleThreshold;
+            int imeBottomForLift;
+            if (imeVisibleByInsets && imeBottomByInsets > 0) {
+                imeBottomForLift = imeBottomByInsets;
+            } else if (imeLikelyVisible) {
+                imeBottomForLift = fallbackVisibleHeight;
+            } else {
+                imeBottomForLift = 0;
+            }
+            int lift = computeComposerLiftForIme(imeBottomForLift);
+
+            applyComposerImeOffset(lift);
+            applyChatScrollBottomPadding(lift);
+            anchorChatToBottomIfNeeded();
+            lastGlobalKeyboardHeight = fallbackVisibleHeight;
+            lastGlobalImeVisible = imeLikelyVisible;
+        };
+
+        ViewTreeObserver observer = root.getViewTreeObserver();
+        if (observer.isAlive()) {
+            observer.addOnGlobalLayoutListener(imeGlobalLayoutListener);
+        }
+    }
+
+    private void clearImeGlobalLayoutFallback() {
+        if (imeFallbackRoot == null || imeGlobalLayoutListener == null) {
+            imeFallbackRoot = null;
+            imeGlobalLayoutListener = null;
+            return;
+        }
+        ViewTreeObserver observer = imeFallbackRoot.getViewTreeObserver();
+        if (observer.isAlive()) {
+            observer.removeOnGlobalLayoutListener(imeGlobalLayoutListener);
+        }
+        imeFallbackRoot = null;
+        imeGlobalLayoutListener = null;
+        lastGlobalKeyboardHeight = Integer.MIN_VALUE;
+        lastGlobalImeVisible = false;
     }
 
     private void applyComposerImeOffset(int imeBottom) {
