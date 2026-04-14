@@ -24,10 +24,7 @@ public class SettingsHomeActivity extends AppCompatActivity {
         MaterialToolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         UiStyleHelper.styleGlassToolbar(toolbar, this);
-        if (getSupportActionBar() != null) {
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setDisplayShowHomeEnabled(true);
-        }
+        toolbar.setNavigationIcon(R.drawable.ic_arrow_back_rounded_24);
         toolbar.setNavigationOnClickListener(v -> finish());
 
         subPageLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {

@@ -1,10 +1,10 @@
 package cn.edu.hut.course;
-
 import android.Manifest;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Outline;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -22,8 +22,11 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.webkit.CookieManager;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.GridLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -42,10 +45,12 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.datepicker.MaterialDatePicker;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.google.android.material.textfield.MaterialAutoCompleteTextView;
 import com.google.android.material.timepicker.MaterialTimePicker;
 import com.google.android.material.timepicker.TimeFormat;
 
@@ -100,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int NEXT_NOTICE_WINDOW_SECONDS = 40 * 60;
     private static final String[] SLOT_LABELS = {"第一大节", "第二大节", "第三大节", "第四大节", "第五大节"};
     private static final int[] AGENDA_PRIORITY_VALUES = {Agenda.PRIORITY_LOW, Agenda.PRIORITY_MEDIUM, Agenda.PRIORITY_HIGH};
-    private static final String[] AGENDA_PRIORITY_LABELS = {"低优先", "中优先", "高优先"};
+    private static final String[] AGENDA_PRIORITY_LABELS = {"低", "中", "高"};
     private static final String[] AGENDA_REPEAT_VALUES = {Agenda.REPEAT_NONE, Agenda.REPEAT_DAILY, Agenda.REPEAT_WEEKLY, Agenda.REPEAT_MONTHLY};
     private static final String[] AGENDA_REPEAT_LABELS = {"不重复", "每天", "每周", "每月固定日"};
     private static final String[] AGENDA_MONTHLY_VALUES = {Agenda.MONTHLY_SKIP, Agenda.MONTHLY_MONTH_END};
@@ -191,14 +196,39 @@ public class MainActivity extends AppCompatActivity {
             bottomNav.setBackgroundTintList(ColorStateList.valueOf(navBackground));
             bottomNav.setItemActiveIndicatorEnabled(false);
             bottomNav.setItemBackground(buildBottomNavItemBackground(colorPrimary));
+            final int navCorner = dp(30);
+            bottomNav.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), navCorner);
+                }
+            });
             bottomNav.setClipToOutline(true);
-            bottomNav.setClipChildren(true);
-            bottomNav.setElevation(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6, getResources().getDisplayMetrics()));
+            bottomNav.setClipChildren(false);
+            bottomNav.setClipToPadding(false);
+            View parent = (View) bottomNav.getParent();
+            if (parent instanceof ViewGroup) {
+                ((ViewGroup) parent).setClipChildren(false);
+                ((ViewGroup) parent).setClipToPadding(false);
+            }
+            float navElevation = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 14, getResources().getDisplayMetrics());
+            bottomNav.setElevation(navElevation);
+            bottomNav.setTranslationZ(navElevation * 0.5f);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                bottomNav.setOutlineAmbientShadowColor(ColorUtils.setAlphaComponent(colorOnSurface, 88));
+                bottomNav.setOutlineSpotShadowColor(ColorUtils.setAlphaComponent(colorOnSurface, 120));
+            }
         }
 
         if (fabAddAgenda != null) {
             fabAddAgenda.setBackgroundTintList(ColorStateList.valueOf(colorPrimary));
             fabAddAgenda.setImageTintList(ColorStateList.valueOf(pickReadableTextColor(colorPrimary)));
+            fabAddAgenda.setSize(FloatingActionButton.SIZE_NORMAL);
+            fabAddAgenda.setUseCompatPadding(false);
+            fabAddAgenda.setCompatElevation(0f);
+            fabAddAgenda.setElevation(0f);
+            fabAddAgenda.setTranslationZ(0f);
+            fabAddAgenda.setStateListAnimator(null);
         }
     }
 
@@ -417,9 +447,9 @@ public class MainActivity extends AppCompatActivity {
         loadCoursesFromLocal();
         renderProfileFromLocal();
         updateBackground();
-        switchToTodayPage();
+        switchToSchedulePage();
         if (bottomNav != null) {
-            bottomNav.setSelectedItemId(R.id.nav_today);
+            bottomNav.setSelectedItemId(R.id.nav_schedule);
         }
         updateTodayHeaderClock();
         startNoticeTicker();
@@ -814,58 +844,532 @@ public class MainActivity extends AppCompatActivity {
         int dp2 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2, getResources().getDisplayMetrics());
         int glassBg = UiStyleHelper.resolveGlassCardColor(this);
 
+        Map<Integer, List<ScheduleCellEntry>> cellEntries = new HashMap<>();
+
         for (Course c : allCourses) {
-            if (!c.isRemark && c.dayOfWeek >= 1 && c.dayOfWeek <= 7 && c.weeks != null && c.weeks.contains(week)) {
-                MaterialCardView card = new MaterialCardView(this);
-                card.setRadius(20);
-                card.setCardElevation(0f);
-                card.setStrokeColor(Color.TRANSPARENT);
+            if (c == null || c.isRemark || c.dayOfWeek < 1 || c.dayOfWeek > 7) {
+                continue;
+            }
+            if (c.weeks == null || !c.weeks.contains(week)) {
+                continue;
+            }
+            int slotIndex = Math.max(0, Math.min(SLOT_LABELS.length - 1, (c.startSection - 1) / 2));
+            int slot = slotIndex + 1;
+            String colorKey = buildCourseColorKey(c.name, c.isExperimental);
+            boolean hasCustomColor = hasCustomCourseColor(c.name, c.isExperimental);
+            int customColor = getCourseColor(c.name, c.isExperimental);
+            boolean isCurrentCourse = week == getActualCurrentWeek()
+                    && c.dayOfWeek == todayOfWeek
+                    && slot == currentSlotIndex;
+            boolean isSelected = colorKey.equals(selectedCourseColorKey);
+            addScheduleCellEntry(cellEntries, slot, c.dayOfWeek,
+                    ScheduleCellEntry.forCourse(c, slotIndex, colorKey, isCurrentCourse, isSelected, hasCustomColor, customColor));
+        }
 
-                String colorKey = buildCourseColorKey(c.name, c.isExperimental);
-                boolean hasCustomColor = hasCustomCourseColor(c.name, c.isExperimental);
-                int customColor = getCourseColor(c.name, c.isExperimental);
-                int cardBg = hasCustomColor ? ColorUtils.blendARGB(glassBg, customColor, 0.30f) : glassBg;
-                card.setCardBackgroundColor(cardBg);
-
-                int slot = (c.startSection - 1) / 2 + 1;
-                boolean isCurrentCourse = week == getActualCurrentWeek()
-                        && c.dayOfWeek == todayOfWeek
-                        && slot == currentSlotIndex;
-                boolean isSelected = colorKey.equals(selectedCourseColorKey);
-                if (isCurrentCourse || isSelected) {
-                    card.setStrokeWidth(dp2);
-                    card.setStrokeColor(themeColor);
-                } else {
-                    card.setStrokeWidth(0);
-                    card.setStrokeColor(Color.TRANSPARENT);
+        for (int day = 1; day <= 7; day++) {
+            Calendar targetDate = buildDateInAcademicWeek(week, day);
+            List<Agenda> dayAgendas = AgendaStorageManager.queryAgendasByDate(this, targetDate);
+            for (Agenda agenda : dayAgendas) {
+                if (agenda == null) {
+                    continue;
                 }
-
-                TextView tv = new TextView(this);
-                String teacher = c.teacher == null ? "" : c.teacher.trim();
-                String teacherLine = teacher.isEmpty() ? "" : "\n" + teacher;
-                String location = CampusBuildingStore.toStandardLocation(this, c.location);
-                tv.setText(c.name + (c.isExperimental ? "\n[实验]" : "") + teacherLine + "\n" + location);
-                int textColor = pickReadableTextColor(cardBg);
-                tv.setTextColor(textColor);
-                tv.setTextSize(10); tv.setPadding(8, 8, 8, 8); tv.setGravity(Gravity.CENTER);
-                card.addView(tv);
-                card.setOnClickListener(v -> {
-                    selectedCourseColorKey = colorKey;
-                    drawGrid();
-                    showCourseDetailSheet(c, colorKey);
-                });
-                int row = (c.startSection - 1) / 2 + 1;
-                int col = c.dayOfWeek;
-                if (row < 1) row = 1; if (row > 5) row = 5;
-                if (col < 1) col = 1; if (col > 7) col = 7;
-                GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(row), GridLayout.spec(col, 1f));
-                p.width = 0; p.height = dp120 - 10; p.setMargins(4, 4, 4, 4);
-                if (showGridLines) {
-                    card.setPreventCornerOverlap(false);
-                }
-                grid.addView(card, p);
+                addAgendaEntriesByTimeRange(cellEntries, day, agenda);
             }
         }
+
+        int cellBaseHeight = dp120 - 10;
+        int cellGap = dp(8);
+        for (int col = 1; col <= 7; col++) {
+            int row = 1;
+            while (row <= 5) {
+                List<ScheduleCellEntry> entries = getSortedScheduleCellEntries(cellEntries, row, col);
+                if (entries.isEmpty()) {
+                    row++;
+                    continue;
+                }
+
+                int rowSpan = 1;
+                if (entries.size() == 1) {
+                    ScheduleCellEntry onlyEntry = entries.get(0);
+                    if (onlyEntry.type == ScheduleCellEntry.TYPE_COURSE) {
+                        ScheduleVerticalMergeResult merged = tryMergeScheduleEntriesVertically(cellEntries, row, col, onlyEntry);
+                        entries = new ArrayList<>();
+                        entries.add(merged.entry);
+                        rowSpan = merged.rowSpan;
+                    } else {
+                        rowSpan = computeAgendaRenderRowSpan(cellEntries, row, col, onlyEntry);
+                    }
+                }
+
+                View cellView = createScheduleGridCellView(entries, week, col, themeColor, glassBg, showGridLines, dp2, darkMode, row, rowSpan);
+                GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(row, rowSpan), GridLayout.spec(col, 1f));
+                p.width = 0;
+                p.height = cellBaseHeight * rowSpan + cellGap * Math.max(0, rowSpan - 1);
+                p.setMargins(4, 4, 4, 4);
+                grid.addView(cellView, p);
+
+                row += rowSpan;
+            }
+        }
+    }
+
+    private int computeAgendaRenderRowSpan(Map<Integer, List<ScheduleCellEntry>> cellEntries,
+                                           int startRow,
+                                           int col,
+                                           ScheduleCellEntry agendaEntry) {
+        if (agendaEntry == null || agendaEntry.type != ScheduleCellEntry.TYPE_AGENDA) {
+            return 1;
+        }
+
+        int desiredEndRow = startRow;
+        for (int i = Math.max(0, startRow - 1); i < SLOT_START_SECONDS.length; i++) {
+            int slotStartMinute = SLOT_START_SECONDS[i] / 60;
+            int slotEndMinute = SLOT_END_SECONDS[i] / 60;
+            if (agendaEntry.endMinute > slotStartMinute && agendaEntry.startMinute < slotEndMinute) {
+                desiredEndRow = i + 1;
+            }
+        }
+        int desiredRowSpan = Math.max(1, desiredEndRow - startRow + 1);
+        int maxRowSpan = Math.max(1, 5 - startRow + 1);
+        desiredRowSpan = Math.min(desiredRowSpan, maxRowSpan);
+
+        for (int row = startRow + 1; row <= startRow + desiredRowSpan - 1; row++) {
+            List<ScheduleCellEntry> occupied = getSortedScheduleCellEntries(cellEntries, row, col);
+            if (!occupied.isEmpty()) {
+                return Math.max(1, row - startRow);
+            }
+        }
+        return desiredRowSpan;
+    }
+
+    private List<ScheduleCellEntry> getSortedScheduleCellEntries(Map<Integer, List<ScheduleCellEntry>> cellEntries,
+                                                                 int row,
+                                                                 int col) {
+        int clampedRow = Math.max(1, Math.min(5, row));
+        int clampedCol = Math.max(1, Math.min(7, col));
+        int key = clampedRow * 16 + clampedCol;
+        List<ScheduleCellEntry> source = cellEntries.get(key);
+        if (source == null || source.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<ScheduleCellEntry> sorted = new ArrayList<>(source);
+        sorted.sort((a, b) -> {
+            int byType = Integer.compare(a.type, b.type);
+            if (byType != 0) {
+                return byType;
+            }
+            return Integer.compare(a.startMinute, b.startMinute);
+        });
+        return sorted;
+    }
+
+    private ScheduleVerticalMergeResult tryMergeScheduleEntriesVertically(Map<Integer, List<ScheduleCellEntry>> cellEntries,
+                                                                          int startRow,
+                                                                          int col,
+                                                                          ScheduleCellEntry firstEntry) {
+        ScheduleCellEntry mergedEntry = firstEntry;
+        int rowSpan = 1;
+        int nextRow = startRow + 1;
+        while (nextRow <= 5) {
+            List<ScheduleCellEntry> nextEntries = getSortedScheduleCellEntries(cellEntries, nextRow, col);
+            if (nextEntries.size() != 1) {
+                break;
+            }
+            ScheduleCellEntry nextEntry = nextEntries.get(0);
+            if (!canMergeScheduleEntries(mergedEntry, nextEntry)) {
+                break;
+            }
+            mergedEntry = mergeScheduleEntries(mergedEntry, nextEntry);
+            rowSpan++;
+            nextRow++;
+        }
+        return new ScheduleVerticalMergeResult(mergedEntry, rowSpan);
+    }
+
+    private boolean canMergeScheduleEntries(ScheduleCellEntry current, ScheduleCellEntry next) {
+        if (current == null || next == null || current.type != next.type) {
+            return false;
+        }
+        if (current.type == ScheduleCellEntry.TYPE_COURSE) {
+            return canMergeCourseEntries(current, next);
+        }
+        return canMergeAgendaEntries(current, next);
+    }
+
+    private boolean canMergeCourseEntries(ScheduleCellEntry current, ScheduleCellEntry next) {
+        if (current.course == null || next.course == null) {
+            return false;
+        }
+        if (!isSameCourseMergeTarget(current.course, next.course)) {
+            return false;
+        }
+        int expectedNextSlot = current.slotIndex + getCourseEntrySpanCount(current);
+        return next.slotIndex == expectedNextSlot;
+    }
+
+    private boolean isSameCourseMergeTarget(Course first, Course second) {
+        if (first == null || second == null) {
+            return false;
+        }
+        if (!safeText(first.name).equals(safeText(second.name))) {
+            return false;
+        }
+        if (first.isExperimental != second.isExperimental) {
+            return false;
+        }
+        if (!safeText(first.teacher).trim().equals(safeText(second.teacher).trim())) {
+            return false;
+        }
+        if (!safeText(first.location).trim().equals(safeText(second.location).trim())) {
+            return false;
+        }
+        return first.dayOfWeek == second.dayOfWeek;
+    }
+
+    private boolean canMergeAgendaEntries(ScheduleCellEntry current, ScheduleCellEntry next) {
+        if (current.agenda == null || next.agenda == null) {
+            return false;
+        }
+        if (current.agenda.id > 0 && next.agenda.id > 0 && current.agenda.id != next.agenda.id) {
+            return false;
+        }
+        if (current.agenda.id <= 0 || next.agenda.id <= 0) {
+            if (!safeText(current.agenda.title).equals(safeText(next.agenda.title))) {
+                return false;
+            }
+            if (!safeText(current.agenda.date).equals(safeText(next.agenda.date))) {
+                return false;
+            }
+        }
+        return next.startMinute <= current.endMinute + 1;
+    }
+
+    private int getCourseEntrySpanCount(ScheduleCellEntry entry) {
+        if (entry == null || entry.mergedCourses == null || entry.mergedCourses.isEmpty()) {
+            return 1;
+        }
+        return Math.max(1, entry.mergedCourses.size());
+    }
+
+    private ScheduleCellEntry mergeScheduleEntries(ScheduleCellEntry current, ScheduleCellEntry next) {
+        if (current.type == ScheduleCellEntry.TYPE_AGENDA) {
+            int mergedStartMinute = Math.min(current.startMinute, next.startMinute);
+            int mergedEndMinute = Math.max(current.endMinute, next.endMinute);
+            return ScheduleCellEntry.forAgenda(current.agenda, Math.min(current.slotIndex, next.slotIndex), mergedStartMinute, mergedEndMinute);
+        }
+
+        List<Course> mergedCourses = new ArrayList<>();
+        if (current.mergedCourses != null && !current.mergedCourses.isEmpty()) {
+            for (Course one : current.mergedCourses) {
+                if (one != null && !mergedCourses.contains(one)) {
+                    mergedCourses.add(one);
+                }
+            }
+        } else if (current.course != null) {
+            mergedCourses.add(current.course);
+        }
+        if (next.mergedCourses != null && !next.mergedCourses.isEmpty()) {
+            for (Course one : next.mergedCourses) {
+                if (one != null && !mergedCourses.contains(one)) {
+                    mergedCourses.add(one);
+                }
+            }
+        } else if (next.course != null && !mergedCourses.contains(next.course)) {
+            mergedCourses.add(next.course);
+        }
+        mergedCourses.sort((a, b) -> Integer.compare(a.startSection, b.startSection));
+
+        Course primary = mergedCourses.isEmpty() ? current.course : mergedCourses.get(0);
+        int mergedStartMinute = Math.min(current.startMinute, next.startMinute);
+        int mergedEndMinute = Math.max(current.endMinute, next.endMinute);
+        boolean hasCustomColor = current.hasCustomColor || next.hasCustomColor;
+        int customColor = current.hasCustomColor ? current.customColor : next.customColor;
+        return ScheduleCellEntry.forMergedCourse(
+                primary,
+                Math.min(current.slotIndex, next.slotIndex),
+                mergedStartMinute,
+                mergedEndMinute,
+                current.courseColorKey,
+                current.isCurrentCourse || next.isCurrentCourse,
+                current.isSelectedCourse || next.isSelectedCourse,
+            hasCustomColor,
+            customColor,
+                mergedCourses
+        );
+    }
+
+    private void addScheduleCellEntry(Map<Integer, List<ScheduleCellEntry>> cellEntries,
+                                      int row,
+                                      int col,
+                                      ScheduleCellEntry entry) {
+        if (entry == null) {
+            return;
+        }
+        int clampedRow = Math.max(1, Math.min(5, row));
+        int clampedCol = Math.max(1, Math.min(7, col));
+        int key = clampedRow * 16 + clampedCol;
+        List<ScheduleCellEntry> list = cellEntries.get(key);
+        if (list == null) {
+            list = new ArrayList<>();
+            cellEntries.put(key, list);
+        }
+        list.add(entry);
+    }
+
+    private void addAgendaEntriesByTimeRange(Map<Integer, List<ScheduleCellEntry>> cellEntries,
+                                             int dayOfWeek,
+                                             @NonNull Agenda agenda) {
+        int timetableStartMinute = SLOT_START_SECONDS[0] / 60;
+        int timetableEndMinute = SLOT_END_SECONDS[SLOT_END_SECONDS.length - 1] / 60;
+
+        int agendaStartMinute = Math.max(0, Math.min(24 * 60, agenda.startMinute));
+        int agendaEndMinute = Math.max(agendaStartMinute + 1, Math.min(24 * 60, agenda.endMinute));
+
+        int visibleStartMinute = Math.max(agendaStartMinute, timetableStartMinute);
+        int visibleEndMinute = Math.min(agendaEndMinute, timetableEndMinute);
+        if (visibleEndMinute <= visibleStartMinute) {
+            return;
+        }
+
+        int slotIndex = resolveAgendaAnchorSlotIndex(visibleStartMinute, visibleEndMinute);
+        addScheduleCellEntry(cellEntries, slotIndex + 1, dayOfWeek,
+                ScheduleCellEntry.forAgenda(agenda, slotIndex, visibleStartMinute, visibleEndMinute));
+    }
+
+    private int resolveAgendaAnchorSlotIndex(int visibleStartMinute, int visibleEndMinute) {
+        int clampedStartMinute = Math.max(0, Math.min(24 * 60, visibleStartMinute));
+        int clampedEndMinute = Math.max(clampedStartMinute + 1, Math.min(24 * 60, visibleEndMinute));
+
+        for (int i = 0; i < SLOT_START_SECONDS.length; i++) {
+            int slotStartMinute = SLOT_START_SECONDS[i] / 60;
+            int slotEndMinute = SLOT_END_SECONDS[i] / 60;
+            if (clampedStartMinute < slotEndMinute && clampedEndMinute > slotStartMinute) {
+                return i;
+            }
+        }
+
+        int nearestSlot = 0;
+        int nearestDistance = Integer.MAX_VALUE;
+        for (int i = 0; i < SLOT_START_SECONDS.length; i++) {
+            int slotStartMinute = SLOT_START_SECONDS[i] / 60;
+            int distance = Math.abs(clampedStartMinute - slotStartMinute);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestSlot = i;
+            }
+        }
+        return nearestSlot;
+    }
+
+    private View createScheduleGridCellView(List<ScheduleCellEntry> rawEntries,
+                                            int week,
+                                            int dayOfWeek,
+                                            int themeColor,
+                                            int glassBg,
+                                            boolean showGridLines,
+                                            int dp2,
+                                            boolean darkMode,
+                                            int cellStartRow,
+                                            int cellRowSpan) {
+        if (rawEntries == null || rawEntries.isEmpty()) {
+            return new View(this);
+        }
+
+        List<ScheduleCellEntry> entries = new ArrayList<>(rawEntries);
+        entries.sort((a, b) -> {
+            int byType = Integer.compare(a.type, b.type); // 课程优先
+            if (byType != 0) {
+                return byType;
+            }
+            int byStart = Integer.compare(a.startMinute, b.startMinute);
+            if (byStart != 0) {
+                return byStart;
+            }
+            return 0;
+        });
+
+        boolean hasCourseInCell = false;
+        for (ScheduleCellEntry one : entries) {
+            if (one.type == ScheduleCellEntry.TYPE_COURSE) {
+                hasCourseInCell = true;
+                break;
+            }
+        }
+
+        if (entries.size() == 1) {
+            return createScheduleEntryView(entries.get(0), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan);
+        }
+
+        FrameLayout wrapper = new FrameLayout(this);
+        LinearLayout splitRow = new LinearLayout(this);
+        splitRow.setOrientation(LinearLayout.HORIZONTAL);
+        FrameLayout.LayoutParams splitLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+        );
+        wrapper.addView(splitRow, splitLp);
+
+        int visibleCount = Math.min(2, entries.size());
+        for (int i = 0; i < visibleCount; i++) {
+            View entryView = createScheduleEntryView(entries.get(i), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, 1);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+            if (i > 0) {
+                lp.setMargins(dp(3), 0, 0, 0);
+            }
+            splitRow.addView(entryView, lp);
+        }
+
+        if (entries.size() > visibleCount) {
+            TextView badge = new TextView(this);
+            badge.setText("+" + (entries.size() - visibleCount));
+            badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
+            badge.setTypeface(null, Typeface.BOLD);
+            badge.setTextColor(pickReadableTextColor(themeColor));
+            badge.setBackground(makeRoundedSolid(themeColor, 10));
+            badge.setPadding(dp(6), dp(2), dp(6), dp(2));
+            FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.END
+            );
+            badgeLp.setMargins(0, dp(4), dp(4), 0);
+            wrapper.addView(badge, badgeLp);
+            Calendar targetDate = buildDateInAcademicWeek(week, dayOfWeek);
+            wrapper.setOnClickListener(v -> showScheduleDayArrangementSheet(targetDate, week));
+        }
+
+        return wrapper;
+    }
+
+    private View createScheduleEntryView(ScheduleCellEntry entry,
+                                         int week,
+                                         int dayOfWeek,
+                                         int themeColor,
+                                         int glassBg,
+                                         boolean showGridLines,
+                                         int dp2,
+                                         boolean hasCourseInCell,
+                                         boolean darkMode,
+                                         int cellStartRow,
+                                         int cellRowSpan) {
+        MaterialCardView card = createScheduleEntryCard(entry, week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode);
+        if (entry.type != ScheduleCellEntry.TYPE_AGENDA) {
+            return card;
+        }
+
+        int rowStartIndex = Math.max(0, Math.min(SLOT_START_SECONDS.length - 1, cellStartRow - 1));
+        int rowEndIndex = Math.max(rowStartIndex, Math.min(SLOT_END_SECONDS.length - 1, cellStartRow + Math.max(1, cellRowSpan) - 2));
+        int spanStartMinute = SLOT_START_SECONDS[rowStartIndex] / 60;
+        int spanEndMinute = SLOT_END_SECONDS[rowEndIndex] / 60;
+        int spanDurationMinute = Math.max(1, spanEndMinute - spanStartMinute);
+
+        int segmentStartMinute = Math.max(spanStartMinute, entry.startMinute);
+        int segmentEndMinute = Math.min(spanEndMinute, Math.max(segmentStartMinute + 1, entry.endMinute));
+        float topRatio = (segmentStartMinute - spanStartMinute) / (float) spanDurationMinute;
+        float heightRatio = (segmentEndMinute - segmentStartMinute) / (float) spanDurationMinute;
+
+        int baseHeight = dp(110);
+        int gapHeight = dp(8);
+        int cellHeight = baseHeight * Math.max(1, cellRowSpan) + gapHeight * Math.max(0, cellRowSpan - 1);
+        int top = Math.max(0, Math.round(cellHeight * topRatio));
+        int height = Math.max(dp(28), Math.round(cellHeight * heightRatio));
+        if (top + height > cellHeight) {
+            height = Math.max(dp(20), cellHeight - top);
+        }
+
+        FrameLayout wrapper = new FrameLayout(this);
+        FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                height,
+                Gravity.TOP
+        );
+        cardLp.topMargin = top;
+        wrapper.addView(card, cardLp);
+        return wrapper;
+    }
+
+    private MaterialCardView createScheduleEntryCard(ScheduleCellEntry entry,
+                                                     int week,
+                                                     int dayOfWeek,
+                                                     int themeColor,
+                                                     int glassBg,
+                                                     boolean showGridLines,
+                                                     int dp2,
+                                                     boolean hasCourseInCell,
+                                                     boolean darkMode) {
+        MaterialCardView card = new MaterialCardView(this);
+        card.setRadius(dp(16));
+        card.setCardElevation(0f);
+        card.setStrokeColor(Color.TRANSPARENT);
+        if (showGridLines) {
+            card.setPreventCornerOverlap(false);
+        }
+
+        TextView tv = new TextView(this);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f);
+        tv.setPadding(dp(6), dp(6), dp(6), dp(6));
+        tv.setGravity(Gravity.CENTER);
+        tv.setMaxLines(5);
+        tv.setEllipsize(TextUtils.TruncateAt.END);
+        card.addView(tv, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        if (entry.type == ScheduleCellEntry.TYPE_COURSE && entry.course != null) {
+            int cardBg = entry.hasCustomColor ? ColorUtils.blendARGB(glassBg, entry.customColor, 0.30f) : glassBg;
+            card.setCardBackgroundColor(cardBg);
+            if (entry.isCurrentCourse || entry.isSelectedCourse) {
+                card.setStrokeWidth(dp2);
+                card.setStrokeColor(themeColor);
+            } else {
+                card.setStrokeWidth(0);
+                card.setStrokeColor(Color.TRANSPARENT);
+            }
+
+            String teacher = entry.course.teacher == null ? "" : entry.course.teacher.trim();
+            String teacherLine = teacher.isEmpty() ? "" : "\n" + teacher;
+            String location = CampusBuildingStore.toStandardLocation(this, entry.course.location);
+            String sectionLine = "\n" + formatMergedCourseSectionLabel(entry);
+            tv.setText(entry.course.name + (entry.course.isExperimental ? "\n[实验]" : "") + sectionLine + teacherLine + "\n" + location);
+            tv.setTextColor(pickReadableTextColor(cardBg));
+
+            card.setOnClickListener(v -> {
+                selectedCourseColorKey = entry.courseColorKey;
+                drawGrid();
+                showCourseDetailSheet(entry.course, entry.courseColorKey, entry.mergedCourses);
+            });
+            return card;
+        }
+
+        Agenda agenda = entry.agenda;
+        int agendaBg = ColorUtils.blendARGB(glassBg, themeColor, hasCourseInCell ? (darkMode ? 0.12f : 0.10f) : (darkMode ? 0.18f : 0.15f));
+        card.setCardBackgroundColor(agendaBg);
+        if (hasCourseInCell) {
+            card.setStrokeWidth(dp(1));
+            card.setStrokeColor(ColorUtils.setAlphaComponent(themeColor, darkMode ? 140 : 120));
+        } else {
+            card.setStrokeWidth(0);
+            card.setStrokeColor(Color.TRANSPARENT);
+        }
+
+        String title = agenda == null ? "" : safeText(agenda.title).trim();
+        if (title.isEmpty()) {
+            title = "未命名日程";
+        }
+        int fullStartMinute = agenda == null ? 0 : Math.max(0, agenda.startMinute);
+        int fullEndMinute = agenda == null ? 30 : Math.max(fullStartMinute + 1, Math.min(24 * 60, agenda.endMinute));
+        int firstVisibleMinute = Math.max(fullStartMinute, SLOT_START_SECONDS[0] / 60);
+        boolean isContinuationSegment = entry.startMinute > firstVisibleMinute;
+        if (isContinuationSegment) {
+            tv.setText("日程\n↳ " + title);
+        } else {
+            tv.setText("日程\n" + title + "\n" + formatMinute(fullStartMinute) + "-" + formatMinute(fullEndMinute));
+        }
+        tv.setTextColor(pickReadableTextColor(agendaBg));
+
+        if (agenda != null) {
+            Calendar targetDate = buildDateInAcademicWeek(week, dayOfWeek);
+            card.setOnClickListener(v -> showAgendaEditorSheet(agenda, targetDate));
+        }
+        return card;
     }
 
     private void drawGrid() {
@@ -957,15 +1461,42 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private List<TodayCourseItem> buildDateCourseItems(int targetWeek, int targetDay) {
-        List<TodayCourseItem> result = new ArrayList<>();
+        List<TodayCourseItem> raw = new ArrayList<>();
         for (Course c : allCourses) {
             if (c == null || c.isRemark || c.dayOfWeek != targetDay) continue;
             if (c.weeks == null || !c.weeks.contains(targetWeek)) continue;
             int slot = Math.max(0, Math.min(SLOT_LABELS.length - 1, (c.startSection - 1) / 2));
-            result.add(new TodayCourseItem(c, slot));
+            raw.add(new TodayCourseItem(c, slot));
         }
-        Collections.sort(result, (a, b) -> Integer.compare(SLOT_START_SECONDS[a.slotIndex], SLOT_START_SECONDS[b.slotIndex]));
-        return result;
+        Collections.sort(raw, (a, b) -> Integer.compare(SLOT_START_SECONDS[a.slotIndex], SLOT_START_SECONDS[b.slotIndex]));
+
+        List<TodayCourseItem> merged = new ArrayList<>();
+        int index = 0;
+        while (index < raw.size()) {
+            TodayCourseItem seed = raw.get(index);
+            List<Course> mergeCourses = new ArrayList<>();
+            mergeCourses.add(seed.course);
+
+            int startSlot = seed.slotIndex;
+            int endSlot = seed.slotIndex;
+            int next = index + 1;
+            while (next < raw.size()) {
+                TodayCourseItem candidate = raw.get(next);
+                if (candidate.slotIndex != endSlot + 1) {
+                    break;
+                }
+                if (!isSameCourseMergeTarget(seed.course, candidate.course)) {
+                    break;
+                }
+                mergeCourses.add(candidate.course);
+                endSlot = candidate.slotIndex;
+                next++;
+            }
+
+            merged.add(new TodayCourseItem(seed.course, startSlot, endSlot, mergeCourses));
+            index = next;
+        }
+        return merged;
     }
 
     private void styleTodayOverviewCard() {
@@ -1048,14 +1579,20 @@ public class MainActivity extends AppCompatActivity {
         leftCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView slot = new TextView(this);
-        slot.setText(SLOT_LABELS[item.slotIndex]);
+        if (item.startSlotIndex == item.endSlotIndex) {
+            slot.setText(SLOT_LABELS[item.startSlotIndex]);
+        } else {
+            slot.setText("第" + (item.startSlotIndex + 1) + "-" + (item.endSlotIndex + 1) + "大节");
+        }
         slot.setTextColor(onSurface);
         slot.setTextSize(13f);
         slot.setTypeface(null, Typeface.BOLD);
         leftCol.addView(slot);
 
         TextView slotTime = new TextView(this);
-        slotTime.setText(String.format(Locale.getDefault(), "%02d:%02d", SLOT_START_SECONDS[item.slotIndex] / 3600, (SLOT_START_SECONDS[item.slotIndex] % 3600) / 60));
+        String startText = String.format(Locale.getDefault(), "%02d:%02d", SLOT_START_SECONDS[item.startSlotIndex] / 3600, (SLOT_START_SECONDS[item.startSlotIndex] % 3600) / 60);
+        String endText = String.format(Locale.getDefault(), "%02d:%02d", SLOT_END_SECONDS[item.endSlotIndex] / 3600, (SLOT_END_SECONDS[item.endSlotIndex] % 3600) / 60);
+        slotTime.setText(startText + "-" + endText);
         slotTime.setTextColor(onSurfaceVariant);
         slotTime.setTextSize(11f);
         slotTime.setPadding(0, dp(3), 0, 0);
@@ -1273,12 +1810,12 @@ public class MainActivity extends AppCompatActivity {
 
     private String priorityText(int priority) {
         if (priority == Agenda.PRIORITY_HIGH) {
-            return "高优先";
+            return "高";
         }
         if (priority == Agenda.PRIORITY_LOW) {
-            return "低优先";
+            return "低";
         }
-        return "中优先";
+        return "中";
     }
 
     private String repeatText(Agenda agenda) {
@@ -1299,6 +1836,78 @@ public class MainActivity extends AppCompatActivity {
     private String formatMinute(int minute) {
         int clamped = Math.max(0, Math.min(24 * 60, minute));
         return String.format(Locale.getDefault(), "%02d:%02d", clamped / 60, clamped % 60);
+    }
+
+    private String formatMergedCourseSectionLabel(ScheduleCellEntry entry) {
+        int spanCount = Math.max(1, getCourseEntrySpanCount(entry));
+        int startSlot = Math.max(1, Math.min(SLOT_LABELS.length, entry.slotIndex + 1));
+        int endSlot = Math.max(startSlot, Math.min(SLOT_LABELS.length, startSlot + spanCount - 1));
+        if (startSlot == endSlot) {
+            return "第" + startSlot + "大节";
+        }
+        return "第" + startSlot + "-" + endSlot + "大节";
+    }
+
+    private String formatCourseSectionForDisplay(List<Course> courses) {
+        if (courses == null || courses.isEmpty()) {
+            return "未定";
+        }
+        int day = Math.max(1, Math.min(7, courses.get(0).dayOfWeek));
+        List<Integer> slots = collectDistinctCourseSlots(courses);
+        if (slots.isEmpty()) {
+            return "未定";
+        }
+        return "周" + day + " 第" + formatCourseSlotRanges(slots) + "大节";
+    }
+
+    private List<Integer> collectDistinctCourseSlots(List<Course> courses) {
+        List<Integer> slots = new ArrayList<>();
+        if (courses == null) {
+            return slots;
+        }
+        for (Course one : courses) {
+            if (one == null) {
+                continue;
+            }
+            int slot = Math.max(1, Math.min(SLOT_LABELS.length, (one.startSection - 1) / 2 + 1));
+            if (!slots.contains(slot)) {
+                slots.add(slot);
+            }
+        }
+        Collections.sort(slots);
+        return slots;
+    }
+
+    private String formatCourseSlotRanges(List<Integer> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        int start = slots.get(0);
+        int end = start;
+        for (int i = 1; i < slots.size(); i++) {
+            int current = slots.get(i);
+            if (current == end + 1) {
+                end = current;
+                continue;
+            }
+            appendSlotRange(builder, start, end);
+            builder.append("、");
+            start = end = current;
+        }
+        appendSlotRange(builder, start, end);
+        return builder.toString();
+    }
+
+    private void appendSlotRange(StringBuilder builder, int start, int end) {
+        if (builder == null) {
+            return;
+        }
+        if (start == end) {
+            builder.append(start);
+            return;
+        }
+        builder.append(start).append("-").append(end);
     }
 
     private String safeText(String text) {
@@ -1355,10 +1964,20 @@ public class MainActivity extends AppCompatActivity {
     private static class TodayCourseItem {
         final Course course;
         final int slotIndex;
+        final int startSlotIndex;
+        final int endSlotIndex;
+        final List<Course> mergedCourses;
 
         TodayCourseItem(Course course, int slotIndex) {
+            this(course, slotIndex, slotIndex, null);
+        }
+
+        TodayCourseItem(Course course, int startSlotIndex, int endSlotIndex, List<Course> mergedCourses) {
             this.course = course;
-            this.slotIndex = slotIndex;
+            this.slotIndex = startSlotIndex;
+            this.startSlotIndex = startSlotIndex;
+            this.endSlotIndex = Math.max(startSlotIndex, endSlotIndex);
+            this.mergedCourses = mergedCourses;
         }
     }
 
@@ -1379,12 +1998,100 @@ public class MainActivity extends AppCompatActivity {
         }
 
         static TodayTimelineItem forCourse(TodayCourseItem item) {
-            int startMinute = SLOT_START_SECONDS[item.slotIndex] / 60;
+            int startMinute = SLOT_START_SECONDS[item.startSlotIndex] / 60;
             return new TodayTimelineItem(TYPE_COURSE, startMinute, item, null);
         }
 
         static TodayTimelineItem forAgenda(Agenda agenda) {
             return new TodayTimelineItem(TYPE_AGENDA, Math.max(0, agenda.startMinute), null, agenda);
+        }
+    }
+
+    private static final class ScheduleCellEntry {
+        static final int TYPE_COURSE = 0;
+        static final int TYPE_AGENDA = 1;
+
+        final int type;
+        final int slotIndex;
+        final int startMinute;
+        final int endMinute;
+        final Course course;
+        final Agenda agenda;
+        final List<Course> mergedCourses;
+        final String courseColorKey;
+        final boolean isCurrentCourse;
+        final boolean isSelectedCourse;
+        final boolean hasCustomColor;
+        final int customColor;
+
+        private ScheduleCellEntry(int type,
+                                  int slotIndex,
+                                  int startMinute,
+                                  int endMinute,
+                                  Course course,
+                                  Agenda agenda,
+                                  List<Course> mergedCourses,
+                                  String courseColorKey,
+                                  boolean isCurrentCourse,
+                                  boolean isSelectedCourse,
+                                  boolean hasCustomColor,
+                                  int customColor) {
+            this.type = type;
+            this.slotIndex = slotIndex;
+            this.startMinute = startMinute;
+            this.endMinute = endMinute;
+            this.course = course;
+            this.agenda = agenda;
+            this.mergedCourses = mergedCourses;
+            this.courseColorKey = courseColorKey;
+            this.isCurrentCourse = isCurrentCourse;
+            this.isSelectedCourse = isSelectedCourse;
+            this.hasCustomColor = hasCustomColor;
+            this.customColor = customColor;
+        }
+
+        static ScheduleCellEntry forCourse(Course course,
+                                           int slotIndex,
+                                           String colorKey,
+                                           boolean isCurrentCourse,
+                                           boolean isSelectedCourse,
+                                           boolean hasCustomColor,
+                                           int customColor) {
+            int startMinute = SLOT_START_SECONDS[Math.max(0, Math.min(SLOT_START_SECONDS.length - 1, slotIndex))] / 60;
+            int endMinute = SLOT_END_SECONDS[Math.max(0, Math.min(SLOT_END_SECONDS.length - 1, slotIndex))] / 60;
+            return new ScheduleCellEntry(TYPE_COURSE, slotIndex, startMinute, endMinute, course, null, null,
+                    colorKey, isCurrentCourse, isSelectedCourse, hasCustomColor, customColor);
+        }
+
+        static ScheduleCellEntry forMergedCourse(Course course,
+                                                 int slotIndex,
+                                                 int startMinute,
+                                                 int endMinute,
+                                                 String colorKey,
+                                                 boolean isCurrentCourse,
+                                                 boolean isSelectedCourse,
+                                                 boolean hasCustomColor,
+                                                 int customColor,
+                                                 List<Course> mergedCourses) {
+            return new ScheduleCellEntry(TYPE_COURSE, slotIndex, startMinute, endMinute, course, null, mergedCourses,
+                    colorKey, isCurrentCourse, isSelectedCourse, hasCustomColor, customColor);
+        }
+
+        static ScheduleCellEntry forAgenda(Agenda agenda, int slotIndex, int segmentStartMinute, int segmentEndMinute) {
+            int startMinute = Math.max(0, segmentStartMinute);
+            int endMinute = Math.max(startMinute + 1, segmentEndMinute);
+            return new ScheduleCellEntry(TYPE_AGENDA, slotIndex, startMinute, endMinute, null, agenda, null,
+                    null, false, false, false, 0);
+        }
+    }
+
+    private static final class ScheduleVerticalMergeResult {
+        final ScheduleCellEntry entry;
+        final int rowSpan;
+
+        ScheduleVerticalMergeResult(ScheduleCellEntry entry, int rowSpan) {
+            this.entry = entry;
+            this.rowSpan = Math.max(1, rowSpan);
         }
     }
 
@@ -2474,6 +3181,10 @@ private void extractAllTables(String passedCookie) {
     }
 
     private void showCourseDetailSheet(Course c, String colorKey) {
+        showCourseDetailSheet(c, colorKey, null);
+    }
+
+    private void showCourseDetailSheet(Course c, String colorKey, List<Course> mergedCourses) {
         com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -2497,6 +3208,20 @@ private void extractAllTables(String passedCookie) {
         final TextView[] teacherRef = new TextView[1];
         final TextView[] locationRef = new TextView[1];
         final TextView[] weeksRef = new TextView[1];
+        final TextView[] sectionRef = new TextView[1];
+
+        final List<Course> sectionTargets = new ArrayList<>();
+        if (mergedCourses != null) {
+            for (Course one : mergedCourses) {
+                if (one != null && !sectionTargets.contains(one)) {
+                    sectionTargets.add(one);
+                }
+            }
+        }
+        if (!sectionTargets.contains(c)) {
+            sectionTargets.add(c);
+        }
+        sectionTargets.sort((a, b) -> Integer.compare(a.startSection, b.startSection));
 
         teacherRef[0] = addEditableInfoRow(rowsContainer, "教师", c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim(),
             v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurfaceVariant);
@@ -2507,7 +3232,15 @@ private void extractAllTables(String passedCookie) {
         weeksRef[0] = addEditableInfoRow(rowsContainer, "周次", formatWeeksForDisplay(c.weeks),
             v -> showWeeksPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurfaceVariant);
 
-        addEditableInfoRow(rowsContainer, "节次", "周" + c.dayOfWeek + " 第" + ((c.startSection - 1) / 2 + 1) + "大节", null, colorOnSurface, colorOnSurfaceVariant);
+        sectionRef[0] = addEditableInfoRow(rowsContainer, "节次", formatCourseSectionForDisplay(sectionTargets),
+            v -> showCourseSectionPicker(sectionTargets, () -> {
+                if (sectionRef[0] != null) {
+                    sectionRef[0].setText(formatCourseSectionForDisplay(sectionTargets));
+                }
+                saveCoursesToLocal();
+                updateNextCourseNotice();
+                drawGrid();
+            }), colorOnSurface, colorOnSurfaceVariant);
         layout.addView(rowsContainer);
 
         TextView colorTitle = new TextView(this);
@@ -2576,7 +3309,7 @@ private void extractAllTables(String passedCookie) {
                     String colorKey = buildCourseColorKey(item.course.name, item.course.isExperimental);
                     selectedCourseColorKey = colorKey;
                     drawGrid();
-                    showCourseDetailSheet(item.course, colorKey);
+                    showCourseDetailSheet(item.course, colorKey, item.mergedCourses);
                 });
                 layout.addView(card);
             }
@@ -2648,6 +3381,7 @@ private void extractAllTables(String passedCookie) {
         final String[] repeatRule = {source == null ? Agenda.REPEAT_NONE : normalizeAgendaRepeat(source.repeatRule)};
         final String[] monthlyStrategy = {source == null ? Agenda.MONTHLY_SKIP : normalizeAgendaMonthlyStrategy(source.monthlyStrategy)};
         final String[] locationValue = {source == null ? "" : normalizeAgendaLocationInput(source.location)};
+        final int sheetSurfaceColor = UiStyleHelper.resolvePageBackgroundColor(this);
 
         com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
         ScrollView scrollView = new ScrollView(this);
@@ -2655,7 +3389,7 @@ private void extractAllTables(String passedCookie) {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(16), dp(14), dp(16), dp(20));
-        layout.setBackgroundColor(ColorUtils.blendARGB(UiStyleHelper.resolvePageBackgroundColor(this), Color.WHITE, 0.12f));
+        layout.setBackgroundColor(Color.TRANSPARENT);
         scrollView.addView(layout, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
@@ -2685,7 +3419,7 @@ private void extractAllTables(String passedCookie) {
         titleRow.setOrientation(LinearLayout.HORIZONTAL);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
         titleRow.setPadding(dp(14), dp(2), dp(12), dp(2));
-        titleRow.addView(createAgendaRowIcon(android.R.drawable.ic_menu_edit));
+        titleRow.addView(createAgendaRowIcon(R.drawable.ic_history_edit));
         LinearLayout.LayoutParams titleInputLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         titleInputLp.setMargins(dp(10), 0, 0, 0);
         inputTitle.setLayoutParams(titleInputLp);
@@ -2702,7 +3436,7 @@ private void extractAllTables(String passedCookie) {
         descRow.setOrientation(LinearLayout.HORIZONTAL);
         descRow.setGravity(Gravity.TOP);
         descRow.setPadding(dp(14), dp(2), dp(12), dp(2));
-        ImageView descIcon = createAgendaRowIcon(android.R.drawable.ic_menu_info_details);
+        ImageView descIcon = createAgendaRowIcon(R.drawable.ic_agenda_notes_24);
         LinearLayout.LayoutParams descIconLp = new LinearLayout.LayoutParams(dp(20), dp(20));
         descIconLp.setMargins(0, dp(10), 0, 0);
         descRow.addView(descIcon, descIconLp);
@@ -2718,109 +3452,85 @@ private void extractAllTables(String passedCookie) {
         settingsCard.addView(settingsBody);
         layout.addView(settingsCard);
 
-        TextView locationValueView = createAgendaSettingValueView();
-        LinearLayout rowLocation = createAgendaEditorSettingRow(android.R.drawable.ic_menu_mylocation, "地点", locationValueView);
+        TextView locationValueView = createAgendaCapsuleSettingValueView();
+        LinearLayout rowLocation = createAgendaEditorSettingRow(R.drawable.ic_agenda_location_24, "地点", locationValueView);
         settingsBody.addView(rowLocation);
         settingsBody.addView(createAgendaEditorDivider());
 
-        TextView dateValueView = createAgendaSettingValueView();
-        LinearLayout rowDate = createAgendaEditorSettingRow(android.R.drawable.ic_menu_my_calendar, "日期", dateValueView);
+        TextView dateValueView = createAgendaCapsuleSettingValueView();
+        LinearLayout rowDate = createAgendaEditorSettingRow(R.drawable.ic_today, "日期", dateValueView);
         settingsBody.addView(rowDate);
         settingsBody.addView(createAgendaEditorDivider());
 
-        TextView startValueView = createAgendaSettingValueView();
-        LinearLayout rowStart = createAgendaEditorSettingRow(android.R.drawable.ic_lock_idle_alarm, "开始", startValueView);
-        settingsBody.addView(rowStart);
+        TextView startTimeValueView = createAgendaTimeValueView();
+        TextView endTimeValueView = createAgendaTimeValueView();
+        LinearLayout rowTimeRange = createAgendaEditorTimeRangeRow(R.drawable.ic_agenda_time_24, "时间段", startTimeValueView, endTimeValueView);
+        settingsBody.addView(rowTimeRange);
         settingsBody.addView(createAgendaEditorDivider());
 
-        TextView endValueView = createAgendaSettingValueView();
-        LinearLayout rowEnd = createAgendaEditorSettingRow(android.R.drawable.ic_lock_idle_alarm, "结束", endValueView);
-        settingsBody.addView(rowEnd);
-        settingsBody.addView(createAgendaEditorDivider());
-
-        TextView repeatValueView = createAgendaSettingValueView();
-        LinearLayout rowRepeat = createAgendaEditorSettingRow(android.R.drawable.ic_menu_rotate, "重复", repeatValueView);
+        MaterialAutoCompleteTextView repeatDropdownView = createAgendaDropdownView(AGENDA_REPEAT_LABELS);
+        LinearLayout rowRepeat = createAgendaEditorDropdownRow(R.drawable.ic_agenda_repeat_24, "重复", repeatDropdownView);
         settingsBody.addView(rowRepeat);
         settingsBody.addView(createAgendaEditorDivider());
 
-        TextView priorityValueView = createAgendaSettingValueView();
-        LinearLayout rowPriority = createAgendaEditorSettingRow(android.R.drawable.ic_dialog_alert, "重要提醒", priorityValueView);
+        MaterialAutoCompleteTextView priorityDropdownView = createAgendaDropdownView(AGENDA_PRIORITY_LABELS);
+        LinearLayout rowPriority = createAgendaEditorDropdownRow(R.drawable.ic_agenda_priority_24, "优先级", priorityDropdownView);
         settingsBody.addView(rowPriority);
 
         LinearLayout monthlyContainer = new LinearLayout(this);
         monthlyContainer.setOrientation(LinearLayout.VERTICAL);
         monthlyContainer.addView(createAgendaEditorDivider());
         TextView monthlyValueView = createAgendaSettingValueView();
-        LinearLayout rowMonthlyStrategy = createAgendaEditorSettingRow(android.R.drawable.ic_menu_my_calendar, "短月策略", monthlyValueView);
+        LinearLayout rowMonthlyStrategy = createAgendaEditorSettingRow(R.drawable.ic_schedule, "短月策略", monthlyValueView);
         monthlyContainer.addView(rowMonthlyStrategy);
         settingsBody.addView(monthlyContainer);
 
-        refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+        refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
             monthlyContainer,
             selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
 
         rowDate.setOnClickListener(v -> showAgendaDatePicker(selectedDate[0], pickedDate -> {
             selectedDate[0] = cloneAsDay(pickedDate);
-            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+            refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
                     monthlyContainer,
                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
 
-        rowStart.setOnClickListener(v -> showMinutePicker(startMinute[0], minute -> {
+        startTimeValueView.setOnClickListener(v -> showMinutePicker(startMinute[0], minute -> {
             startMinute[0] = minute;
             if (endMinute[0] <= startMinute[0]) {
                 endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
             }
-            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+            refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
                 monthlyContainer,
                 selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
 
-        rowEnd.setOnClickListener(v -> showMinutePicker(endMinute[0], minute -> {
+        endTimeValueView.setOnClickListener(v -> showMinutePicker(endMinute[0], minute -> {
             endMinute[0] = minute;
-            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
-                monthlyContainer,
-                selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+            if (endMinute[0] <= startMinute[0]) {
+                endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
+                Toast.makeText(this, "结束时间已自动调整为开始后30分钟", Toast.LENGTH_SHORT).show();
+            }
+            refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
+                    monthlyContainer,
+                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
 
-        rowPriority.setOnClickListener(v -> {
-            try {
-                final int[] picked = {clampIndex(indexOfInt(AGENDA_PRIORITY_VALUES, priority[0]), AGENDA_PRIORITY_VALUES.length)};
-                newMaterialYouDialogBuilder()
-                        .setTitle("选择优先级")
-                        .setSingleChoiceItems(AGENDA_PRIORITY_LABELS, picked[0], (d, which) -> picked[0] = which)
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("确定", (d, which) -> {
-                            int index = clampIndex(picked[0], AGENDA_PRIORITY_VALUES.length);
-                            priority[0] = AGENDA_PRIORITY_VALUES[index];
-                            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
-                                    monthlyContainer,
-                                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-                        })
-                        .show();
-            } catch (Exception e) {
-                java.io.File f = new java.io.File(getExternalFilesDir(null), "err.txt"); try { java.io.PrintWriter pw = new java.io.PrintWriter(f); e.printStackTrace(pw); pw.close(); } catch(Exception ex){}
-            }
+        priorityDropdownView.setOnItemClickListener((parent, view, position, id) -> {
+            int index = clampIndex(position, AGENDA_PRIORITY_VALUES.length);
+            priority[0] = AGENDA_PRIORITY_VALUES[index];
+                refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
+                    monthlyContainer,
+                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         });
 
-        rowRepeat.setOnClickListener(v -> {
-            try {
-                final int[] picked = {clampIndex(indexOfString(AGENDA_REPEAT_VALUES, repeatRule[0]), AGENDA_REPEAT_VALUES.length)};
-                newMaterialYouDialogBuilder()
-                        .setTitle("选择重复")
-                        .setSingleChoiceItems(AGENDA_REPEAT_LABELS, picked[0], (d, which) -> picked[0] = which)
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("确定", (d, which) -> {
-                            int index = clampIndex(picked[0], AGENDA_REPEAT_VALUES.length);
-                            repeatRule[0] = AGENDA_REPEAT_VALUES[index];
-                            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
-                                    monthlyContainer,
-                                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-                        })
-                        .show();
-            } catch (Exception e) {
-                Toast.makeText(this, "打开重复规则失败", Toast.LENGTH_SHORT).show();
-            }
+        repeatDropdownView.setOnItemClickListener((parent, view, position, id) -> {
+            int index = clampIndex(position, AGENDA_REPEAT_VALUES.length);
+            repeatRule[0] = AGENDA_REPEAT_VALUES[index];
+                refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
+                    monthlyContainer,
+                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         });
 
         rowMonthlyStrategy.setOnClickListener(v -> {
@@ -2833,7 +3543,7 @@ private void extractAllTables(String passedCookie) {
                         .setPositiveButton("确定", (d, which) -> {
                             int index = clampIndex(picked[0], AGENDA_MONTHLY_VALUES.length);
                             monthlyStrategy[0] = AGENDA_MONTHLY_VALUES[index];
-                            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                                refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
                                     monthlyContainer,
                                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
                         })
@@ -2845,7 +3555,7 @@ private void extractAllTables(String passedCookie) {
 
         rowLocation.setOnClickListener(v -> showAgendaLocationPicker(locationValue[0], picked -> {
             locationValue[0] = normalizeAgendaLocationInput(picked);
-            refreshAgendaEditorButtons(dateValueView, startValueView, endValueView, priorityValueView, repeatValueView, monthlyValueView, locationValueView,
+                refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
                     monthlyContainer,
                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
@@ -2901,7 +3611,6 @@ private void extractAllTables(String passedCookie) {
         if (source != null) {
             MaterialButton deleteButton = createAgendaActionButton(false);
             deleteButton.setText("删除日程");
-            deleteButton.setTextColor(Color.parseColor("#B00020"));
             LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
             deleteLp.setMargins(0, 0, dp(8), 0);
             deleteButton.setLayoutParams(deleteLp);
@@ -2925,7 +3634,7 @@ private void extractAllTables(String passedCookie) {
         }
 
         MaterialButton saveButton = createAgendaActionButton(true);
-        saveButton.setText(source == null ? "新增" : "保存");
+        saveButton.setText("保存");
         LinearLayout.LayoutParams saveLp = source == null
                 ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 : new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -2936,33 +3645,70 @@ private void extractAllTables(String passedCookie) {
         layout.addView(actionRow);
 
         dialog.setContentView(scrollView);
+        applyAgendaEditorBottomSheetStyle(dialog, sheetSurfaceColor);
         dialog.show();
     }
 
-    private void refreshAgendaEditorButtons(TextView dateValueView, TextView startValueView, TextView endValueView,
-                                            TextView priorityValueView, TextView repeatValueView,
+    private void refreshAgendaEditorButtons(TextView dateValueView, TextView startTimeValueView, TextView endTimeValueView,
+                                            MaterialAutoCompleteTextView priorityDropdownView, MaterialAutoCompleteTextView repeatDropdownView,
                                             TextView monthlyValueView, TextView locationValueView,
                                             View monthlyContainer,
                                             Calendar date, int startMinute, int endMinute,
                                             int priority, String repeatRule, String monthlyStrategy,
                                             String locationText) {
         dateValueView.setText(formatDateWithWeek(date));
-        startValueView.setText(formatMinute(startMinute));
-        endValueView.setText(formatMinute(endMinute));
-        priorityValueView.setText(priorityText(priority));
-        repeatValueView.setText(agendaRepeatLabel(repeatRule));
+        startTimeValueView.setText(formatMinute(startMinute));
+        endTimeValueView.setText(formatMinute(endMinute));
+        setAgendaDropdownText(priorityDropdownView, priorityText(priority));
+        setAgendaDropdownText(repeatDropdownView, agendaRepeatLabel(repeatRule));
         monthlyValueView.setText(agendaMonthlyLabel(monthlyStrategy));
         locationValueView.setText(formatAgendaLocationButtonText(locationText));
         monthlyContainer.setVisibility(Agenda.REPEAT_MONTHLY.equals(repeatRule) ? View.VISIBLE : View.GONE);
     }
 
+    private void setAgendaDropdownText(MaterialAutoCompleteTextView dropdown, String text) {
+        if (dropdown == null) {
+            return;
+        }
+        if (!TextUtils.equals(dropdown.getText(), text)) {
+            dropdown.setText(text, false);
+        }
+    }
+
+    private void applyAgendaEditorBottomSheetStyle(com.google.android.material.bottomsheet.BottomSheetDialog dialog, int surfaceColor) {
+        if (dialog == null) {
+            return;
+        }
+        dialog.setOnShowListener(d -> {
+            FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+            if (sheet == null) {
+                return;
+            }
+            BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+            behavior.setDraggable(false);
+            behavior.setSkipCollapsed(true);
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+
+            GradientDrawable background = new GradientDrawable();
+            float radius = dp(28);
+            background.setShape(GradientDrawable.RECTANGLE);
+            background.setColor(surfaceColor);
+            background.setCornerRadii(new float[]{radius, radius, radius, radius, 0f, 0f, 0f, 0f});
+            sheet.setBackground(background);
+            View parent = (View) sheet.getParent();
+            if (parent != null) {
+                parent.setBackgroundColor(Color.TRANSPARENT);
+            }
+        });
+    }
+
     private MaterialCardView createAgendaEditorSectionCard() {
         MaterialCardView card = new MaterialCardView(this);
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
-        card.setRadius(dp(18));
+        card.setRadius(dp(24));
         card.setCardElevation(0f);
         card.setStrokeWidth(1);
-        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 20));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
         card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardLp.setMargins(0, dp(12), 0, 0);
@@ -2990,13 +3736,17 @@ private void extractAllTables(String passedCookie) {
         input.setTextSize(17f);
         input.setBackgroundColor(Color.TRANSPARENT);
         input.setPadding(dp(4), dp(11), dp(4), dp(11));
-        input.setMinHeight(dp(48));
+        input.setMinHeight(dp(56));
         if (multiLine) {
             input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-            input.setMinLines(2);
-            input.setMaxLines(4);
+            input.setSingleLine(false);
+            input.setMinLines(6);
+            input.setMaxLines(Integer.MAX_VALUE);
             input.setGravity(Gravity.TOP | Gravity.START);
             input.setHorizontallyScrolling(false);
+            // 由外层 ScrollView 提供滚动条和滚动能力，规避部分 ROM 上 EditText 滚动条崩溃。
+            input.setVerticalScrollBarEnabled(false);
+            input.setOverScrollMode(View.OVER_SCROLL_NEVER);
         } else {
             input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
             input.setSingleLine(true);
@@ -3022,9 +3772,173 @@ private void extractAllTables(String passedCookie) {
         value.setSingleLine(true);
         value.setEllipsize(TextUtils.TruncateAt.END);
         value.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams valueLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        value.setLayoutParams(valueLp);
+        value.setMaxWidth(dp(220));
         return value;
+    }
+
+    private TextView createAgendaCapsuleSettingValueView() {
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        TextView value = new TextView(this);
+        value.setTextColor(onSurface);
+        value.setTextSize(15f);
+        value.setTypeface(null, Typeface.BOLD);
+        value.setSingleLine(true);
+        value.setEllipsize(TextUtils.TruncateAt.END);
+        value.setGravity(Gravity.CENTER);
+        value.setMaxWidth(dp(220));
+        value.setPadding(dp(14), dp(8), dp(14), dp(8));
+        value.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 28), dp(14)));
+        return value;
+    }
+
+    private TextView createAgendaTimeValueView() {
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        TextView value = new TextView(this);
+        value.setTextColor(onSurface);
+        value.setTextSize(15f);
+        value.setTypeface(null, Typeface.BOLD);
+        value.setGravity(Gravity.CENTER);
+        value.setMinWidth(dp(84));
+        value.setPadding(dp(12), dp(8), dp(12), dp(8));
+        value.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 28), dp(12)));
+        value.setClickable(true);
+        value.setFocusable(false);
+        return value;
+    }
+
+    private LinearLayout createAgendaEditorTimeRangeRow(int iconRes, String label, TextView startValueView, TextView endValueView) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(14), dp(7), dp(12), dp(7));
+
+        ImageView icon = createAgendaRowIcon(iconRes);
+        row.addView(icon);
+
+        TextView labelView = new TextView(this);
+        labelView.setText(label);
+        labelView.setTextSize(17f);
+        labelView.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelLp.setMargins(dp(10), 0, dp(10), 0);
+        labelView.setLayoutParams(labelLp);
+        row.addView(labelView);
+
+        LinearLayout values = new LinearLayout(this);
+        values.setOrientation(LinearLayout.HORIZONTAL);
+        values.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams valuesLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        values.setLayoutParams(valuesLp);
+
+        TextView middle = new TextView(this);
+        middle.setText("至");
+        middle.setTextSize(14f);
+        middle.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        LinearLayout.LayoutParams middleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        middleLp.setMargins(dp(8), 0, dp(8), 0);
+
+        values.addView(startValueView);
+        values.addView(middle, middleLp);
+        values.addView(endValueView);
+        row.addView(values);
+        return row;
+    }
+
+    private LinearLayout createAgendaEditorDropdownRow(int iconRes, String label, MaterialAutoCompleteTextView dropdownView) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(14), dp(8), dp(12), dp(8));
+
+        ImageView icon = createAgendaRowIcon(iconRes);
+        row.addView(icon);
+
+        TextView labelView = new TextView(this);
+        labelView.setText(label);
+        labelView.setTextSize(17f);
+        labelView.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        labelView.setSingleLine(true);
+        labelView.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelLp.setMargins(dp(10), 0, dp(10), 0);
+        labelView.setLayoutParams(labelLp);
+        row.addView(labelView);
+
+        LinearLayout valueContainer = new LinearLayout(this);
+        valueContainer.setOrientation(LinearLayout.HORIZONTAL);
+        valueContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams valueContainerLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        valueContainer.setLayoutParams(valueContainerLp);
+
+        LinearLayout.LayoutParams dropdownLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        valueContainer.addView(dropdownView, dropdownLp);
+        row.addView(valueContainer);
+
+        row.setOnClickListener(v -> dropdownView.post(dropdownView::showDropDown));
+        return row;
+    }
+
+    private MaterialAutoCompleteTextView createAgendaDropdownView(String[] entries) {
+        MaterialAutoCompleteTextView dropdown = new MaterialAutoCompleteTextView(this);
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+        final int popupColor = ColorUtils.setAlphaComponent(
+                ColorUtils.blendARGB(UiStyleHelper.resolvePageBackgroundColor(this), UiStyleHelper.resolveGlassCardColor(this), 0.56f),
+                255);
+        int controlColor = ColorUtils.setAlphaComponent(onSurface, 28);
+
+        GradientDrawable popupBg = new GradientDrawable();
+        popupBg.setShape(GradientDrawable.RECTANGLE);
+        popupBg.setCornerRadius(dp(14));
+        popupBg.setColor(popupColor);
+        popupBg.setStroke(dp(1), ColorUtils.setAlphaComponent(onSurfaceVariant, 56));
+
+        dropdown.setTextColor(onSurface);
+        dropdown.setTextSize(16f);
+        dropdown.setTypeface(null, Typeface.BOLD);
+        dropdown.setSingleLine(true);
+        dropdown.setEllipsize(TextUtils.TruncateAt.END);
+        dropdown.setInputType(InputType.TYPE_NULL);
+        dropdown.setKeyListener(null);
+        dropdown.setGravity(Gravity.CENTER);
+        dropdown.setMinWidth(dp(124));
+        dropdown.setPadding(dp(16), dp(10), dp(16), dp(10));
+        dropdown.setThreshold(0);
+        dropdown.setBackground(makeRoundedSolid(controlColor, dp(16)));
+        dropdown.setDropDownBackgroundDrawable(popupBg);
+        dropdown.setDropDownVerticalOffset(dp(6));
+        dropdown.setCursorVisible(false);
+        dropdown.setFocusable(false);
+        dropdown.setFocusableInTouchMode(false);
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, entries) {
+            @NonNull
+            @Override
+            public View getView(int position, View convertView, @NonNull ViewGroup parent) {
+                return styleItem(super.getView(position, convertView, parent));
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, @NonNull ViewGroup parent) {
+                return styleItem(super.getDropDownView(position, convertView, parent));
+            }
+
+            private View styleItem(View item) {
+                item.setBackgroundColor(Color.TRANSPARENT);
+                TextView text = item.findViewById(android.R.id.text1);
+                if (text != null) {
+                    text.setTextColor(onSurface);
+                    text.setTextSize(16f);
+                    text.setTypeface(null, Typeface.BOLD);
+                    text.setPadding(dp(16), dp(12), dp(16), dp(12));
+                }
+                return item;
+            }
+        };
+        dropdown.setAdapter(adapter);
+        dropdown.setOnClickListener(v -> dropdown.post(dropdown::showDropDown));
+        return dropdown;
     }
 
     private LinearLayout createAgendaEditorSettingRow(int iconRes, String label, TextView valueView) {
@@ -3048,13 +3962,14 @@ private void extractAllTables(String passedCookie) {
         labelView.setLayoutParams(labelLp);
         row.addView(labelView);
 
-        row.addView(valueView);
+        LinearLayout valueContainer = new LinearLayout(this);
+        valueContainer.setOrientation(LinearLayout.HORIZONTAL);
+        valueContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams valueContainerLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        valueContainer.setLayoutParams(valueContainerLp);
+        valueContainer.addView(valueView);
+        row.addView(valueContainer);
 
-        TextView chevron = new TextView(this);
-        chevron.setText("›");
-        chevron.setTextSize(24f);
-        chevron.setTextColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceVariantColor(this), 180));
-        row.addView(chevron);
         return row;
     }
 
@@ -3090,7 +4005,9 @@ private void extractAllTables(String passedCookie) {
 
     private MaterialButton createAgendaActionButton(boolean primary) {
         MaterialButton button = createAgendaEditorButton();
-        button.setCornerRadius(dp(12));
+        button.setCornerRadius(dp(24));
+        button.setMinHeight(dp(52));
+        button.setGravity(Gravity.CENTER);
         if (primary) {
             int accent = getTimetableThemeColor();
             button.setBackgroundTintList(ColorStateList.valueOf(accent));
@@ -3492,6 +4409,130 @@ private void extractAllTables(String passedCookie) {
                     if (afterPick != null) afterPick.run();
                 })
                 .show();
+    }
+
+    private void showCourseSectionPicker(List<Course> targets, Runnable afterPick) {
+        if (targets == null || targets.isEmpty()) {
+            return;
+        }
+
+        List<Course> sectionTargets = new ArrayList<>();
+        for (Course one : targets) {
+            if (one != null && !sectionTargets.contains(one)) {
+                sectionTargets.add(one);
+            }
+        }
+        if (sectionTargets.isEmpty()) {
+            return;
+        }
+        sectionTargets.sort((a, b) -> Integer.compare(a.startSection, b.startSection));
+        final int totalSections = SLOT_LABELS.length * 2;
+        String[] labels = new String[totalSections];
+        boolean[] checked = new boolean[totalSections];
+        for (int i = 0; i < totalSections; i++) {
+            labels[i] = String.valueOf(i + 1);
+        }
+        for (Course course : sectionTargets) {
+            if (course == null) {
+                continue;
+            }
+            int startSection = Math.max(1, Math.min(totalSections, course.startSection));
+            int span = Math.max(1, Math.min(2, course.sectionSpan <= 0 ? 2 : course.sectionSpan));
+            for (int step = 0; step < span; step++) {
+                int sectionNo = startSection + step;
+                if (sectionNo >= 1 && sectionNo <= totalSections) {
+                    checked[sectionNo - 1] = true;
+                }
+            }
+        }
+
+        newMaterialYouDialogBuilder()
+                .setTitle("编辑节次")
+                .setMultiChoiceItems(labels, checked, (dialog, which, isChecked) -> checked[which] = isChecked)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (dialog, which) -> {
+                    List<Integer> selectedSlots = new ArrayList<>();
+                    for (int i = 0; i < checked.length; i++) {
+                        if (!checked[i]) {
+                            continue;
+                        }
+                        int sectionNo = i + 1;
+                        int slot = Math.max(1, Math.min(SLOT_LABELS.length, (sectionNo - 1) / 2 + 1));
+                        if (!selectedSlots.contains(slot)) {
+                            selectedSlots.add(slot);
+                        }
+                    }
+                    if (selectedSlots.isEmpty()) {
+                        Toast.makeText(this, "至少选择一个节次", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    Collections.sort(selectedSlots);
+                    applyCourseSectionSelection(sectionTargets, selectedSlots);
+                    if (afterPick != null) {
+                        afterPick.run();
+                    }
+                })
+                .show();
+    }
+
+    private void applyCourseSectionSelection(List<Course> sectionTargets, List<Integer> selectedSlots) {
+        if (sectionTargets == null || sectionTargets.isEmpty() || selectedSlots == null || selectedSlots.isEmpty()) {
+            return;
+        }
+
+        List<Course> orderedTargets = new ArrayList<>();
+        for (Course one : sectionTargets) {
+            if (one != null && !orderedTargets.contains(one)) {
+                orderedTargets.add(one);
+            }
+        }
+        if (orderedTargets.isEmpty()) {
+            return;
+        }
+        orderedTargets.sort((a, b) -> Integer.compare(a.startSection, b.startSection));
+
+        Course template = orderedTargets.get(0);
+        int dayOfWeek = template.dayOfWeek;
+        List<Course> updated = new ArrayList<>();
+
+        for (int i = 0; i < selectedSlots.size(); i++) {
+            int slot = selectedSlots.get(i);
+            Course target;
+            if (i < orderedTargets.size()) {
+                target = orderedTargets.get(i);
+            } else {
+                target = cloneCourseForSplit(template);
+                allCourses.add(target);
+            }
+            target.dayOfWeek = dayOfWeek;
+            target.startSection = slot * 2 - 1;
+            target.sectionSpan = 2;
+            updated.add(target);
+        }
+
+        for (int i = selectedSlots.size(); i < orderedTargets.size(); i++) {
+            allCourses.remove(orderedTargets.get(i));
+        }
+
+        sectionTargets.clear();
+        sectionTargets.addAll(updated);
+        sectionTargets.sort((a, b) -> Integer.compare(a.startSection, b.startSection));
+    }
+
+    private Course cloneCourseForSplit(Course source) {
+        Course copy = new Course();
+        copy.name = safeText(source.name);
+        copy.teacher = safeText(source.teacher);
+        copy.location = safeText(source.location);
+        copy.dayOfWeek = source.dayOfWeek;
+        copy.startSection = source.startSection;
+        copy.sectionSpan = source.sectionSpan;
+        copy.timeStr = safeText(source.timeStr);
+        copy.weeks = source.weeks == null ? new ArrayList<>() : new ArrayList<>(source.weeks);
+        copy.typeClass = safeText(source.typeClass);
+        copy.isExperimental = source.isExperimental;
+        copy.isRemark = source.isRemark;
+        return copy;
     }
 
     private void renderColorSlider(LinearLayout container, Course c, String colorKey) {

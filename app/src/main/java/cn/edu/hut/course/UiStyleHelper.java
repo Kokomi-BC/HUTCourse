@@ -1,8 +1,11 @@
 package cn.edu.hut.course;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -87,12 +90,59 @@ public final class UiStyleHelper {
         if (toolbar.getNavigationIcon() != null) {
             toolbar.setNavigationIconTint(onSurface);
         }
+        toolbar.post(() -> styleToolbarNavigationButton(toolbar, context));
         View parent = (View) toolbar.getParent();
         if (parent instanceof AppBarLayout) {
             AppBarLayout appBar = (AppBarLayout) parent;
             appBar.setBackgroundColor(Color.TRANSPARENT);
             appBar.setElevation(0f);
         }
+    }
+
+    private static void styleToolbarNavigationButton(MaterialToolbar toolbar, Context context) {
+        if (toolbar == null) {
+            return;
+        }
+        int onSurface = resolveOnSurfaceColor(context);
+        if (toolbar.getNavigationIcon() != null) {
+            toolbar.setNavigationIconTint(onSurface);
+        }
+        View navButton = toolbar.findViewById(androidx.appcompat.R.id.home);
+        if (navButton == null) {
+            return;
+        }
+
+        int pageColor = resolvePageBackgroundColor(context);
+        int fillColor = ColorUtils.blendARGB(pageColor, onSurface, 0.08f);
+        int rippleColor = ColorUtils.setAlphaComponent(resolveAccentColor(context), 92);
+
+        GradientDrawable content = new GradientDrawable();
+        content.setShape(GradientDrawable.OVAL);
+        content.setColor(fillColor);
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            GradientDrawable mask = new GradientDrawable();
+            mask.setShape(GradientDrawable.OVAL);
+            mask.setColor(Color.WHITE);
+            RippleDrawable rippleDrawable = new RippleDrawable(ColorStateList.valueOf(rippleColor), content, mask);
+            navButton.setBackground(rippleDrawable);
+        } else {
+            navButton.setBackground(content);
+        }
+
+        int size = dp(context, 36);
+        ViewGroup.LayoutParams lp = navButton.getLayoutParams();
+        if (lp != null && (lp.width != size || lp.height != size)) {
+            lp.width = size;
+            lp.height = size;
+            navButton.setLayoutParams(lp);
+        }
+        int padding = dp(context, 6);
+        navButton.setPadding(padding, padding, padding, padding);
+    }
+
+    private static int dp(Context context, int value) {
+        return Math.round(value * context.getResources().getDisplayMetrics().density);
     }
 
     public static void applySecondaryPageBackground(View root, Context context) {

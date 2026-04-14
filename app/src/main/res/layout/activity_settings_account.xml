@@ -66,13 +66,6 @@
                             android:layout_marginTop="4dp"
                             android:text="当前自动" />
                     </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="18sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -112,13 +105,6 @@
                             android:layout_marginTop="4dp"
                             android:text="打开浏览器完成登录" />
                     </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="18sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -159,13 +145,6 @@
                             android:layout_marginTop="4dp"
                             android:text="从教务同步最新课表" />
                     </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="18sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

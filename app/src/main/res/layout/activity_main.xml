@@ -352,13 +352,6 @@
                                     android:layout_marginTop="4dp"
                                     android:text="打开设置、数据管理与AI接入" />
                             </LinearLayout>
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text=">"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="18sp" />
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
                 </LinearLayout>

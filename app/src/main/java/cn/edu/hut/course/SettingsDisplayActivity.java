@@ -55,10 +55,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         MaterialToolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         UiStyleHelper.styleGlassToolbar(toolbar, this);
-        if (getSupportActionBar() != null) {
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setDisplayShowHomeEnabled(true);
-        }
+        toolbar.setNavigationIcon(R.drawable.ic_arrow_back_rounded_24);
         toolbar.setNavigationOnClickListener(v -> finish());
 
         com.google.android.material.materialswitch.MaterialSwitch switchGridLines = findViewById(R.id.switchGridLines);
@@ -184,12 +181,6 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             textCol.addView(title);
             textCol.addView(summary);
             row.addView(textCol);
-
-            TextView arrow = new TextView(this);
-            arrow.setText(">");
-            arrow.setTextSize(18f);
-            arrow.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
-            row.addView(arrow);
 
             card.addView(row);
             card.setOnClickListener(v -> showCourseDetailSheet(item.course));

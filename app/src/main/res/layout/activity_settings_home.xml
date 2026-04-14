@@ -65,13 +65,6 @@
                             android:layout_marginTop="4dp"
                             android:text="登录教务、刷新课表与清理" />
                     </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="18sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -111,13 +104,6 @@
                             android:layout_marginTop="4dp"
                             android:text="背景与课程颜色" />
                     </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="18sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -157,13 +143,6 @@
                             android:layout_marginTop="4dp"
                             android:text="导入导出课表与Cookie" />
                     </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="18sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -202,13 +181,6 @@
                             android:layout_marginTop="4dp"
                             android:text="模型地址、密钥与校验" />
                     </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="18sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>

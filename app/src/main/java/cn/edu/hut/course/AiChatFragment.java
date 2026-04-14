@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
@@ -94,6 +95,8 @@ public class AiChatFragment extends Fragment {
     private MaterialCardView composerCard;
     private LinearLayout composerInner;
     private TextView tvAiStatus;
+    private int baseHistoryDrawerPaddingTop = 0;
+    private int baseHistoryDrawerPaddingBottom = 0;
     private Markwon markwon;
     private final Handler streamHandler = new Handler(Looper.getMainLooper());
     private final List<ChatSession> sessions = new ArrayList<>();
@@ -112,6 +115,8 @@ public class AiChatFragment extends Fragment {
     private boolean hasSavedSoftInputMode = false;
     private View mainBottomNavHost;
     private int mainBottomNavHostHeight = 0;
+    @Nullable
+    private DrawerLayout.SimpleDrawerListener historyDrawerOverlayListener;
     private View outsideTapCloseTarget;
     private View bottomNavTapCloseTarget;
     private final Object aiRequestLock = new Object();
@@ -177,6 +182,10 @@ public class AiChatFragment extends Fragment {
         if (chatScroll != null) {
             baseChatScrollBottomPadding = chatScroll.getPaddingBottom();
         }
+        if (historyDrawer != null) {
+            baseHistoryDrawerPaddingTop = historyDrawer.getPaddingTop();
+            baseHistoryDrawerPaddingBottom = historyDrawer.getPaddingBottom();
+        }
 
         captureMainBottomNavHost();
         configureSoftInputModeForChat();
@@ -187,6 +196,7 @@ public class AiChatFragment extends Fragment {
         ensureGreetingForActiveSession();
         applyImeInsetBehavior();
         setupDismissHistoryDrawerOnOutsideTap();
+        setupHistoryDrawerOverlayBehavior();
         applyComposerStyle();
         refreshAiStatus();
 
@@ -223,6 +233,7 @@ public class AiChatFragment extends Fragment {
         super.onResume();
         captureMainBottomNavHost();
         setupDismissHistoryDrawerOnOutsideTap();
+        setupHistoryDrawerOverlayBehavior();
         configureSoftInputModeForChat();
         applyPageVisualStyle();
         applyComposerStyle();
@@ -245,8 +256,10 @@ public class AiChatFragment extends Fragment {
             ViewCompat.setOnApplyWindowInsetsListener(root, null);
             ViewCompat.setWindowInsetsAnimationCallback(root, null);
         }
-        clearImeGlobalLayoutFallback();
-        stopImeProbe();
+        if (drawerAiChat != null && historyDrawerOverlayListener != null) {
+            drawerAiChat.removeDrawerListener(historyDrawerOverlayListener);
+            historyDrawerOverlayListener = null;
+        }
         restoreSoftInputModeIfNeeded();
         ensureMainBottomNavVisible();
         mainBottomNavHost = null;
@@ -294,7 +307,6 @@ public class AiChatFragment extends Fragment {
     private void prepareForImeTransition() {
         keepChatAnchoredToBottomOnIme = isChatNearBottom();
         pendingBottomScrollOnImeOpen = keepChatAnchoredToBottomOnIme;
-        startImeProbe();
     }
 
     private void configureSoftInputModeForChat() {
@@ -470,6 +482,19 @@ public class AiChatFragment extends Fragment {
         } else {
             mainBottomNavHostHeight = 0;
         }
+        if (mainBottomNavHost != null) {
+            mainBottomNavHost.post(() -> {
+                if (mainBottomNavHost == null) {
+                    return;
+                }
+                int measuredHeight = mainBottomNavHost.getHeight();
+                if (measuredHeight > 0 && measuredHeight != mainBottomNavHostHeight) {
+                    mainBottomNavHostHeight = measuredHeight;
+                }
+                updateHistoryDrawerBottomInset();
+            });
+        }
+        updateHistoryDrawerBottomInset();
         ensureMainBottomNavVisible();
     }
 
@@ -482,6 +507,78 @@ public class AiChatFragment extends Fragment {
         }
     }
 
+    private void setMainBottomNavVisible(boolean visible) {
+        if (mainBottomNavHost == null) {
+            return;
+        }
+        int targetVisibility = visible ? View.VISIBLE : View.INVISIBLE;
+        if (mainBottomNavHost.getVisibility() != targetVisibility) {
+            mainBottomNavHost.setVisibility(targetVisibility);
+        }
+    }
+
+    private int computeHistoryDrawerBottomInset() {
+        View root = rootView == null ? null : rootView.findViewById(R.id.rootAiChat);
+        if (mainBottomNavHost == null || root == null || root.getHeight() <= 0 || mainBottomNavHost.getHeight() <= 0) {
+            return 0;
+        }
+
+        int[] rootLoc = new int[2];
+        int[] navLoc = new int[2];
+        root.getLocationOnScreen(rootLoc);
+        mainBottomNavHost.getLocationOnScreen(navLoc);
+        int rootBottom = rootLoc[1] + root.getHeight();
+        int navTop = navLoc[1];
+        return Math.max(0, rootBottom - navTop);
+    }
+
+    private void updateHistoryDrawerBottomInset() {
+        if (historyDrawer == null) {
+            return;
+        }
+        ViewGroup.LayoutParams rawParams = historyDrawer.getLayoutParams();
+        if (!(rawParams instanceof DrawerLayout.LayoutParams)) {
+            return;
+        }
+        DrawerLayout.LayoutParams lp = (DrawerLayout.LayoutParams) rawParams;
+        int desiredBottomInset = computeHistoryDrawerBottomInset();
+        if (lp.bottomMargin == desiredBottomInset) {
+            return;
+        }
+        lp.bottomMargin = desiredBottomInset;
+        historyDrawer.setLayoutParams(lp);
+    }
+
+    private void setupHistoryDrawerOverlayBehavior() {
+        if (drawerAiChat == null) {
+            return;
+        }
+        if (historyDrawerOverlayListener != null) {
+            drawerAiChat.removeDrawerListener(historyDrawerOverlayListener);
+        }
+        historyDrawerOverlayListener = new DrawerLayout.SimpleDrawerListener() {
+            @Override
+            public void onDrawerSlide(@NonNull View drawerView, float slideOffset) {
+                ensureMainBottomNavVisible();
+                updateHistoryDrawerBottomInset();
+            }
+
+            @Override
+            public void onDrawerOpened(@NonNull View drawerView) {
+                ensureMainBottomNavVisible();
+                updateHistoryDrawerBottomInset();
+            }
+
+            @Override
+            public void onDrawerClosed(@NonNull View drawerView) {
+                ensureMainBottomNavVisible();
+                updateHistoryDrawerBottomInset();
+            }
+        };
+        drawerAiChat.addDrawerListener(historyDrawerOverlayListener);
+        ensureMainBottomNavVisible();
+    }
+
     private int computeComposerLiftForIme(int imeBottom) {
         int keyboard = Math.max(0, imeBottom);
         if (keyboard == 0) {
@@ -492,20 +589,10 @@ public class AiChatFragment extends Fragment {
     }
 
     private int computeEffectiveImeBottom(@NonNull View root, @NonNull WindowInsetsCompat insets) {
-        int imeBottom = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom);
-        int navBottom = Math.max(0, insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom);
         if (!insets.isVisible(WindowInsetsCompat.Type.ime())) {
-            return imeBottom;
+            return 0;
         }
-
-        // 某些国产 Android 12 机型会出现 ime.bottom 过小，使用可见区域差值兜底。
-        if (imeBottom <= navBottom + dp(2)) {
-            int fallbackByVisibleFrame = estimateKeyboardHeightByVisibleFrame(root);
-            if (fallbackByVisibleFrame > imeBottom) {
-                imeBottom = fallbackByVisibleFrame;
-            }
-        }
-        return imeBottom;
+        return Math.max(0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom);
     }
 
     private int estimateKeyboardHeightByVisibleFrame(@NonNull View root) {
@@ -546,24 +633,25 @@ public class AiChatFragment extends Fragment {
                         targetBottomPadding
                 );
             }
+            applyHistoryDrawerInsets(statusBars.top);
 
             int lift = imeVisible ? computeComposerLiftForIme(imeBottom) : 0;
-            // 无论动画状态如何都应用一次稳态值，规避部分机型只首轮触发的问题。
-            applyComposerImeOffset(lift);
-            applyChatScrollBottomPadding(lift);
-            anchorChatToBottomIfNeeded();
-            markInsetsDispatched();
+            // 使用标准 WindowInsets + WindowInsetsAnimation 流程：
+            // 动画中由 onProgress 驱动，稳态由 onApplyWindowInsets 收敛。
+            if (!imeAnimationRunning) {
+                applyComposerImeOffset(lift);
+                applyChatScrollBottomPadding(lift);
+                anchorChatToBottomIfNeeded();
+            }
 
             if (imeVisible && !lastImeVisible) {
                 if (pendingBottomScrollOnImeOpen && chatScroll != null) {
                     chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
                 }
                 pendingBottomScrollOnImeOpen = false;
-                startImeProbe();
             } else if (!imeVisible && lastImeVisible) {
                 keepChatAnchoredToBottomOnIme = false;
                 pendingBottomScrollOnImeOpen = false;
-                stopImeProbe();
             }
             lastImeVisible = imeVisible;
 
@@ -598,7 +686,6 @@ public class AiChatFragment extends Fragment {
                             applyComposerImeOffset(lift);
                             applyChatScrollBottomPadding(lift);
                             anchorChatToBottomIfNeeded();
-                            markInsetsDispatched();
                         }
                         return insets;
                     }
@@ -617,15 +704,29 @@ public class AiChatFragment extends Fragment {
                             applyComposerImeOffset(lift);
                             applyChatScrollBottomPadding(lift);
                             anchorChatToBottomIfNeeded();
-                            markInsetsDispatched();
                             ViewCompat.requestApplyInsets(root);
                         }
                     }
                 });
 
         ViewCompat.requestApplyInsets(root);
-        setupImeGlobalLayoutFallback(root);
-        startImeProbe();
+    }
+
+    private void applyHistoryDrawerInsets(int statusBarTopInset) {
+        if (historyDrawer == null) {
+            return;
+        }
+        int targetTop = baseHistoryDrawerPaddingTop + Math.max(0, statusBarTopInset);
+        int targetBottom = baseHistoryDrawerPaddingBottom;
+        if (historyDrawer.getPaddingTop() == targetTop && historyDrawer.getPaddingBottom() == targetBottom) {
+            return;
+        }
+        historyDrawer.setPadding(
+                historyDrawer.getPaddingLeft(),
+                targetTop,
+                historyDrawer.getPaddingRight(),
+                targetBottom
+        );
     }
 
     private void startImeProbe() {
@@ -813,6 +914,8 @@ public class AiChatFragment extends Fragment {
         historyAdapter = new HistorySessionAdapter();
         if (lvHistory != null) {
             lvHistory.setAdapter(historyAdapter);
+            lvHistory.setSelector(new ColorDrawable(Color.TRANSPARENT));
+            lvHistory.setDrawSelectorOnTop(false);
             lvHistory.setOnItemClickListener((AdapterView<?> parent, View view, int position, long id) -> {
                 ChatSession target = getSessionForRow(position);
                 if (target == null) {
@@ -832,6 +935,7 @@ public class AiChatFragment extends Fragment {
                 }
             });
         }
+        updateHistoryDrawerBottomInset();
     }
 
     private void startNewSession(boolean forceSave) {
@@ -1220,21 +1324,26 @@ public class AiChatFragment extends Fragment {
     private void applyHistoryDrawerStyle() {
         if (historyDrawer == null) return;
 
-        boolean dark = isDarkMode();
-        int drawerBase = dark ? Color.BLACK : Color.WHITE;
-        int textPrimary = dark ? Color.WHITE : Color.BLACK;
-        int textSecondary = ColorUtils.setAlphaComponent(textPrimary, 168);
-        int stroke = ColorUtils.setAlphaComponent(textPrimary, 44);
+        int drawerBase = UiStyleHelper.resolvePageBackgroundColor(ctx());
+        int textPrimary = UiStyleHelper.resolveOnSurfaceColor(ctx());
+        int textSecondary = UiStyleHelper.resolveOnSurfaceVariantColor(ctx());
 
         GradientDrawable drawerBg = new GradientDrawable();
         drawerBg.setShape(GradientDrawable.RECTANGLE);
         drawerBg.setColor(drawerBase);
-        drawerBg.setCornerRadii(new float[]{0, 0, dp(24), dp(24), dp(24), dp(24), 0, 0});
-        drawerBg.setStroke(dp(1), stroke);
         historyDrawer.setBackground(drawerBg);
+        historyDrawer.setElevation(0f);
+        historyDrawer.setTranslationZ(0f);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            historyDrawer.setOutlineAmbientShadowColor(ColorUtils.setAlphaComponent(Color.BLACK, 0));
+            historyDrawer.setOutlineSpotShadowColor(ColorUtils.setAlphaComponent(Color.BLACK, 0));
+        }
+        updateHistoryDrawerBottomInset();
 
         if (drawerAiChat != null) {
-            drawerAiChat.setScrimColor(ColorUtils.setAlphaComponent(Color.BLACK, dark ? 140 : 110));
+            drawerAiChat.setDrawerElevation(0f);
+            int scrimAlpha = isDarkMode() ? 142 : 112;
+            drawerAiChat.setScrimColor(ColorUtils.setAlphaComponent(Color.BLACK, scrimAlpha));
         }
         if (tvHistoryDrawerTitle != null) {
             tvHistoryDrawerTitle.setTextColor(textPrimary);
@@ -2190,6 +2299,17 @@ public class AiChatFragment extends Fragment {
         }
 
         @Override
+        public boolean areAllItemsEnabled() {
+            return false;
+        }
+
+        @Override
+        public boolean isEnabled(int position) {
+            HistoryRow row = historyRows.get(position);
+            return !row.isHeader;
+        }
+
+        @Override
         public int getViewTypeCount() {
             return 2;
         }
@@ -2227,6 +2347,10 @@ public class AiChatFragment extends Fragment {
                 headerView.setTextColor(textColor);
                 headerView.setText(row.headerText);
                 headerView.setBackgroundColor(Color.TRANSPARENT);
+                headerView.setClickable(false);
+                headerView.setLongClickable(false);
+                headerView.setFocusable(false);
+                headerView.setEnabled(false);
                 return headerView;
             }
 
@@ -2257,6 +2381,10 @@ public class AiChatFragment extends Fragment {
 
             if (holder.card != null) {
                 int accent = UiStyleHelper.resolveAccentColor(ctx());
+                int touchStrokeColor = ColorUtils.setAlphaComponent(accent, 140);
+                int touchRippleColor = ColorUtils.setAlphaComponent(accent, 98);
+                float touchElevation = dp(6);
+                holder.card.setRippleColor(android.content.res.ColorStateList.valueOf(touchRippleColor));
                 if (selected || outlined) {
                     if (selected) {
                         holder.card.setCardBackgroundColor(ColorUtils.setAlphaComponent(accent, dark ? 110 : 75));
@@ -2264,7 +2392,7 @@ public class AiChatFragment extends Fragment {
                         holder.card.setCardBackgroundColor(dark ? Color.parseColor("#333333") : Color.WHITE);
                     }
                 } else {
-                    holder.card.setCardBackgroundColor(ColorUtils.setAlphaComponent(textPrimary, dark ? 12 : 8));
+                    holder.card.setCardBackgroundColor(Color.TRANSPARENT);
                 }
 
                 if (outlined) {
@@ -2282,6 +2410,14 @@ public class AiChatFragment extends Fragment {
                         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
                             lastHistoryTouchRawX = event.getRawX();
                             lastHistoryTouchRawY = event.getRawY();
+                            if (!outlined) {
+                                holder.card.setCardElevation(touchElevation);
+                                holder.card.setStrokeWidth(dp(1));
+                                holder.card.setStrokeColor(touchStrokeColor);
+                            }
+                        } else if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) && !outlined) {
+                            holder.card.setCardElevation(0f);
+                            holder.card.setStrokeWidth(0);
                         }
                     }
                     return false;
