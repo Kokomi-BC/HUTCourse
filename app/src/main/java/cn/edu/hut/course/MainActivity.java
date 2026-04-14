@@ -2659,7 +2659,7 @@ private void extractAllTables(String passedCookie) {
         scrollView.addView(layout, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
- 
+
         TextView sheetTitle = new TextView(this);
         sheetTitle.setText(source == null ? "新增日程" : "编辑日程");
         sheetTitle.setTextSize(20f);
