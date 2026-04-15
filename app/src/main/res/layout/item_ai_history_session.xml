@@ -14,8 +14,7 @@
     app:rippleColor="?attr/colorSecondaryContainer"
     app:strokeWidth="0dp"
     android:clickable="true"
-    android:focusable="true"
-    android:foreground="?attr/selectableItemBackground">
+    android:focusable="true">
 
     <LinearLayout
         android:id="@+id/historyItemRoot"

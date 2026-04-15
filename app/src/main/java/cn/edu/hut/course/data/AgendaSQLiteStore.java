@@ -14,7 +14,7 @@ import java.util.List;
 public final class AgendaSQLiteStore {
 
     private static final String DB_NAME = "agenda_store.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
 
     private static final String TABLE_AGENDAS = "agendas";
 
@@ -26,6 +26,7 @@ public final class AgendaSQLiteStore {
     private static final String COL_START_MINUTE = "start_minute";
     private static final String COL_END_MINUTE = "end_minute";
     private static final String COL_PRIORITY = "priority";
+    private static final String COL_RENDER_COLOR = "render_color";
     private static final String COL_REPEAT_RULE = "repeat_rule";
     private static final String COL_MONTHLY_STRATEGY = "monthly_strategy";
     private static final String COL_CREATED_AT = "created_at";
@@ -127,6 +128,7 @@ public final class AgendaSQLiteStore {
         values.put(COL_START_MINUTE, agenda.startMinute);
         values.put(COL_END_MINUTE, agenda.endMinute);
         values.put(COL_PRIORITY, agenda.priority);
+        values.put(COL_RENDER_COLOR, agenda.renderColor);
         values.put(COL_REPEAT_RULE, safe(agenda.repeatRule));
         values.put(COL_MONTHLY_STRATEGY, safe(agenda.monthlyStrategy));
         values.put(COL_UPDATED_AT, agenda.updatedAt);
@@ -146,6 +148,8 @@ public final class AgendaSQLiteStore {
         agenda.startMinute = cursor.getInt(cursor.getColumnIndexOrThrow(COL_START_MINUTE));
         agenda.endMinute = cursor.getInt(cursor.getColumnIndexOrThrow(COL_END_MINUTE));
         agenda.priority = cursor.getInt(cursor.getColumnIndexOrThrow(COL_PRIORITY));
+        int renderColorIndex = cursor.getColumnIndex(COL_RENDER_COLOR);
+        agenda.renderColor = renderColorIndex >= 0 ? cursor.getInt(renderColorIndex) : 0;
         agenda.repeatRule = safe(cursor.getString(cursor.getColumnIndexOrThrow(COL_REPEAT_RULE)));
         agenda.monthlyStrategy = safe(cursor.getString(cursor.getColumnIndexOrThrow(COL_MONTHLY_STRATEGY)));
         agenda.createdAt = cursor.getLong(cursor.getColumnIndexOrThrow(COL_CREATED_AT));
@@ -174,6 +178,7 @@ public final class AgendaSQLiteStore {
                     + COL_START_MINUTE + " INTEGER NOT NULL,"
                     + COL_END_MINUTE + " INTEGER NOT NULL,"
                     + COL_PRIORITY + " INTEGER NOT NULL,"
+                    + COL_RENDER_COLOR + " INTEGER DEFAULT 0,"
                     + COL_REPEAT_RULE + " TEXT NOT NULL,"
                     + COL_MONTHLY_STRATEGY + " TEXT NOT NULL,"
                     + COL_CREATED_AT + " INTEGER,"
@@ -186,6 +191,12 @@ public final class AgendaSQLiteStore {
             if (oldVersion < 2) {
                 try {
                     db.execSQL("ALTER TABLE " + TABLE_AGENDAS + " ADD COLUMN " + COL_LOCATION + " TEXT DEFAULT ''");
+                } catch (Exception ignored) {
+                }
+            }
+            if (oldVersion < 3) {
+                try {
+                    db.execSQL("ALTER TABLE " + TABLE_AGENDAS + " ADD COLUMN " + COL_RENDER_COLOR + " INTEGER DEFAULT 0");
                 } catch (Exception ignored) {
                 }
             }

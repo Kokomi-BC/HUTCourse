@@ -916,6 +916,9 @@ public class AiChatFragment extends Fragment {
             lvHistory.setAdapter(historyAdapter);
             lvHistory.setSelector(new ColorDrawable(Color.TRANSPARENT));
             lvHistory.setDrawSelectorOnTop(false);
+            lvHistory.setCacheColorHint(Color.TRANSPARENT);
+            lvHistory.setDivider(null);
+            lvHistory.setDividerHeight(0);
             lvHistory.setOnItemClickListener((AdapterView<?> parent, View view, int position, long id) -> {
                 ChatSession target = getSessionForRow(position);
                 if (target == null) {
@@ -2383,7 +2386,6 @@ public class AiChatFragment extends Fragment {
                 int accent = UiStyleHelper.resolveAccentColor(ctx());
                 int touchStrokeColor = ColorUtils.setAlphaComponent(accent, 140);
                 int touchRippleColor = ColorUtils.setAlphaComponent(accent, 98);
-                float touchElevation = dp(6);
                 holder.card.setRippleColor(android.content.res.ColorStateList.valueOf(touchRippleColor));
                 if (selected || outlined) {
                     if (selected) {
@@ -2396,7 +2398,7 @@ public class AiChatFragment extends Fragment {
                 }
 
                 if (outlined) {
-                    holder.card.setCardElevation(dp(8));
+                    holder.card.setCardElevation(0f);
                     holder.card.setStrokeWidth(dp(1));
                     holder.card.setStrokeColor(ColorUtils.setAlphaComponent(accent, 120));
                 } else {
@@ -2411,12 +2413,10 @@ public class AiChatFragment extends Fragment {
                             lastHistoryTouchRawX = event.getRawX();
                             lastHistoryTouchRawY = event.getRawY();
                             if (!outlined) {
-                                holder.card.setCardElevation(touchElevation);
                                 holder.card.setStrokeWidth(dp(1));
                                 holder.card.setStrokeColor(touchStrokeColor);
                             }
                         } else if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) && !outlined) {
-                            holder.card.setCardElevation(0f);
                             holder.card.setStrokeWidth(0);
                         }
                     }

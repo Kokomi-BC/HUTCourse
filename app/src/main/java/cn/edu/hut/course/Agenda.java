@@ -24,6 +24,7 @@ public class Agenda implements Serializable {
     public int startMinute = 8 * 60;
     public int endMinute = 9 * 60;
     public int priority = PRIORITY_LOW;
+    public int renderColor = 0;
     public String repeatRule = REPEAT_NONE;
     public String monthlyStrategy = MONTHLY_SKIP;
     public long createdAt;
@@ -39,6 +40,7 @@ public class Agenda implements Serializable {
         agenda.startMinute = startMinute;
         agenda.endMinute = endMinute;
         agenda.priority = priority;
+        agenda.renderColor = renderColor;
         agenda.repeatRule = repeatRule;
         agenda.monthlyStrategy = monthlyStrategy;
         agenda.createdAt = createdAt;

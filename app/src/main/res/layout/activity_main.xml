@@ -359,13 +359,14 @@
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/fabAddAgenda"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:layout_gravity="bottom|end"
                 android:layout_marginEnd="20dp"
                 android:layout_marginBottom="24dp"
                 android:contentDescription="新增日程"
                 android:src="@android:drawable/ic_input_add"
+                app:fabCustomSize="56dp"
                 app:backgroundTint="?attr/colorPrimary"
                 app:tint="?attr/colorOnPrimary" />
         </FrameLayout>
