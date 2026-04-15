@@ -20,6 +20,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
@@ -111,6 +112,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] AGENDA_REPEAT_LABELS = {"不重复", "每天", "每周", "每月固定日"};
     private static final String[] AGENDA_MONTHLY_VALUES = {Agenda.MONTHLY_SKIP, Agenda.MONTHLY_MONTH_END};
     private static final String[] AGENDA_MONTHLY_LABELS = {"短月跳过", "短月改月底"};
+    private static final String KEY_SELECTED_NAV_ITEM_ID = "selected_nav_item_id";
 
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
     private com.google.android.material.card.MaterialCardView cardTodayWeekOverview;
@@ -133,6 +135,7 @@ public class MainActivity extends AppCompatActivity {
     private String selectedCourseColorKey = null;
     private Calendar selectedTodayDate;
     private boolean todayEndedTimelineCollapsed = true;
+    private int selectedNavItemId = R.id.nav_schedule;
     private int lastRealtimeWeek = -1;
     private int lastRealtimeDay = -1;
     private int lastRealtimeSlot = -2;
@@ -381,6 +384,7 @@ public class MainActivity extends AppCompatActivity {
 
         bottomNav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
+            selectedNavItemId = id;
             if (id == R.id.nav_today) {
                 switchToTodayPage();
                 updateNextCourseNotice();
@@ -423,6 +427,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         bottomNav.setOnItemReselectedListener(item -> {
+            selectedNavItemId = item.getItemId();
             if (item.getItemId() == R.id.nav_schedule) {
                 jumpToActualCurrentWeek(true);
                 updateNextCourseNotice();
@@ -443,19 +448,32 @@ public class MainActivity extends AppCompatActivity {
 
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
         semesterStartDateMs = prefs.getLong("semester_start_date", 0);
+        if (savedInstanceState != null) {
+            selectedNavItemId = savedInstanceState.getInt(KEY_SELECTED_NAV_ITEM_ID, selectedNavItemId);
+        }
         applyMaterialScaffoldStyle();
         setupViewPager();
         ensureAiFragmentAttached();
         loadCoursesFromLocal();
         renderProfileFromLocal();
         updateBackground();
-        switchToSchedulePage();
         if (bottomNav != null) {
-            bottomNav.setSelectedItemId(R.id.nav_schedule);
+            showPageForNavItem(selectedNavItemId);
+            if (bottomNav.getSelectedItemId() != selectedNavItemId) {
+                bottomNav.setSelectedItemId(selectedNavItemId);
+            }
+        } else {
+            showPageForNavItem(selectedNavItemId);
         }
         updateTodayHeaderClock();
         startNoticeTicker();
         openCourseEditorFromAction(getIntent());
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putInt(KEY_SELECTED_NAV_ITEM_ID, selectedNavItemId);
     }
 
     @Override
@@ -591,6 +609,18 @@ public class MainActivity extends AppCompatActivity {
         renderProfileFromLocal();
         updateTitle();
         styleProfileCards();
+    }
+
+    private void showPageForNavItem(int navItemId) {
+        if (navItemId == R.id.nav_today) {
+            switchToTodayPage();
+        } else if (navItemId == R.id.nav_ai) {
+            switchToAiPage();
+        } else if (navItemId == R.id.nav_profile) {
+            switchToProfilePage();
+        } else {
+            switchToSchedulePage();
+        }
     }
 
     private void styleProfileCards() {
@@ -747,9 +777,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int getDefaultAgendaRenderColor() {
-        boolean darkMode = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
-                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
-        return darkMode ? Color.BLACK : Color.WHITE;
+        return getTimetableThemeColor();
     }
 
     private boolean isAgendaDefaultRenderColor(int color) {
@@ -802,7 +830,7 @@ public class MainActivity extends AppCompatActivity {
     private void renderWeekGrid(GridLayout grid, int week) {
         if (grid == null) return;
         grid.removeAllViews();
-        int dp40 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 45, getResources().getDisplayMetrics());
+        int dp40 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 39, getResources().getDisplayMetrics());
         int dp120 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 120, getResources().getDisplayMetrics());
         int colorOnSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int colorOnSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
@@ -1357,10 +1385,14 @@ public class MainActivity extends AppCompatActivity {
                 card.setStrokeColor(Color.TRANSPARENT);
             }
 
+            float screenWidthDp = getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density;
+            boolean compactScreen = screenWidthDp <= 390f;
+            int spanCount = Math.max(1, getCourseEntrySpanCount(entry));
             int textColor = pickReadableTextColor(cardBg);
             LinearLayout content = new LinearLayout(this);
             content.setOrientation(LinearLayout.VERTICAL);
-            content.setPadding(dp(6), dp(6), dp(6), dp(6));
+            int contentPadding = compactScreen ? dp(4) : dp(6);
+            content.setPadding(contentPadding, contentPadding, contentPadding, contentPadding);
             content.setGravity(Gravity.CENTER_VERTICAL);
 
             TextView titleView = new TextView(this);
@@ -1374,30 +1406,35 @@ public class MainActivity extends AppCompatActivity {
             titleView.setText(titleText);
             titleView.setTextColor(textColor);
             titleView.setTypeface(null, Typeface.BOLD);
-            titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9.5f);
-            titleView.setMaxLines(2);
+            titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, compactScreen ? 8.6f : 9.3f);
+            titleView.setMaxLines(spanCount > 1 ? 3 : 2);
             titleView.setEllipsize(TextUtils.TruncateAt.END);
 
             TextView teacherView = new TextView(this);
             String teacher = safeText(entry.course.teacher).trim();
-            teacherView.setText(teacher.isEmpty() ? "未定" : teacher);
+            boolean hasTeacher = !teacher.isEmpty() && !"未定".equals(teacher);
+            teacherView.setText(teacher);
             teacherView.setTextColor(ColorUtils.setAlphaComponent(textColor, 220));
-            teacherView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 8f);
+            teacherView.setTextSize(TypedValue.COMPLEX_UNIT_SP, compactScreen ? 7.2f : 8f);
             teacherView.setSingleLine(true);
             teacherView.setEllipsize(TextUtils.TruncateAt.END);
 
-            String location = CampusBuildingStore.toStandardLocation(this, entry.course.location);
+            String location = formatScheduleCellLocation(entry.course.location);
 
             TextView locationView = new TextView(this);
             locationView.setText(location);
             locationView.setTextColor(textColor);
             locationView.setTypeface(null, Typeface.BOLD);
-            locationView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 8.5f);
-            locationView.setSingleLine(true);
-            locationView.setEllipsize(TextUtils.TruncateAt.END);
+            locationView.setTextSize(TypedValue.COMPLEX_UNIT_SP, compactScreen ? 7.6f : 8.4f);
+            locationView.setMaxLines(spanCount > 1 ? 3 : 2);
+            locationView.setSingleLine(false);
+            locationView.setEllipsize(null);
+            locationView.setLineSpacing(0f, 0.95f);
 
             content.addView(titleView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            content.addView(teacherView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (hasTeacher) {
+                content.addView(teacherView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
             content.addView(locationView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             card.addView(content, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -1438,9 +1475,9 @@ public class MainActivity extends AppCompatActivity {
         int firstVisibleMinute = Math.max(fullStartMinute, SLOT_START_SECONDS[0] / 60);
         boolean isContinuationSegment = entry.startMinute > firstVisibleMinute;
         if (isContinuationSegment) {
-            tv.setText("日程\n↳ " + title);
+            tv.setText(title);
         } else {
-            tv.setText("日程\n" + title + "\n" + formatMinute(fullStartMinute) + "-" + formatMinute(fullEndMinute));
+            tv.setText(title + "\n" + formatMinute(fullStartMinute) + "-" + formatMinute(fullEndMinute));
         }
         tv.setTextColor(pickReadableTextColor(agendaBg));
 
@@ -1449,6 +1486,30 @@ public class MainActivity extends AppCompatActivity {
             card.setOnClickListener(v -> showAgendaEditorSheet(agenda, targetDate));
         }
         return card;
+    }
+
+    private String formatScheduleCellLocation(String locationRaw) {
+        String standard = CampusBuildingStore.toStandardLocation(this, locationRaw);
+        if (TextUtils.isEmpty(standard) || "未定".equals(standard)) {
+            return "地点未定";
+        }
+
+        int splitIndex = -1;
+        for (int i = 1; i < standard.length(); i++) {
+            if (Character.isDigit(standard.charAt(i))) {
+                splitIndex = i;
+                break;
+            }
+        }
+        if (splitIndex > 1 && splitIndex < standard.length() - 1) {
+            return standard.substring(0, splitIndex) + "\n" + standard.substring(splitIndex);
+        }
+
+        if (standard.length() >= 7) {
+            int mid = standard.length() / 2;
+            return standard.substring(0, mid) + "\n" + standard.substring(mid);
+        }
+        return standard;
     }
 
     private String formatCourseEntryTimeRange(ScheduleCellEntry entry) {
@@ -1666,7 +1727,41 @@ public class MainActivity extends AppCompatActivity {
         addTodayTimelineSection("将要开始", upcomingItems, "接下来暂无待开始的课程与日程");
 
         if (!endedItems.isEmpty()) {
-            TextView endedHeader = createTodayTimelineSectionLabel("", true);
+            MaterialCardView endedHeader = new MaterialCardView(this);
+            endedHeader.setCardBackgroundColor(Color.TRANSPARENT);
+            endedHeader.setCardElevation(0f);
+            endedHeader.setStrokeWidth(0);
+            endedHeader.setUseCompatPadding(false);
+            endedHeader.setRadius(dp(12));
+            endedHeader.setClickable(false);
+            endedHeader.setFocusable(false);
+            endedHeader.setRippleColor(ColorStateList.valueOf(Color.TRANSPARENT));
+            endedHeader.setForeground(null);
+
+            LinearLayout endedHeaderRow = new LinearLayout(this);
+            endedHeaderRow.setOrientation(LinearLayout.HORIZONTAL);
+            endedHeaderRow.setGravity(Gravity.CENTER_VERTICAL);
+            endedHeaderRow.setPadding(dp(10), dp(6), dp(10), dp(6));
+            endedHeaderRow.setClickable(true);
+            endedHeaderRow.setFocusable(false);
+
+            TextView endedHeaderText = new TextView(this);
+            endedHeaderText.setTextSize(13f);
+            endedHeaderText.setTypeface(null, Typeface.BOLD);
+            endedHeaderText.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+            endedHeaderText.setIncludeFontPadding(false);
+            endedHeaderRow.addView(endedHeaderText);
+
+            ImageView endedHeaderArrow = new ImageView(this);
+            LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(18), dp(18));
+            arrowLp.setMargins(dp(6), 0, 0, 0);
+            endedHeaderArrow.setLayoutParams(arrowLp);
+            endedHeaderArrow.setImageResource(R.drawable.ic_chevron_up_wide_24);
+            endedHeaderArrow.setImageTintList(ColorStateList.valueOf(UiStyleHelper.resolveOnSurfaceColor(this)));
+            endedHeaderRow.addView(endedHeaderArrow);
+
+            endedHeader.addView(endedHeaderRow, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
             LinearLayout endedContainer = new LinearLayout(this);
             endedContainer.setOrientation(LinearLayout.VERTICAL);
             endedContainer.setVisibility(todayEndedTimelineCollapsed ? View.GONE : View.VISIBLE);
@@ -1675,13 +1770,25 @@ public class MainActivity extends AppCompatActivity {
                 endedContainer.addView(createTodayTimelineCard(item));
             }
 
-            Runnable refreshEndedHeader = () -> endedHeader.setText(
-                    todayEndedTimelineCollapsed
-                            ? "已结束（" + endedItems.size() + "）  点击展开"
-                            : "已结束（" + endedItems.size() + "）  点击收起");
+            Runnable refreshEndedHeader = () -> {
+                endedHeaderText.setText("已结束（" + endedItems.size() + "）");
+                endedHeaderArrow.setImageResource(todayEndedTimelineCollapsed
+                        ? R.drawable.ic_chevron_down_wide_24
+                        : R.drawable.ic_chevron_up_wide_24);
+            };
             refreshEndedHeader.run();
 
-            endedHeader.setOnClickListener(v -> {
+            endedHeaderRow.setOnTouchListener((v, event) -> {
+                int action = event.getActionMasked();
+                if (action == MotionEvent.ACTION_DOWN) {
+                    endedHeader.setCardElevation(dp(6));
+                } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    endedHeader.setCardElevation(0f);
+                }
+                return false;
+            });
+
+            endedHeaderRow.setOnClickListener(v -> {
                 todayEndedTimelineCollapsed = !todayEndedTimelineCollapsed;
                 endedContainer.setVisibility(todayEndedTimelineCollapsed ? View.GONE : View.VISIBLE);
                 refreshEndedHeader.run();
@@ -1693,7 +1800,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void addTodayTimelineSection(String sectionName, List<TodayTimelineItem> items, String emptyText) {
-        todayCoursesContainer.addView(createTodayTimelineSectionLabel(sectionName + "（" + items.size() + "）", false));
+        todayCoursesContainer.addView(createTodayTimelineSectionLabel(sectionName + "（" + items.size() + "）"));
         if (items == null || items.isEmpty()) {
             TextView emptyView = new TextView(this);
             emptyView.setText(emptyText);
@@ -1708,22 +1815,18 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private TextView createTodayTimelineSectionLabel(String text, boolean collapsible) {
+    private TextView createTodayTimelineSectionLabel(String text) {
         TextView label = new TextView(this);
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         label.setText(text);
         label.setTextColor(onSurface);
         label.setTextSize(13f);
         label.setTypeface(null, Typeface.BOLD);
-        label.setPadding(dp(12), dp(8), dp(12), dp(8));
-        label.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 22), dp(12)));
+        label.setIncludeFontPadding(false);
+        label.setPadding(dp(4), dp(2), dp(4), dp(4));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, dp(2), 0, dp(8));
         label.setLayoutParams(lp);
-        if (collapsible) {
-            label.setClickable(true);
-            label.setFocusable(false);
-        }
         return label;
     }
 
@@ -3114,6 +3217,48 @@ private void extractAllTables(String passedCookie) {
         return base;
     }
 
+    private String formatLocationBase(String locationRaw) {
+        String base = CampusBuildingStore.toStandardLocation(this, locationRaw);
+        if (TextUtils.isEmpty(base)) {
+            return "未定";
+        }
+        return base;
+    }
+
+    private String formatLocationDistanceHint(String locationRaw) {
+        String base = formatLocationBase(locationRaw);
+        if ("未定".equals(base)) {
+            return "";
+        }
+
+        if (!CampusBuildingStore.hasLocationPermission(this)) {
+            return "";
+        }
+
+        CampusBuildingStore.DistanceInfo info = CampusBuildingStore.estimateDistanceFromDevice(this, locationRaw);
+        if (!info.available) {
+            return "";
+        }
+        if (info.meters < 100f) {
+            return "在附近";
+        }
+        return "距离" + formatDistanceMeters(info.meters);
+    }
+
+    private void updateLocationDistanceHintView(TextView hintView, String locationRaw) {
+        if (hintView == null) {
+            return;
+        }
+        String hint = formatLocationDistanceHint(locationRaw);
+        if (hint.isEmpty()) {
+            hintView.setText("");
+            hintView.setVisibility(View.GONE);
+        } else {
+            hintView.setText(hint);
+            hintView.setVisibility(View.VISIBLE);
+        }
+    }
+
     private String formatDistanceMeters(float meters) {
         if (meters < 1000f) {
             return String.valueOf(Math.round(meters)) + "米";
@@ -3586,24 +3731,27 @@ private void extractAllTables(String passedCookie) {
 
         final TextView[] teacherRef = new TextView[1];
         final TextView[] locationRef = new TextView[1];
+        final TextView[] locationDistanceRef = new TextView[1];
         final TextView[] weeksRef = new TextView[1];
         final TextView[] sectionRef = new TextView[1];
 
         final List<Course> sectionTargets = collectCourseSectionTargets(c, mergedCourses);
 
-        teacherRef[0] = addEditableInfoRow(rowsContainer, "教师", c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim(),
-            v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
+        teacherRef[0] = addEditableInfoRow(rowsContainer, R.drawable.ic_profile, "教师", c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim(),
+            v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
         rowsContainer.addView(createAgendaEditorDivider());
 
-        locationRef[0] = addEditableInfoRow(rowsContainer, "地点", formatLocationWithDistance(c.location),
-            v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
+        CourseLocationRowViews locationViews = addEditableLocationInfoRow(rowsContainer, R.drawable.ic_agenda_location_24, "地点", c.location,
+            v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
+        locationRef[0] = locationViews.locationView;
+        locationDistanceRef[0] = locationViews.distanceView;
         rowsContainer.addView(createAgendaEditorDivider());
 
-        weeksRef[0] = addEditableInfoRow(rowsContainer, "周次", formatWeeksForDisplay(c.weeks),
-            v -> showWeeksPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
+        weeksRef[0] = addEditableInfoRow(rowsContainer, R.drawable.ic_today, "周次", formatWeeksForDisplay(c.weeks),
+            v -> showWeeksPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
         rowsContainer.addView(createAgendaEditorDivider());
 
-        sectionRef[0] = addEditableInfoRow(rowsContainer, "节次", formatCourseSectionForDisplay(sectionTargets),
+        sectionRef[0] = addEditableInfoRow(rowsContainer, R.drawable.ic_agenda_time_24, "节次", formatCourseSectionForDisplay(sectionTargets),
             v -> showCourseSectionPicker(sectionTargets, () -> {
                 if (sectionRef[0] != null) {
                     sectionRef[0].setText(formatCourseSectionForDisplay(sectionTargets));
@@ -4198,9 +4346,9 @@ private void extractAllTables(String passedCookie) {
 
     private View createAgendaEditorDivider() {
         View divider = new View(this);
-        divider.setBackgroundColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceVariantColor(this), 48));
-        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        dividerLp.setMargins(dp(44), 0, dp(12), 0);
+        divider.setBackgroundColor(Color.TRANSPARENT);
+        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0);
+        dividerLp.setMargins(0, 0, 0, 0);
         divider.setLayoutParams(dividerLp);
         return divider;
     }
@@ -4672,13 +4820,32 @@ private void extractAllTables(String passedCookie) {
         return 0;
     }
 
+    private static final class CourseLocationRowViews {
+        final TextView locationView;
+        final TextView distanceView;
+
+        CourseLocationRowViews(TextView locationView, TextView distanceView) {
+            this.locationView = locationView;
+            this.distanceView = distanceView;
+        }
+    }
+
     private TextView addEditableInfoRow(LinearLayout parent, String label, String value, View.OnClickListener editAction,
+                                        int labelColor, int valueColor) {
+        return addEditableInfoRow(parent, 0, label, value, editAction, labelColor, valueColor);
+    }
+
+    private TextView addEditableInfoRow(LinearLayout parent, int iconRes, String label, String value, View.OnClickListener editAction,
                                         int labelColor, int valueColor) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setMinimumHeight(dp(56));
         row.setPadding(dp(14), dp(7), dp(12), dp(7));
+
+        if (iconRes != 0) {
+            row.addView(createAgendaRowIcon(iconRes));
+        }
 
         TextView labelTv = new TextView(this);
         labelTv.setText(label);
@@ -4687,7 +4854,7 @@ private void extractAllTables(String passedCookie) {
         labelTv.setSingleLine(true);
         labelTv.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        labelLp.setMargins(0, 0, dp(10), 0);
+        labelLp.setMargins(iconRes == 0 ? 0 : dp(10), 0, dp(10), 0);
         labelTv.setLayoutParams(labelLp);
         row.addView(labelTv);
 
@@ -4720,12 +4887,79 @@ private void extractAllTables(String passedCookie) {
         return valueTv;
     }
 
-    private void onCourseInfoUpdated(Course c, TextView teacherValue, TextView locationValue, TextView weeksValue) {
+    private CourseLocationRowViews addEditableLocationInfoRow(LinearLayout parent, int iconRes, String label, String locationRaw,
+                                                              View.OnClickListener editAction, int labelColor, int valueColor) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(14), dp(7), dp(12), dp(7));
+
+        if (iconRes != 0) {
+            row.addView(createAgendaRowIcon(iconRes));
+        }
+
+        TextView labelTv = new TextView(this);
+        labelTv.setText(label);
+        labelTv.setTextSize(17f);
+        labelTv.setTextColor(labelColor);
+        labelTv.setSingleLine(true);
+        labelTv.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelLp.setMargins(iconRes == 0 ? 0 : dp(10), 0, dp(10), 0);
+        labelTv.setLayoutParams(labelLp);
+        row.addView(labelTv);
+
+        LinearLayout valueContainer = new LinearLayout(this);
+        valueContainer.setOrientation(LinearLayout.HORIZONTAL);
+        valueContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams valueContainerLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        valueContainer.setLayoutParams(valueContainerLp);
+
+        TextView distanceTv = new TextView(this);
+        distanceTv.setTextSize(12f);
+        distanceTv.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        distanceTv.setSingleLine(true);
+        distanceTv.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams distanceLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        distanceLp.setMargins(0, 0, dp(8), 0);
+        distanceTv.setLayoutParams(distanceLp);
+        updateLocationDistanceHintView(distanceTv, locationRaw);
+        valueContainer.addView(distanceTv);
+
+        TextView valueTv = new TextView(this);
+        valueTv.setText(formatLocationBase(locationRaw));
+        valueTv.setTextSize(15f);
+        valueTv.setTypeface(null, Typeface.BOLD);
+        valueTv.setTextColor(valueColor);
+        valueTv.setSingleLine(true);
+        valueTv.setEllipsize(TextUtils.TruncateAt.END);
+        valueTv.setGravity(Gravity.CENTER);
+        valueTv.setMaxWidth(dp(220));
+        valueTv.setPadding(dp(14), dp(8), dp(14), dp(8));
+        valueTv.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(valueColor, 28), dp(14)));
+        valueContainer.addView(valueTv);
+        row.addView(valueContainer);
+
+        if (editAction != null) {
+            row.setOnClickListener(editAction);
+            valueTv.setOnClickListener(editAction);
+            distanceTv.setOnClickListener(editAction);
+        }
+
+        parent.addView(row);
+        return new CourseLocationRowViews(valueTv, distanceTv);
+    }
+
+    private void onCourseInfoUpdated(Course c, TextView teacherValue, TextView locationValue, TextView locationDistanceValue, TextView weeksValue) {
         if (teacherValue != null) {
             teacherValue.setText(c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim());
         }
         if (locationValue != null) {
-            locationValue.setText(formatLocationWithDistance(c.location));
+            locationValue.setText(formatLocationBase(c.location));
+        }
+        if (locationDistanceValue != null) {
+            updateLocationDistanceHintView(locationDistanceValue, c.location);
         }
         if (weeksValue != null) {
             weeksValue.setText(formatWeeksForDisplay(c.weeks));

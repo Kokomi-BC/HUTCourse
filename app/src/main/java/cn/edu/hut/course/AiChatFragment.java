@@ -219,10 +219,14 @@ public class AiChatFragment extends Fragment {
         }
         if (btnNewSession != null) {
             btnNewSession.setOnClickListener(v -> {
-                startNewSession(true);
-                ensureGreetingForActiveSession();
-                if (drawerAiChat != null) {
-                    drawerAiChat.closeDrawer(GravityCompat.START);
+                if (activeSession != null && isUntouchedSession(activeSession)) {
+                    Toast.makeText(requireContext(), "当前已处于新对话中", Toast.LENGTH_SHORT).show();
+                } else {
+                    startNewSession(true);
+                    ensureGreetingForActiveSession();
+                    if (drawerAiChat != null) {
+                        drawerAiChat.closeDrawer(GravityCompat.START);
+                    }
                 }
             });
         }
@@ -237,6 +241,7 @@ public class AiChatFragment extends Fragment {
         configureSoftInputModeForChat();
         applyPageVisualStyle();
         applyComposerStyle();
+        refreshHistoryRows();
         refreshAiStatus();
         View root = rootView == null ? null : rootView.findViewById(R.id.rootAiChat);
         if (root != null) {
@@ -1371,7 +1376,7 @@ public class AiChatFragment extends Fragment {
 
         Context context = ctx();
         boolean dark = isDarkMode();
-        int bgColor = dark ? Color.parseColor("#2C2C2C") : Color.WHITE;
+        int bgColor = dark ? Color.parseColor("#2B2B2B") : Color.WHITE;
         int textPrimary = dark ? Color.WHITE : Color.BLACK;
         int textDanger = Color.parseColor("#E84B4B");
 
@@ -1379,11 +1384,12 @@ public class AiChatFragment extends Fragment {
         container.setOrientation(LinearLayout.VERTICAL);
         
         MaterialCardView card = new MaterialCardView(context);
-        card.setCardElevation(dp(4));
-        card.setRadius(dp(8));
+        card.setCardElevation(dp(14));
+        card.setRadius(dp(24));
         card.setCardBackgroundColor(bgColor);
         card.setStrokeWidth(dp(1));
-        card.setStrokeColor(ColorUtils.setAlphaComponent(textPrimary, 20));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(textPrimary, 18));
+        card.setUseCompatPadding(true);
         card.addView(container);
 
         int itemHeight = dp(44);
@@ -1436,6 +1442,7 @@ public class AiChatFragment extends Fragment {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 true);
+        sessionMenuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         sessionMenuPopup.setOutsideTouchable(true);
         sessionMenuPopup.setElevation(dp(8));
         sessionMenuPopup.setOnDismissListener(() -> {
