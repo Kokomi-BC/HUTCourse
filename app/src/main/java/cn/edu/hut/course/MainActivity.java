@@ -1,5 +1,7 @@
 package cn.edu.hut.course;
 import android.Manifest;
+import android.animation.ObjectAnimator;
+import android.animation.StateListAnimator;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -12,6 +14,7 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Layout;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.StyleSpan;
@@ -228,7 +231,9 @@ public class MainActivity extends AppCompatActivity {
         if (fabAddAgenda != null) {
             fabAddAgenda.setBackgroundTintList(ColorStateList.valueOf(colorPrimary));
             fabAddAgenda.setImageTintList(ColorStateList.valueOf(pickReadableTextColor(colorPrimary)));
-            fabAddAgenda.setCustomSize(dp(56));
+            fabAddAgenda.setImageResource(R.drawable.ic_add_bold_28);
+            fabAddAgenda.setCustomSize(dp(54));
+            fabAddAgenda.setTranslationY(dp(2));
             fabAddAgenda.setUseCompatPadding(false);
             fabAddAgenda.setCompatElevation(0f);
             fabAddAgenda.setElevation(0f);
@@ -777,7 +782,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int getDefaultAgendaRenderColor() {
-        return getTimetableThemeColor();
+        boolean darkMode = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        return darkMode ? Color.BLACK : Color.WHITE;
     }
 
     private boolean isAgendaDefaultRenderColor(int color) {
@@ -1406,9 +1413,19 @@ public class MainActivity extends AppCompatActivity {
             titleView.setText(titleText);
             titleView.setTextColor(textColor);
             titleView.setTypeface(null, Typeface.BOLD);
-            titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, compactScreen ? 8.6f : 9.3f);
-            titleView.setMaxLines(spanCount > 1 ? 3 : 2);
+            titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, compactScreen ? 8.2f : 8.8f);
+            titleView.setMaxLines(spanCount > 1 ? 4 : 3);
             titleView.setEllipsize(TextUtils.TruncateAt.END);
+            titleView.setIncludeFontPadding(false);
+            titleView.setLineSpacing(0f, 0.92f);
+            titleView.setLetterSpacing(-0.015f);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                titleView.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
+                titleView.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
+            }
+            if (titleText.matches(".*[A-Za-z].*")) {
+                titleView.setTextScaleX(0.94f);
+            }
 
             TextView teacherView = new TextView(this);
             String teacher = safeText(entry.course.teacher).trim();
@@ -1455,10 +1472,18 @@ public class MainActivity extends AppCompatActivity {
         tv.setEllipsize(TextUtils.TruncateAt.END);
         card.addView(tv, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        int agendaBaseColor = resolveAgendaRenderColor(agenda);
-        int agendaBg = ColorUtils.blendARGB(glassBg, agendaBaseColor, hasCourseInCell ? (darkMode ? 0.18f : 0.16f) : (darkMode ? 0.32f : 0.24f));
+        int customAgendaColor = normalizeAgendaStoredRenderColor(agenda == null ? 0 : agenda.renderColor);
+        boolean hasCustomAgendaColor = customAgendaColor != 0;
+        int agendaPriority = agenda == null ? Agenda.PRIORITY_LOW : agenda.priority;
+        boolean useThemeEmphasis = hasCustomAgendaColor || agendaPriority == Agenda.PRIORITY_HIGH;
+        int agendaBaseColor = hasCustomAgendaColor
+            ? resolveAgendaRenderColor(agenda)
+            : (agendaPriority == Agenda.PRIORITY_HIGH ? themeColor : getDefaultAgendaRenderColor());
+        int agendaBg = useThemeEmphasis
+            ? ColorUtils.blendARGB(glassBg, agendaBaseColor, hasCourseInCell ? (darkMode ? 0.18f : 0.16f) : (darkMode ? 0.32f : 0.24f))
+            : glassBg;
         card.setCardBackgroundColor(agendaBg);
-        if (hasCourseInCell) {
+        if (hasCourseInCell && useThemeEmphasis) {
             card.setStrokeWidth(dp(1));
             card.setStrokeColor(ColorUtils.setAlphaComponent(agendaBaseColor, darkMode ? 170 : 148));
         } else {
@@ -1733,8 +1758,8 @@ public class MainActivity extends AppCompatActivity {
             endedHeader.setStrokeWidth(0);
             endedHeader.setUseCompatPadding(false);
             endedHeader.setRadius(dp(12));
-            endedHeader.setClickable(false);
-            endedHeader.setFocusable(false);
+            endedHeader.setClickable(true);
+            endedHeader.setFocusable(true);
             endedHeader.setRippleColor(ColorStateList.valueOf(Color.TRANSPARENT));
             endedHeader.setForeground(null);
 
@@ -1742,8 +1767,8 @@ public class MainActivity extends AppCompatActivity {
             endedHeaderRow.setOrientation(LinearLayout.HORIZONTAL);
             endedHeaderRow.setGravity(Gravity.CENTER_VERTICAL);
             endedHeaderRow.setPadding(dp(10), dp(6), dp(10), dp(6));
-            endedHeaderRow.setClickable(true);
-            endedHeaderRow.setFocusable(false);
+                endedHeaderRow.setClickable(false);
+                endedHeaderRow.setFocusable(false);
 
             TextView endedHeaderText = new TextView(this);
             endedHeaderText.setTextSize(13f);
@@ -1778,17 +1803,7 @@ public class MainActivity extends AppCompatActivity {
             };
             refreshEndedHeader.run();
 
-            endedHeaderRow.setOnTouchListener((v, event) -> {
-                int action = event.getActionMasked();
-                if (action == MotionEvent.ACTION_DOWN) {
-                    endedHeader.setCardElevation(dp(6));
-                } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                    endedHeader.setCardElevation(0f);
-                }
-                return false;
-            });
-
-            endedHeaderRow.setOnClickListener(v -> {
+            endedHeader.setOnClickListener(v -> {
                 todayEndedTimelineCollapsed = !todayEndedTimelineCollapsed;
                 endedContainer.setVisibility(todayEndedTimelineCollapsed ? View.GONE : View.VISIBLE);
                 refreshEndedHeader.run();
