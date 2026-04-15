@@ -589,8 +589,8 @@ public class AiChatFragment extends Fragment {
         if (keyboard == 0) {
             return 0;
         }
-        int startThreshold = baseComposerBottomMargin + Math.max(0, mainBottomNavHostHeight);
-        return Math.max(0, keyboard - startThreshold + dp(IME_GAP_DP));
+        // 增加 dp(IME_GAP_DP) 确保输入框和键盘之间有间隙
+        return Math.max(0, keyboard - Math.max(0, mainBottomNavHostHeight) + dp(IME_GAP_DP));
     }
 
     private int computeEffectiveImeBottom(@NonNull View root, @NonNull WindowInsetsCompat insets) {
@@ -627,15 +627,18 @@ public class AiChatFragment extends Fragment {
             boolean imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
             Insets statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars());
             Insets navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
+            Insets gestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures());
             int imeBottom = computeEffectiveImeBottom(root, insets);
-            int targetBottomPadding = navBars.bottom;
+
+            // 只在IME未弹出时，才给root加底部padding（用于底部导航栏/手势指示器）
+            int targetBottomPadding = imeVisible ? 0 : Math.max(navBars.bottom, gestureInsets.bottom);
 
             if (root.getPaddingTop() != statusBars.top || root.getPaddingBottom() != targetBottomPadding) {
                 root.setPadding(
-                        root.getPaddingLeft(),
-                        statusBars.top,
-                        root.getPaddingRight(),
-                        targetBottomPadding
+                    root.getPaddingLeft(),
+                    statusBars.top,
+                    root.getPaddingRight(),
+                    targetBottomPadding
                 );
             }
             applyHistoryDrawerInsets(statusBars.top);

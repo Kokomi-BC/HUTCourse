@@ -5,24 +5,30 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
-import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.graphics.drawable.GradientDrawable;
+import android.widget.FrameLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.ColorUtils;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import androidx.appcompat.app.AlertDialog;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.card.MaterialCardView;
 
 import cn.edu.hut.course.data.CampusBuildingStore;
@@ -42,8 +48,16 @@ public class SettingsDisplayActivity extends AppCompatActivity {
     private static final String PREF_COURSE_COLORS = "course_colors";
     private static final String KEY_SHOW_GRID_LINES = "show_grid_lines";
     private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
+    private static final String KEY_TIMETABLE_FONT_SCALE = "timetable_font_scale";
+    private static final int TIMETABLE_FONT_PERCENT_MIN = 85;
+    private static final int TIMETABLE_FONT_PERCENT_MAX = 130;
+    private static final int TIMETABLE_FONT_PERCENT_DEFAULT = 100;
 
     private final List<Course> allCourses = new ArrayList<>();
+    private LinearLayout layoutThemePaletteRow;
+    private TextView tvThemeColorValue;
+    private TextView tvTimetableFontPercent;
+    private SeekBar seekTimetableFontSize;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,6 +73,10 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         toolbar.setNavigationOnClickListener(v -> finish());
 
         com.google.android.material.materialswitch.MaterialSwitch switchGridLines = findViewById(R.id.switchGridLines);
+        layoutThemePaletteRow = findViewById(R.id.layoutThemePaletteRow);
+        tvThemeColorValue = findViewById(R.id.tvThemeColorValue);
+        tvTimetableFontPercent = findViewById(R.id.tvTimetableFontPercent);
+        seekTimetableFontSize = findViewById(R.id.seekTimetableFontSize);
 
         SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
         switchGridLines.setChecked(prefs.getBoolean(KEY_SHOW_GRID_LINES, true));
@@ -68,7 +86,13 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             notifyMainToRefresh("refresh_grid");
         });
 
-        findViewById(R.id.btnChooseThemeColor).setOnClickListener(v -> showTimetableThemeColorPicker());
+        View themeCard = findViewById(R.id.btnChooseThemeColor);
+        if (themeCard != null) {
+            themeCard.setOnClickListener(v -> showThemeHexColorPickerDialog());
+        }
+
+        renderThemePaletteRow();
+        setupTimetableFontSizeControls();
 
         loadCoursesForEditor();
     }
@@ -77,6 +101,8 @@ public class SettingsDisplayActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         applyPageVisualStyle();
+        renderThemePaletteRow();
+        refreshTimetableFontSizeControls();
         loadCoursesForEditor();
     }
 
@@ -92,15 +118,211 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         return ColorPaletteProvider.vibrantLightPalette();
     }
 
-    private void showTimetableThemeColorPicker() {
-        int[] palette = buildVibrantPalette();
-        showColorPickerBottomSheet("课表主题色", palette, (index, color) -> {
-            getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                    .edit()
-                    .putInt(KEY_TIMETABLE_THEME_COLOR, color)
-                    .apply();
-            notifyMainToRefresh("refresh_grid");
+    private int getCurrentThemeColor() {
+        return getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
+                .getInt(KEY_TIMETABLE_THEME_COLOR, ColorPaletteProvider.defaultThemeColor());
+    }
+
+    private int getCurrentTimetableFontPercent() {
+        float scale = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
+                .getFloat(KEY_TIMETABLE_FONT_SCALE, TIMETABLE_FONT_PERCENT_DEFAULT / 100f);
+        if (Float.isNaN(scale) || Float.isInfinite(scale)) {
+            scale = TIMETABLE_FONT_PERCENT_DEFAULT / 100f;
+        }
+        int percent = Math.round(scale * 100f);
+        return Math.max(TIMETABLE_FONT_PERCENT_MIN, Math.min(TIMETABLE_FONT_PERCENT_MAX, percent));
+    }
+
+    private void setCurrentThemeColor(int color) {
+        getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_TIMETABLE_THEME_COLOR, color)
+                .apply();
+        notifyMainToRefresh("refresh_grid");
+        renderThemePaletteRow();
+    }
+
+    private void setCurrentTimetableFontPercent(int percent) {
+        int clamped = Math.max(TIMETABLE_FONT_PERCENT_MIN, Math.min(TIMETABLE_FONT_PERCENT_MAX, percent));
+        getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
+                .edit()
+                .putFloat(KEY_TIMETABLE_FONT_SCALE, clamped / 100f)
+                .apply();
+        updateTimetableFontPercentLabel(clamped);
+        notifyMainToRefresh("refresh_grid");
+    }
+
+    private void setupTimetableFontSizeControls() {
+        if (seekTimetableFontSize == null) {
+            return;
+        }
+        seekTimetableFontSize.setMax(TIMETABLE_FONT_PERCENT_MAX - TIMETABLE_FONT_PERCENT_MIN);
+        refreshTimetableFontSizeControls();
+        seekTimetableFontSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int percent = TIMETABLE_FONT_PERCENT_MIN + progress;
+                updateTimetableFontPercentLabel(percent);
+                if (fromUser) {
+                    setCurrentTimetableFontPercent(percent);
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
         });
+    }
+
+    private void refreshTimetableFontSizeControls() {
+        int current = getCurrentTimetableFontPercent();
+        if (seekTimetableFontSize != null) {
+            seekTimetableFontSize.setProgress(current - TIMETABLE_FONT_PERCENT_MIN);
+        }
+        updateTimetableFontPercentLabel(current);
+    }
+
+    private void updateTimetableFontPercentLabel(int percent) {
+        if (tvTimetableFontPercent == null) {
+            return;
+        }
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        tvTimetableFontPercent.setText(percent + "%");
+        tvTimetableFontPercent.setTextColor(onSurface);
+        tvTimetableFontPercent.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 28), 10));
+    }
+
+    private void renderThemePaletteRow() {
+        if (layoutThemePaletteRow == null) {
+            return;
+        }
+        layoutThemePaletteRow.removeAllViews();
+        int current = getCurrentThemeColor();
+        int[] palette = buildVibrantPalette();
+        int selectedStroke = UiStyleHelper.resolveOnSurfaceColor(this);
+
+        for (int color : palette) {
+            boolean selected = current == color;
+            addPaletteDot(layoutThemePaletteRow, color, selected, null, selectedStroke, v -> setCurrentThemeColor(color));
+        }
+
+        addPaletteDot(layoutThemePaletteRow,
+                UiStyleHelper.resolveGlassCardColor(this),
+                false,
+                "+",
+                selectedStroke,
+                v -> showThemeHexColorPickerDialog());
+
+        if (tvThemeColorValue != null) {
+            int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+            tvThemeColorValue.setText(formatColorHex(current));
+            tvThemeColorValue.setTextColor(onSurface);
+            tvThemeColorValue.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 28), 10));
+        }
+    }
+
+    private void showThemeHexColorPickerDialog() {
+        int currentColor = getCurrentThemeColor();
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(8), dp(20), dp(4));
+
+        MaterialCardView preview = new MaterialCardView(this);
+        preview.setRadius(dp(14));
+        preview.setCardElevation(0f);
+        preview.setStrokeWidth(dp(1));
+        preview.setStrokeColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 40));
+        preview.setCardBackgroundColor(currentColor);
+        LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+        previewLp.setMargins(0, 0, 0, dp(12));
+        preview.setLayoutParams(previewLp);
+        content.addView(preview);
+
+        TextView hint = new TextView(this);
+        hint.setText("输入 #RRGGBB 颜色值");
+        hint.setTextSize(12f);
+        hint.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hintLp.setMargins(0, 0, 0, dp(8));
+        hint.setLayoutParams(hintLp);
+        content.addView(hint);
+
+        EditText hexInput = new EditText(this);
+        hexInput.setText(formatColorHex(currentColor));
+        hexInput.setSingleLine(true);
+        hexInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+        hexInput.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        hexInput.setHintTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        hexInput.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 20), 12));
+        hexInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        content.addView(hexInput, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        hexInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                Integer parsed = parseHexColor(s == null ? "" : s.toString());
+                if (parsed != null) {
+                    preview.setCardBackgroundColor(parsed);
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+
+        AlertDialog dialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(
+                new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+                .setTitle("自定义主题色")
+                .setView(content)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("应用", null)
+                .show();
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            Integer parsed = parseHexColor(hexInput.getText() == null ? "" : hexInput.getText().toString());
+            if (parsed == null) {
+                hexInput.setError("请输入 #RRGGBB");
+                return;
+            }
+            setCurrentThemeColor(parsed);
+            dialog.dismiss();
+        });
+    }
+
+    private Integer parseHexColor(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String normalized = raw.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if (normalized.startsWith("#")) {
+            normalized = normalized.substring(1);
+        }
+        if (normalized.length() != 6) {
+            return null;
+        }
+        try {
+            int rgb = Integer.parseInt(normalized, 16);
+            return Color.rgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String formatColorHex(int color) {
+        return String.format(java.util.Locale.getDefault(), "#%02X%02X%02X", Color.red(color), Color.green(color), Color.blue(color));
     }
 
     private static class DisplayCourseItem {
@@ -197,182 +419,362 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         CourseStorageManager.saveCourses(this, allCourses);
     }
 
-    private interface OnPalettePickListener {
-        void onPick(int index, int color);
-    }
+    private static final class CourseLocationRowViews {
+        final TextView locationView;
+        final TextView distanceView;
 
-    private void showColorPickerBottomSheet(String titleText, int[] colors, OnPalettePickListener onColorSelect) {
-        com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(32, 32, 32, 32);
-
-        TextView title = new TextView(this);
-        title.setText(titleText);
-        title.setTextSize(18);
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
-        title.setPadding(0, 0, 0, 24);
-        layout.addView(title);
-
-        GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(4);
-        grid.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        for (int i = 0; i < colors.length; i++) {
-            int color = colors[i];
-            int colorIndex = i;
-            View colorDot = new View(this);
-            int size = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48, getResources().getDisplayMetrics());
-            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-            params.width = size;
-            params.height = size;
-            params.setMargins(16, 16, 16, 16);
-            colorDot.setLayoutParams(params);
-
-            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-            bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-            bg.setColor(color);
-            bg.setStroke(2, UiStyleHelper.resolveOutlineColor(this));
-            colorDot.setBackground(bg);
-            colorDot.setOnClickListener(v -> {
-                onColorSelect.onPick(colorIndex, color);
-                dialog.dismiss();
-            });
-            grid.addView(colorDot);
+        CourseLocationRowViews(TextView locationView, TextView distanceView) {
+            this.locationView = locationView;
+            this.distanceView = distanceView;
         }
-
-        layout.addView(grid);
-        dialog.setContentView(layout);
-        dialog.show();
     }
 
     private void showCourseDetailSheet(Course c) {
-        if (c == null) return;
+        if (c == null) {
+            return;
+        }
         String colorKey = buildCourseColorKey(c.name, c.isExperimental);
         com.google.android.material.bottomsheet.BottomSheetDialog dialog = new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        int sheetSurfaceColor = UiStyleHelper.resolvePageBackgroundColor(this);
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);
         layout.setPadding(pad, pad, pad, pad);
+        scrollView.addView(layout, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
         title.setText(c.name + (c.isExperimental ? " [实验]" : ""));
-        title.setTextSize(18f);
+        title.setTextSize(20f);
         title.setTypeface(null, Typeface.BOLD);
         title.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
         layout.addView(title);
 
-        int labelColor = UiStyleHelper.resolveOnSurfaceVariantColor(this);
-        int valueColor = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
 
+        MaterialCardView infoCard = createSectionCard();
         LinearLayout rowsContainer = new LinearLayout(this);
         rowsContainer.setOrientation(LinearLayout.VERTICAL);
-        rowsContainer.setPadding(0, pad / 2, 0, pad / 3);
+        infoCard.addView(rowsContainer);
+        layout.addView(infoCard);
 
         final TextView[] teacherRef = new TextView[1];
         final TextView[] locationRef = new TextView[1];
+        final TextView[] locationDistanceRef = new TextView[1];
         final TextView[] weeksRef = new TextView[1];
 
-        teacherRef[0] = addEditableInfoRow(rowsContainer, "教师",
+        teacherRef[0] = addEditableInfoRow(rowsContainer,
+                R.drawable.ic_profile,
+                "教师",
                 c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim(),
-                v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])),
-                labelColor, valueColor);
+                v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])),
+                onSurface,
+                onSurface);
+        rowsContainer.addView(createSectionDivider());
 
-        locationRef[0] = addEditableInfoRow(rowsContainer, "地点",
-            formatLocationWithDistance(c.location),
-                v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])),
-                labelColor, valueColor);
+        CourseLocationRowViews locationViews = addEditableLocationInfoRow(rowsContainer,
+                R.drawable.ic_agenda_location_24,
+                "地点",
+                c.location,
+                v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])),
+                onSurface,
+                onSurface);
+        locationRef[0] = locationViews.locationView;
+        locationDistanceRef[0] = locationViews.distanceView;
+        rowsContainer.addView(createSectionDivider());
 
-        weeksRef[0] = addEditableInfoRow(rowsContainer, "周次",
+        weeksRef[0] = addEditableInfoRow(rowsContainer,
+                R.drawable.ic_today,
+                "周次",
                 formatWeeksForDisplay(c.weeks),
-                v -> showWeeksPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], weeksRef[0])),
-                labelColor, valueColor);
+                v -> showWeeksPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])),
+                onSurface,
+                onSurface);
+        rowsContainer.addView(createSectionDivider());
 
-        addEditableInfoRow(rowsContainer, "节次",
-                "周" + c.dayOfWeek + " 第" + ((c.startSection - 1) / 2 + 1) + "大节",
-                null, labelColor, valueColor);
-        layout.addView(rowsContainer);
+        addEditableInfoRow(rowsContainer,
+                R.drawable.ic_agenda_time_24,
+                "节次",
+                formatCourseSectionForDisplay(c),
+                null,
+                onSurface,
+                onSurface);
+
+        MaterialCardView colorCard = createSectionCard();
+        LinearLayout colorBody = new LinearLayout(this);
+        colorBody.setOrientation(LinearLayout.VERTICAL);
+        colorBody.setPadding(dp(14), dp(12), dp(14), dp(12));
+        colorCard.addView(colorBody);
 
         TextView colorTitle = new TextView(this);
         colorTitle.setText("课程颜色");
-        colorTitle.setTextSize(14f);
+        colorTitle.setTextSize(17f);
         colorTitle.setTypeface(null, Typeface.BOLD);
-        colorTitle.setTextColor(labelColor);
-        colorTitle.setPadding(0, pad / 4, 0, pad / 4);
-        layout.addView(colorTitle);
+        colorTitle.setTextColor(onSurface);
+        colorBody.addView(colorTitle);
 
         HorizontalScrollView hsv = new HorizontalScrollView(this);
         hsv.setHorizontalScrollBarEnabled(false);
+        LinearLayout.LayoutParams hsvLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hsvLp.setMargins(0, dp(10), 0, 0);
+        hsv.setLayoutParams(hsvLp);
         LinearLayout paletteRow = new LinearLayout(this);
         paletteRow.setOrientation(LinearLayout.HORIZONTAL);
         hsv.addView(paletteRow, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         renderColorSlider(paletteRow, c, colorKey);
-        layout.addView(hsv);
+        colorBody.addView(hsv);
+        layout.addView(colorCard);
 
-        dialog.setContentView(layout);
+        dialog.setContentView(scrollView);
+        applyBottomSheetSurfaceStyle(dialog, sheetSurfaceColor);
         dialog.setOnDismissListener(d -> loadCoursesForEditor());
         dialog.show();
     }
 
-    private TextView addEditableInfoRow(LinearLayout parent, String label, String value, View.OnClickListener editAction,
-                                        int labelColor, int valueColor) {
+    private TextView addEditableInfoRow(LinearLayout parent,
+                                        int iconRes,
+                                        String label,
+                                        String value,
+                                        View.OnClickListener editAction,
+                                        int labelColor,
+                                        int valueColor) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(6), 0, dp(6));
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(14), dp(7), dp(12), dp(7));
 
-        LinearLayout textCol = new LinearLayout(this);
-        textCol.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        textCol.setLayoutParams(textLp);
+        if (iconRes != 0) {
+            row.addView(createRowIcon(iconRes));
+        }
 
         TextView labelTv = new TextView(this);
         labelTv.setText(label);
-        labelTv.setTextSize(12f);
+        labelTv.setTextSize(17f);
         labelTv.setTextColor(labelColor);
-        labelTv.setTypeface(null, Typeface.BOLD);
+        labelTv.setSingleLine(true);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelLp.setMargins(iconRes == 0 ? 0 : dp(10), 0, dp(10), 0);
+        labelTv.setLayoutParams(labelLp);
+        row.addView(labelTv);
+
+        LinearLayout valueContainer = new LinearLayout(this);
+        valueContainer.setOrientation(LinearLayout.HORIZONTAL);
+        valueContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams valueContainerLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        valueContainer.setLayoutParams(valueContainerLp);
 
         TextView valueTv = new TextView(this);
         valueTv.setText(value);
-        valueTv.setTextSize(16f);
+        valueTv.setTextSize(15f);
+        valueTv.setTypeface(null, Typeface.BOLD);
         valueTv.setTextColor(valueColor);
-        valueTv.setPadding(0, dp(2), 0, 0);
-
-        textCol.addView(labelTv);
-        textCol.addView(valueTv);
-        row.addView(textCol);
+        valueTv.setSingleLine(true);
+        valueTv.setMaxWidth(dp(220));
+        valueTv.setGravity(Gravity.CENTER);
+        valueTv.setPadding(dp(14), dp(8), dp(14), dp(8));
+        valueTv.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(valueColor, 28), 14));
+        valueContainer.addView(valueTv);
+        row.addView(valueContainer);
 
         if (editAction != null) {
-            ImageButton editBtn = new ImageButton(this);
-            editBtn.setImageResource(android.R.drawable.ic_menu_edit);
-            editBtn.setBackgroundColor(Color.TRANSPARENT);
-            editBtn.setColorFilter(labelColor);
-            editBtn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-            editBtn.setPadding(dp(6), dp(6), dp(6), dp(6));
-            editBtn.setContentDescription("编辑" + label);
-            LinearLayout.LayoutParams editLp = new LinearLayout.LayoutParams(dp(32), dp(32));
-            editLp.setMargins(dp(10), 0, 0, 0);
-            editBtn.setLayoutParams(editLp);
-            editBtn.setOnClickListener(editAction);
-            row.addView(editBtn);
+            row.setOnClickListener(editAction);
+            valueTv.setOnClickListener(editAction);
         }
 
         parent.addView(row);
         return valueTv;
     }
 
-    private void onCourseInfoUpdated(Course c, TextView teacherValue, TextView locationValue, TextView weeksValue) {
+    private CourseLocationRowViews addEditableLocationInfoRow(LinearLayout parent,
+                                                              int iconRes,
+                                                              String label,
+                                                              String locationRaw,
+                                                              View.OnClickListener editAction,
+                                                              int labelColor,
+                                                              int valueColor) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(14), dp(7), dp(12), dp(7));
+
+        if (iconRes != 0) {
+            row.addView(createRowIcon(iconRes));
+        }
+
+        TextView labelTv = new TextView(this);
+        labelTv.setText(label);
+        labelTv.setTextSize(17f);
+        labelTv.setTextColor(labelColor);
+        labelTv.setSingleLine(true);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelLp.setMargins(iconRes == 0 ? 0 : dp(10), 0, dp(10), 0);
+        labelTv.setLayoutParams(labelLp);
+        row.addView(labelTv);
+
+        LinearLayout valueContainer = new LinearLayout(this);
+        valueContainer.setOrientation(LinearLayout.HORIZONTAL);
+        valueContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams valueContainerLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        valueContainer.setLayoutParams(valueContainerLp);
+
+        TextView distanceTv = new TextView(this);
+        distanceTv.setTextSize(12f);
+        distanceTv.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        distanceTv.setSingleLine(true);
+        LinearLayout.LayoutParams distanceLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        distanceLp.setMargins(0, 0, dp(8), 0);
+        distanceTv.setLayoutParams(distanceLp);
+        updateLocationDistanceHintView(distanceTv, locationRaw);
+        valueContainer.addView(distanceTv);
+
+        TextView valueTv = new TextView(this);
+        valueTv.setText(formatLocationBase(locationRaw));
+        valueTv.setTextSize(15f);
+        valueTv.setTypeface(null, Typeface.BOLD);
+        valueTv.setTextColor(valueColor);
+        valueTv.setSingleLine(true);
+        valueTv.setMaxWidth(dp(220));
+        valueTv.setGravity(Gravity.CENTER);
+        valueTv.setPadding(dp(14), dp(8), dp(14), dp(8));
+        valueTv.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(valueColor, 28), 14));
+        valueContainer.addView(valueTv);
+        row.addView(valueContainer);
+
+        if (editAction != null) {
+            row.setOnClickListener(editAction);
+            valueTv.setOnClickListener(editAction);
+            distanceTv.setOnClickListener(editAction);
+        }
+
+        parent.addView(row);
+        return new CourseLocationRowViews(valueTv, distanceTv);
+    }
+
+    private ImageView createRowIcon(int iconRes) {
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setImageTintList(android.content.res.ColorStateList.valueOf(UiStyleHelper.resolveOnSurfaceVariantColor(this)));
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(20), dp(20));
+        icon.setLayoutParams(iconLp);
+        return icon;
+    }
+
+    private View createSectionDivider() {
+        View divider = new View(this);
+        divider.setBackgroundColor(Color.TRANSPARENT);
+        divider.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0));
+        return divider;
+    }
+
+    private MaterialCardView createSectionCard() {
+        MaterialCardView card = new MaterialCardView(this);
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        card.setRadius(dp(24));
+        card.setCardElevation(0f);
+        card.setStrokeWidth(1);
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+        card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(12), 0, 0);
+        card.setLayoutParams(lp);
+        return card;
+    }
+
+    private void applyBottomSheetSurfaceStyle(com.google.android.material.bottomsheet.BottomSheetDialog dialog, int surfaceColor) {
+        if (dialog == null) {
+            return;
+        }
+        dialog.setOnShowListener(d -> {
+            FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+            if (sheet == null) {
+                return;
+            }
+            BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+            behavior.setDraggable(false);
+            behavior.setSkipCollapsed(true);
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+
+            GradientDrawable background = new GradientDrawable();
+            float radius = dp(28);
+            background.setShape(GradientDrawable.RECTANGLE);
+            background.setColor(surfaceColor);
+            background.setCornerRadii(new float[]{radius, radius, radius, radius, 0f, 0f, 0f, 0f});
+            sheet.setBackground(background);
+            View parent = (View) sheet.getParent();
+            if (parent != null) {
+                parent.setBackgroundColor(Color.TRANSPARENT);
+            }
+        });
+    }
+
+    private String formatCourseSectionForDisplay(Course c) {
+        if (c == null) {
+            return "未定";
+        }
+        int day = Math.max(1, Math.min(7, c.dayOfWeek));
+        int slot = Math.max(1, (c.startSection - 1) / 2 + 1);
+        return "周" + day + " 第" + slot + "大节";
+    }
+
+    private void onCourseInfoUpdated(Course c, TextView teacherValue, TextView locationValue, TextView locationDistanceValue, TextView weeksValue) {
         if (teacherValue != null) {
             teacherValue.setText(c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim());
         }
         if (locationValue != null) {
-            locationValue.setText(formatLocationWithDistance(c.location));
+            locationValue.setText(formatLocationBase(c.location));
+        }
+        if (locationDistanceValue != null) {
+            updateLocationDistanceHintView(locationDistanceValue, c.location);
         }
         if (weeksValue != null) {
             weeksValue.setText(formatWeeksForDisplay(c.weeks));
         }
         saveCoursesToLocal();
         notifyMainToRefresh("reload_courses");
+    }
+
+    private String formatLocationBase(String locationRaw) {
+        String base = CampusBuildingStore.toStandardLocation(this, locationRaw);
+        if (base == null || base.trim().isEmpty()) {
+            return "未定";
+        }
+        return base;
+    }
+
+    private String formatLocationDistanceHint(String locationRaw) {
+        String base = formatLocationBase(locationRaw);
+        if ("未定".equals(base)) {
+            return "";
+        }
+        if (!CampusBuildingStore.hasLocationPermission(this)) {
+            return "";
+        }
+        CampusBuildingStore.DistanceInfo info = CampusBuildingStore.estimateDistanceFromDevice(this, locationRaw);
+        if (!info.available) {
+            return "";
+        }
+        if (info.meters < 100f) {
+            return "在附近";
+        }
+        return "距离" + formatDistanceMeters(info.meters);
+    }
+
+    private void updateLocationDistanceHintView(TextView hintView, String locationRaw) {
+        if (hintView == null) {
+            return;
+        }
+        String hint = formatLocationDistanceHint(locationRaw);
+        if (hint.isEmpty()) {
+            hintView.setText("");
+            hintView.setVisibility(View.GONE);
+        } else {
+            hintView.setText(hint);
+            hintView.setVisibility(View.VISIBLE);
+        }
     }
 
     private void showTeacherPicker(Course c, Runnable afterPick) {
@@ -434,23 +836,6 @@ public class SettingsDisplayActivity extends AppCompatActivity {
                     });
                 })
                 .show();
-    }
-
-    private String formatLocationWithDistance(String locationRaw) {
-        String base = CampusBuildingStore.toStandardLocation(this, locationRaw);
-        if ("未定".equals(base)) {
-            return base;
-        }
-
-        if (!CampusBuildingStore.hasLocationPermission(this)) {
-            return base;
-        }
-
-        CampusBuildingStore.DistanceInfo info = CampusBuildingStore.estimateDistanceFromDevice(this, locationRaw);
-        if (info.available) {
-            return base + "（距离" + formatDistanceMeters(info.meters) + "）";
-        }
-        return base;
     }
 
     private String formatDistanceMeters(float meters) {
@@ -559,8 +944,14 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         boolean hasCustom = prefs.contains(colorKey) || prefs.contains(c.name);
         int current = getCourseColor(c.name, c.isExperimental);
         int[] palette = buildVibrantPalette();
+        int selectedStroke = getCurrentThemeColor();
 
-        addColorDot(container, Color.TRANSPARENT, !hasCustom, true, v -> {
+        addPaletteDot(container,
+                UiStyleHelper.resolveGlassCardColor(this),
+                !hasCustom,
+                "⊘",
+                selectedStroke,
+                v -> {
             prefs.edit().remove(colorKey).remove(c.name).apply();
             notifyMainToRefresh("reload_courses");
             renderColorSlider(container, c, colorKey);
@@ -568,7 +959,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
 
         for (int color : palette) {
             boolean selected = hasCustom && current == color;
-            addColorDot(container, color, selected, false, v -> {
+            addPaletteDot(container, color, selected, null, selectedStroke, v -> {
                 prefs.edit().putInt(colorKey, color).apply();
                 notifyMainToRefresh("reload_courses");
                 renderColorSlider(container, c, colorKey);
@@ -576,7 +967,12 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         }
     }
 
-    private void addColorDot(LinearLayout container, int color, boolean selected, boolean isDefault, View.OnClickListener click) {
+    private void addPaletteDot(LinearLayout container,
+                               int color,
+                               boolean selected,
+                               String centerText,
+                               int selectedStrokeColor,
+                               View.OnClickListener click) {
         MaterialCardView dot = new MaterialCardView(this);
         int size = dp(38);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
@@ -585,15 +981,12 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         dot.setRadius(size / 2f);
         dot.setCardElevation(0f);
         dot.setStrokeWidth(selected ? dp(2) : dp(1));
-        int outline = UiStyleHelper.resolveOutlineColor(this);
-        int selectedColor = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE)
-                .getInt(KEY_TIMETABLE_THEME_COLOR, ColorPaletteProvider.defaultThemeColor());
-        dot.setStrokeColor(selected ? selectedColor : outline);
+        dot.setStrokeColor(selected ? selectedStrokeColor : UiStyleHelper.resolveOutlineColor(this));
 
-        if (isDefault) {
-            dot.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+        if (centerText != null) {
+            dot.setCardBackgroundColor(color);
             TextView icon = new TextView(this);
-            icon.setText("⊘");
+            icon.setText(centerText);
             icon.setGravity(Gravity.CENTER);
             icon.setTextSize(16f);
             icon.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
@@ -603,6 +996,14 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         }
         dot.setOnClickListener(click);
         container.addView(dot);
+    }
+
+    private GradientDrawable makeRoundedSolid(int color, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setShape(GradientDrawable.RECTANGLE);
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radiusDp));
+        return drawable;
     }
 
     private int mixColor(int from, int to, float ratio) {

@@ -42,7 +42,10 @@ import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
 import androidx.core.graphics.ColorUtils;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.viewpager2.widget.ViewPager2;
 import androidx.recyclerview.widget.RecyclerView;
@@ -99,6 +102,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_COURSES_JSON = "courses_json";
     private static final String KEY_SHOW_GRID_LINES = "show_grid_lines";
     private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
+    private static final String KEY_TIMETABLE_FONT_SCALE = "timetable_font_scale";
     private static final String KEY_PROFILE_NAME = "profile_name";
     private static final String KEY_PROFILE_STUDENT_ID = "profile_student_id";
     private static final String KEY_PROFILE_CLASS = "profile_class";
@@ -116,6 +120,11 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] AGENDA_MONTHLY_VALUES = {Agenda.MONTHLY_SKIP, Agenda.MONTHLY_MONTH_END};
     private static final String[] AGENDA_MONTHLY_LABELS = {"短月跳过", "短月改月底"};
     private static final String KEY_SELECTED_NAV_ITEM_ID = "selected_nav_item_id";
+    private static final int WEEK_OVERVIEW_BAR_COUNT_CAP = 10;
+    private static final int WEEK_OVERVIEW_BAR_MIN_HEIGHT_DP = 42;
+    private static final int WEEK_OVERVIEW_BAR_MAX_HEIGHT_DP = 84;
+    private static final int WEEK_OVERVIEW_TODAY_DOT_SIZE_DP = 6;
+    private static final int WEEK_OVERVIEW_TODAY_DOT_GAP_DP = 6;
 
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
     private com.google.android.material.card.MaterialCardView cardTodayWeekOverview;
@@ -125,6 +134,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton btnCloseNextCourseNotice;
     private FloatingActionButton fabAddAgenda;
     private BottomNavigationView bottomNav;
+    private View bottomNavHost;
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
     private View pageSchedule, pageToday, pageAi, pageProfile, titleContainer, rootMain;
@@ -137,6 +147,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean nextCourseNoticeDismissed = false;
     private String selectedCourseColorKey = null;
     private Calendar selectedTodayDate;
+    private int weekOverviewPreviewWeek = -1;
+    private int weekOverviewPreviewDay = -1;
     private boolean todayEndedTimelineCollapsed = true;
     private int selectedNavItemId = R.id.nav_schedule;
     private int lastRealtimeWeek = -1;
@@ -233,13 +245,69 @@ public class MainActivity extends AppCompatActivity {
             fabAddAgenda.setImageTintList(ColorStateList.valueOf(pickReadableTextColor(colorPrimary)));
             fabAddAgenda.setImageResource(R.drawable.ic_add_bold_28);
             fabAddAgenda.setCustomSize(dp(54));
-            fabAddAgenda.setTranslationY(dp(2));
+            fabAddAgenda.setTranslationX(0f);
+            fabAddAgenda.setTranslationY(0f);
             fabAddAgenda.setUseCompatPadding(false);
             fabAddAgenda.setCompatElevation(0f);
             fabAddAgenda.setElevation(0f);
             fabAddAgenda.setTranslationZ(0f);
             fabAddAgenda.setStateListAnimator(null);
         }
+    }
+
+    private void setupBottomNavInsetsHandling() {
+        if (bottomNav == null) {
+            return;
+        }
+        View host = bottomNavHost;
+        if (host == null && bottomNav.getParent() instanceof View) {
+            host = (View) bottomNav.getParent();
+        }
+        if (host == null) {
+            return;
+        }
+
+        final View finalHost = host;
+        int baseBottomMargin = 0;
+        ViewGroup.LayoutParams hostParams = finalHost.getLayoutParams();
+        if (hostParams instanceof ViewGroup.MarginLayoutParams) {
+            baseBottomMargin = ((ViewGroup.MarginLayoutParams) hostParams).bottomMargin;
+        }
+        final int stableBottomMargin = baseBottomMargin;
+
+        final int navBasePaddingLeft = bottomNav.getPaddingLeft();
+        final int navBasePaddingTop = bottomNav.getPaddingTop();
+        final int navBasePaddingRight = bottomNav.getPaddingRight();
+        final int navBasePaddingBottom = bottomNav.getPaddingBottom();
+
+        ViewCompat.setOnApplyWindowInsetsListener(finalHost, (v, insets) -> {
+            Insets navInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
+            Insets gestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures());
+            int bottomInset = Math.max(0, Math.max(navInsets.bottom, gestureInsets.bottom));
+
+            ViewGroup.LayoutParams params = v.getLayoutParams();
+            if (params instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams marginLayoutParams = (ViewGroup.MarginLayoutParams) params;
+                int targetBottomMargin = stableBottomMargin + bottomInset;
+                if (marginLayoutParams.bottomMargin != targetBottomMargin) {
+                    marginLayoutParams.bottomMargin = targetBottomMargin;
+                    v.setLayoutParams(marginLayoutParams);
+                }
+            }
+            return insets;
+        });
+
+        ViewCompat.setOnApplyWindowInsetsListener(bottomNav, (v, insets) -> {
+            if (v.getPaddingLeft() != navBasePaddingLeft
+                    || v.getPaddingTop() != navBasePaddingTop
+                    || v.getPaddingRight() != navBasePaddingRight
+                    || v.getPaddingBottom() != navBasePaddingBottom) {
+                v.setPadding(navBasePaddingLeft, navBasePaddingTop, navBasePaddingRight, navBasePaddingBottom);
+            }
+            return WindowInsetsCompat.CONSUMED;
+        });
+
+        ViewCompat.requestApplyInsets(finalHost);
     }
 
     private StateListDrawable buildBottomNavItemBackground(int accentColor) {
@@ -288,6 +356,7 @@ public class MainActivity extends AppCompatActivity {
         todayCoursesContainer = findViewById(R.id.todayCoursesContainer);
         layoutTodayWeekStrip = findViewById(R.id.layoutTodayWeekStrip);
         cardTodayWeekOverview = findViewById(R.id.cardTodayWeekOverview);
+        bottomNavHost = findViewById(R.id.bottomNavHost);
         bottomNav = findViewById(R.id.bottomNav);
         viewPager = findViewById(R.id.viewPager);
         cardNextCourseNotice = findViewById(R.id.cardNextCourseNotice);
@@ -298,6 +367,12 @@ public class MainActivity extends AppCompatActivity {
         tvProfileStudentId = findViewById(R.id.tvProfileStudentId);
         tvProfileClass = findViewById(R.id.tvProfileClass);
         tvProfileCollege = findViewById(R.id.tvProfileCollege);
+
+        if (fabAddAgenda != null) {
+            disableParentClipping(fabAddAgenda);
+        }
+
+        setupBottomNavInsetsHandling();
 
         if (fabAddAgenda != null) {
             fabAddAgenda.setOnClickListener(v -> showAgendaEditorSheet(null, resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek())));
@@ -773,6 +848,14 @@ public class MainActivity extends AppCompatActivity {
         return UiStyleHelper.resolveAccentColor(this);
     }
 
+    private float getTimetableFontScale() {
+        float value = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getFloat(KEY_TIMETABLE_FONT_SCALE, 1.0f);
+        if (Float.isNaN(value) || Float.isInfinite(value)) {
+            return 1.0f;
+        }
+        return Math.max(0.85f, Math.min(1.30f, value));
+    }
+
     private int[] buildColorPalette() {
         return ColorPaletteProvider.vibrantLightPalette();
     }
@@ -839,6 +922,7 @@ public class MainActivity extends AppCompatActivity {
         grid.removeAllViews();
         int dp40 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 39, getResources().getDisplayMetrics());
         int dp120 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 120, getResources().getDisplayMetrics());
+        float timetableFontScale = getTimetableFontScale();
         int colorOnSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int colorOnSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
         int colorOutline = UiStyleHelper.resolveOutlineColor(this);
@@ -867,7 +951,7 @@ public class MainActivity extends AppCompatActivity {
             t.setTextColor(colorOnSurfaceVariant);
             t.setGravity(Gravity.CENTER);
             t.setLineSpacing(0f, 1f);
-            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
+            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f * timetableFontScale);
             if (currentSlotIndex == i + 1) {
                 applyActiveHeaderStyle(t, highlightBg, colorOutline, showGridLines);
             } else if (showGridLines) {
@@ -898,6 +982,7 @@ public class MainActivity extends AppCompatActivity {
             t.setText("周" + days[i] + "\n" + dateStr);
             t.setTextColor(colorOnSurfaceVariant);
             t.setGravity(Gravity.CENTER);
+                t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f * timetableFontScale);
             boolean isToday = dayCal.get(Calendar.YEAR) == today.get(Calendar.YEAR)
                     && dayCal.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR);
             if (isToday) {
@@ -977,7 +1062,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
 
-                View cellView = createScheduleGridCellView(entries, week, col, themeColor, glassBg, showGridLines, dp2, darkMode, row, rowSpan);
+                View cellView = createScheduleGridCellView(entries, week, col, themeColor, glassBg, showGridLines, dp2, darkMode, row, rowSpan, timetableFontScale);
                 GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(row, rowSpan), GridLayout.spec(col, 1f));
                 p.width = 0;
                 p.height = cellBaseHeight * rowSpan + cellGap * Math.max(0, rowSpan - 1);
@@ -1246,7 +1331,8 @@ public class MainActivity extends AppCompatActivity {
                                             int dp2,
                                             boolean darkMode,
                                             int cellStartRow,
-                                            int cellRowSpan) {
+                                            int cellRowSpan,
+                                            float timetableFontScale) {
         if (rawEntries == null || rawEntries.isEmpty()) {
             return new View(this);
         }
@@ -1273,7 +1359,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (entries.size() == 1) {
-            return createScheduleEntryView(entries.get(0), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan);
+            return createScheduleEntryView(entries.get(0), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan, timetableFontScale);
         }
 
         FrameLayout wrapper = new FrameLayout(this);
@@ -1287,7 +1373,7 @@ public class MainActivity extends AppCompatActivity {
 
         int visibleCount = Math.min(2, entries.size());
         for (int i = 0; i < visibleCount; i++) {
-            View entryView = createScheduleEntryView(entries.get(i), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, 1);
+            View entryView = createScheduleEntryView(entries.get(i), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, 1, timetableFontScale);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
             if (i > 0) {
                 lp.setMargins(dp(3), 0, 0, 0);
@@ -1298,7 +1384,7 @@ public class MainActivity extends AppCompatActivity {
         if (entries.size() > visibleCount) {
             TextView badge = new TextView(this);
             badge.setText("+" + (entries.size() - visibleCount));
-            badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
+            badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f * timetableFontScale);
             badge.setTypeface(null, Typeface.BOLD);
             badge.setTextColor(pickReadableTextColor(themeColor));
             badge.setBackground(makeRoundedSolid(themeColor, 10));
@@ -1327,8 +1413,9 @@ public class MainActivity extends AppCompatActivity {
                                          boolean hasCourseInCell,
                                          boolean darkMode,
                                          int cellStartRow,
-                                         int cellRowSpan) {
-        MaterialCardView card = createScheduleEntryCard(entry, week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode);
+                                         int cellRowSpan,
+                                         float timetableFontScale) {
+        MaterialCardView card = createScheduleEntryCard(entry, week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, timetableFontScale);
         if (entry.type != ScheduleCellEntry.TYPE_AGENDA) {
             return card;
         }
@@ -1372,7 +1459,8 @@ public class MainActivity extends AppCompatActivity {
                                                      boolean showGridLines,
                                                      int dp2,
                                                      boolean hasCourseInCell,
-                                                     boolean darkMode) {
+                                                     boolean darkMode,
+                                                     float timetableFontScale) {
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(dp(16));
         card.setCardElevation(0f);
@@ -1413,7 +1501,7 @@ public class MainActivity extends AppCompatActivity {
             titleView.setText(titleText);
             titleView.setTextColor(textColor);
             titleView.setTypeface(null, Typeface.BOLD);
-            titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, compactScreen ? 8.2f : 8.8f);
+            titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, (compactScreen ? 8.2f : 8.8f) * timetableFontScale);
             titleView.setMaxLines(spanCount > 1 ? 4 : 3);
             titleView.setEllipsize(TextUtils.TruncateAt.END);
             titleView.setIncludeFontPadding(false);
@@ -1432,7 +1520,7 @@ public class MainActivity extends AppCompatActivity {
             boolean hasTeacher = !teacher.isEmpty() && !"未定".equals(teacher);
             teacherView.setText(teacher);
             teacherView.setTextColor(ColorUtils.setAlphaComponent(textColor, 220));
-            teacherView.setTextSize(TypedValue.COMPLEX_UNIT_SP, compactScreen ? 7.2f : 8f);
+            teacherView.setTextSize(TypedValue.COMPLEX_UNIT_SP, (compactScreen ? 7.2f : 8f) * timetableFontScale);
             teacherView.setSingleLine(true);
             teacherView.setEllipsize(TextUtils.TruncateAt.END);
 
@@ -1442,7 +1530,7 @@ public class MainActivity extends AppCompatActivity {
             locationView.setText(location);
             locationView.setTextColor(textColor);
             locationView.setTypeface(null, Typeface.BOLD);
-            locationView.setTextSize(TypedValue.COMPLEX_UNIT_SP, compactScreen ? 7.6f : 8.4f);
+            locationView.setTextSize(TypedValue.COMPLEX_UNIT_SP, (compactScreen ? 7.6f : 8.4f) * timetableFontScale);
             locationView.setMaxLines(spanCount > 1 ? 3 : 2);
             locationView.setSingleLine(false);
             locationView.setEllipsize(null);
@@ -1465,7 +1553,7 @@ public class MainActivity extends AppCompatActivity {
 
         Agenda agenda = entry.agenda;
         TextView tv = new TextView(this);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f * timetableFontScale);
         tv.setPadding(dp(6), dp(6), dp(6), dp(6));
         tv.setGravity(Gravity.CENTER);
         tv.setMaxLines(6);
@@ -1565,8 +1653,9 @@ public class MainActivity extends AppCompatActivity {
 
         Calendar displayDate = resolveSelectedTodayDate(now, actualWeek);
         int selectedDay = toMondayFirstDay(displayDate);
-        int targetWeek = getWeekForDate(displayDate);
-        boolean viewingToday = isSameDay(displayDate, now);
+        int previewDay = resolveWeekOverviewPreviewDay(actualWeek, selectedDay);
+        Calendar contentDate = buildDateInAcademicWeek(actualWeek, previewDay);
+        boolean viewingToday = isSameDay(contentDate, now);
 
         if (tvTodayWeek != null) {
             tvTodayWeek.setText("周" + WEEK_DAY_LABELS[selectedDay - 1]);
@@ -1576,24 +1665,55 @@ public class MainActivity extends AppCompatActivity {
         }
         updateTodayHeaderClock();
 
-        List<TodayCourseItem> courses = buildDateCourseItems(targetWeek, selectedDay);
-        List<Agenda> agendas = AgendaStorageManager.queryAgendasByDate(this, displayDate);
+        List<TodayCourseItem> courses = buildDateCourseItems(actualWeek, previewDay);
+        List<Agenda> agendas = AgendaStorageManager.queryAgendasByDate(this, contentDate);
         renderTodayTimelineCards(courses, agendas, viewingToday);
-        renderTodayWeekOverview(actualWeek, selectedDay, currentDay, currentSeconds);
+        renderTodayWeekOverview(actualWeek, previewDay, currentDay, currentSeconds);
         styleTodayOverviewCard();
+    }
+
+    private void disableParentClipping(@NonNull View target) {
+        View current = target;
+        while (current.getParent() instanceof ViewGroup) {
+            ViewGroup parent = (ViewGroup) current.getParent();
+            parent.setClipChildren(false);
+            parent.setClipToPadding(false);
+            current = parent;
+        }
     }
 
     private Calendar resolveSelectedTodayDate(Calendar now, int actualWeek) {
         Calendar today = cloneAsDay(now);
         if (selectedTodayDate == null) {
-            selectedTodayDate = today;
+            setSelectedTodayDate(today);
         }
         Calendar selected = cloneAsDay(selectedTodayDate);
         if (getWeekForDate(selected) != actualWeek) {
             selected = today;
-            selectedTodayDate = selected;
+            setSelectedTodayDate(selected);
         }
         return selected;
+    }
+
+    private void setSelectedTodayDate(Calendar date) {
+        if (date == null) {
+            return;
+        }
+        selectedTodayDate = cloneAsDay(date);
+        syncWeekOverviewPreview(getWeekForDate(selectedTodayDate), toMondayFirstDay(selectedTodayDate));
+    }
+
+    private void syncWeekOverviewPreview(int week, int dayOfWeek) {
+        weekOverviewPreviewWeek = week;
+        weekOverviewPreviewDay = Math.max(1, Math.min(7, dayOfWeek));
+    }
+
+    private int resolveWeekOverviewPreviewDay(int actualWeek, int fallbackDay) {
+        int safeFallbackDay = Math.max(1, Math.min(7, fallbackDay));
+        if (weekOverviewPreviewWeek != actualWeek || weekOverviewPreviewDay < 1 || weekOverviewPreviewDay > 7) {
+            syncWeekOverviewPreview(actualWeek, safeFallbackDay);
+        }
+        return weekOverviewPreviewDay;
     }
 
     private Calendar cloneAsDay(Calendar source) {
@@ -1748,8 +1868,8 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        addTodayTimelineSection("进行中", ongoingItems, "当前暂无进行中的课程与日程");
-        addTodayTimelineSection("将要开始", upcomingItems, "接下来暂无待开始的课程与日程");
+        addTodayTimelineSection("进行中", ongoingItems);
+        addTodayTimelineSection("将要开始", upcomingItems);
 
         if (!endedItems.isEmpty()) {
             MaterialCardView endedHeader = new MaterialCardView(this);
@@ -1814,17 +1934,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void addTodayTimelineSection(String sectionName, List<TodayTimelineItem> items, String emptyText) {
-        todayCoursesContainer.addView(createTodayTimelineSectionLabel(sectionName + "（" + items.size() + "）"));
+    private void addTodayTimelineSection(String sectionName, List<TodayTimelineItem> items) {
         if (items == null || items.isEmpty()) {
-            TextView emptyView = new TextView(this);
-            emptyView.setText(emptyText);
-            emptyView.setTextSize(13f);
-            emptyView.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
-            emptyView.setPadding(dp(4), 0, 0, dp(10));
-            todayCoursesContainer.addView(emptyView);
             return;
         }
+        todayCoursesContainer.addView(createTodayTimelineSectionLabel(sectionName + "（" + items.size() + "）"));
         for (TodayTimelineItem item : items) {
             todayCoursesContainer.addView(createTodayTimelineCard(item));
         }
@@ -2053,46 +2167,94 @@ public class MainActivity extends AppCompatActivity {
         return card;
     }
 
-    private void renderTodayWeekOverview(int actualWeek, int selectedDay, int currentDay, int currentSeconds) {
+    private void renderTodayWeekOverview(int actualWeek, int activeDay, int currentDay, int currentSeconds) {
         if (layoutTodayWeekStrip == null) return;
         layoutTodayWeekStrip.removeAllViews();
+        layoutTodayWeekStrip.setGravity(Gravity.CENTER_HORIZONTAL);
+        layoutTodayWeekStrip.setBaselineAligned(false);
         int accent = getTimetableThemeColor();
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+        int dotAreaHeight = dp(WEEK_OVERVIEW_TODAY_DOT_SIZE_DP + WEEK_OVERVIEW_TODAY_DOT_GAP_DP);
 
         int weekTotal = 0;
         int weekDone = 0;
+        int[] dayCombinedCounts = new int[7];
+        int maxCombinedCount = 0;
 
         for (int day = 1; day <= 7; day++) {
+            int dayCourseCount = 0;
             for (Course c : allCourses) {
                 if (c == null || c.isRemark) continue;
                 if (c.dayOfWeek != day) continue;
                 if (c.weeks == null || !c.weeks.contains(actualWeek)) continue;
                 weekTotal++;
+                dayCourseCount++;
                 int slot = Math.max(0, Math.min(SLOT_LABELS.length - 1, (c.startSection - 1) / 2));
                 if (day < currentDay || (day == currentDay && SLOT_END_SECONDS[slot] < currentSeconds)) {
                     weekDone++;
                 }
             }
 
+            int dayAgendaCount = AgendaStorageManager.queryAgendasByDate(this, buildDateInAcademicWeek(actualWeek, day)).size();
+            dayCombinedCounts[day - 1] = dayCourseCount + dayAgendaCount;
+            if (dayCombinedCounts[day - 1] > maxCombinedCount) {
+                maxCombinedCount = dayCombinedCounts[day - 1];
+            }
+        }
+
+        int maxBarHeight = resolveWeekOverviewCapsuleHeight(maxCombinedCount);
+
+        for (int day = 1; day <= 7; day++) {
+            int combinedCount = dayCombinedCounts[day - 1];
+            int chipHeight = resolveWeekOverviewCapsuleHeight(combinedCount);
+            boolean isActive = day == activeDay;
+            boolean isToday = day == currentDay;
+
+            LinearLayout barColumn = new LinearLayout(this);
+            barColumn.setOrientation(LinearLayout.VERTICAL);
+            barColumn.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            LinearLayout.LayoutParams columnLp = new LinearLayout.LayoutParams(0, maxBarHeight + dotAreaHeight, 1f);
+            columnLp.setMargins(dp(3), dp(2), dp(3), 0);
+            barColumn.setLayoutParams(columnLp);
+
+            FrameLayout barAnchor = new FrameLayout(this);
+            LinearLayout.LayoutParams barAnchorLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxBarHeight);
+            barAnchor.setLayoutParams(barAnchorLp);
+
             TextView chip = new TextView(this);
             chip.setText(WEEK_DAY_LABELS[day - 1]);
             chip.setGravity(Gravity.CENTER);
             chip.setTextSize(13f);
             chip.setTypeface(null, Typeface.BOLD);
-            chip.setTextColor(day == selectedDay ? pickReadableTextColor(accent) : onSurfaceVariant);
-            chip.setBackground(makeRoundedSolid(day == selectedDay ? accent : ColorUtils.setAlphaComponent(onSurface, 28), dp(14)));
+            chip.setTextColor(isActive ? pickReadableTextColor(accent) : onSurfaceVariant);
+            chip.setBackground(makeRoundedSolid(isActive ? accent : ColorUtils.setAlphaComponent(onSurface, 28), dp(14)));
             chip.setPadding(0, 0, 0, 0);
             int targetDay = day;
             chip.setOnClickListener(v -> {
-                selectedTodayDate = buildDateInAcademicWeek(actualWeek, targetDay);
+                syncWeekOverviewPreview(actualWeek, targetDay);
                 refreshTodayPage();
             });
 
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(54), 1f);
-            lp.setMargins(dp(4), 0, dp(4), 0);
-            chip.setLayoutParams(lp);
-            layoutTodayWeekStrip.addView(chip);
+            FrameLayout.LayoutParams chipLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, chipHeight, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            chipLp.setMargins(dp(2), 0, dp(2), 0);
+            chip.setLayoutParams(chipLp);
+            barAnchor.addView(chip);
+            barColumn.addView(barAnchor);
+
+            View todayDot = new View(this);
+            GradientDrawable dotDrawable = new GradientDrawable();
+            dotDrawable.setShape(GradientDrawable.OVAL);
+            dotDrawable.setColor(isToday ? accent : Color.TRANSPARENT);
+            todayDot.setBackground(dotDrawable);
+            todayDot.setVisibility(isToday ? View.VISIBLE : View.INVISIBLE);
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(WEEK_OVERVIEW_TODAY_DOT_SIZE_DP), dp(WEEK_OVERVIEW_TODAY_DOT_SIZE_DP));
+            dotLp.topMargin = dp(WEEK_OVERVIEW_TODAY_DOT_GAP_DP);
+            dotLp.gravity = Gravity.CENTER_HORIZONTAL;
+            todayDot.setLayoutParams(dotLp);
+            barColumn.addView(todayDot);
+
+            layoutTodayWeekStrip.addView(barColumn);
         }
 
         if (tvTodayWeekTotal != null) {
@@ -2101,6 +2263,17 @@ public class MainActivity extends AppCompatActivity {
         if (tvTodayWeekDone != null) {
             tvTodayWeekDone.setText("已上" + weekDone + "节");
         }
+    }
+
+    private int resolveWeekOverviewCapsuleHeight(int combinedCount) {
+        int minHeight = dp(WEEK_OVERVIEW_BAR_MIN_HEIGHT_DP);
+        int maxHeight = dp(WEEK_OVERVIEW_BAR_MAX_HEIGHT_DP);
+        if (maxHeight <= minHeight || WEEK_OVERVIEW_BAR_COUNT_CAP <= 0) {
+            return minHeight;
+        }
+        int clampedCount = Math.max(0, Math.min(WEEK_OVERVIEW_BAR_COUNT_CAP, combinedCount));
+        float ratio = clampedCount / (float) WEEK_OVERVIEW_BAR_COUNT_CAP;
+        return minHeight + Math.round((maxHeight - minHeight) * ratio);
     }
 
     private int priorityColor(int priority, int accentColor, int fallback) {
@@ -4169,7 +4342,7 @@ private void extractAllTables(String passedCookie) {
 
             Toast.makeText(this, source == null ? "已新增日程" : "已保存日程", Toast.LENGTH_SHORT).show();
             dialog.dismiss();
-            selectedTodayDate = cloneAsDay(selectedDate[0]);
+            setSelectedTodayDate(selectedDate[0]);
             refreshTodayPage();
             drawGrid();
         };
@@ -4194,7 +4367,7 @@ private void extractAllTables(String passedCookie) {
                         if (AgendaStorageManager.deleteAgenda(this, source.id)) {
                             Toast.makeText(this, "已删除日程", Toast.LENGTH_SHORT).show();
                             dialog.dismiss();
-                            selectedTodayDate = cloneAsDay(selectedDate[0]);
+                            setSelectedTodayDate(selectedDate[0]);
                             refreshTodayPage();
                             drawGrid();
                         } else {
