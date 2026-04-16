@@ -41,6 +41,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.graphics.ColorUtils;
@@ -920,7 +921,7 @@ public class MainActivity extends AppCompatActivity {
     private void renderWeekGrid(GridLayout grid, int week) {
         if (grid == null) return;
         grid.removeAllViews();
-        int dp40 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 39, getResources().getDisplayMetrics());
+        int leftTimeColumnWidth = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 46, getResources().getDisplayMetrics());
         int dp120 = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 120, getResources().getDisplayMetrics());
         float timetableFontScale = getTimetableFontScale();
         int colorOnSurface = UiStyleHelper.resolveOnSurfaceColor(this);
@@ -950,8 +951,15 @@ public class MainActivity extends AppCompatActivity {
             t.setText("第" + (i + 1) + "大节\n" + sectionTimes[i]);
             t.setTextColor(colorOnSurfaceVariant);
             t.setGravity(Gravity.CENTER);
+            t.setIncludeFontPadding(false);
             t.setLineSpacing(0f, 1f);
             t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f * timetableFontScale);
+            t.setMinLines(3);
+            t.setMaxLines(3);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                t.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
+                t.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
+            }
             if (currentSlotIndex == i + 1) {
                 applyActiveHeaderStyle(t, highlightBg, colorOutline, showGridLines);
             } else if (showGridLines) {
@@ -961,7 +969,8 @@ public class MainActivity extends AppCompatActivity {
                 t.setBackground(lineBg);
             }
             GridLayout.LayoutParams p = new GridLayout.LayoutParams(GridLayout.spec(i + 1), GridLayout.spec(0));
-            p.width = dp40; p.height = dp120;
+            p.width = leftTimeColumnWidth;
+            p.height = dp120;
             grid.addView(t, p);
         }
 
@@ -2640,8 +2649,6 @@ public class MainActivity extends AppCompatActivity {
             bg.setStroke(1, outlineColor);
         }
         target.setBackground(bg);
-        int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4, getResources().getDisplayMetrics());
-        target.setPadding(pad, pad, pad, pad);
     }
 
     private int getCurrentTimeslotIndex() {
@@ -2673,7 +2680,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        CampusBuildingStore.setRealtimeDeviceLocationTracking(this, true);
+        CampusBuildingStore.setRealtimeDeviceLocationTracking(this, !next.nearby);
 
         applyNextCourseNoticeStyle();
         tvNextCourseNotice.setText(next.message);
@@ -2749,6 +2756,7 @@ public class MainActivity extends AppCompatActivity {
         String startTime = String.format(Locale.getDefault(), "%02d:%02d", best.startSeconds / 3600, (best.startSeconds % 3600) / 60);
         String location = CampusBuildingStore.toStandardLocation(this, best.locationRaw);
         boolean hasLocation = !TextUtils.isEmpty(location) && !"未定".equals(location);
+        boolean nearby = false;
 
         StringBuilder plainBuilder = new StringBuilder();
         plainBuilder.append(best.isAgenda ? "即将开始 " : "下节课 ")
@@ -2766,6 +2774,7 @@ public class MainActivity extends AppCompatActivity {
             CampusBuildingStore.DistanceInfo distanceInfo = CampusBuildingStore.estimateDistanceFromDevice(this, best.locationRaw, false);
             if (distanceInfo.available) {
                 if (distanceInfo.meters < 100f) {
+                    nearby = true;
                     plainBuilder.append("\n地点在附近");
                 } else {
                     int walkSeconds = Math.max(1, Math.round(distanceInfo.meters / 1.35f));
@@ -2787,7 +2796,7 @@ public class MainActivity extends AppCompatActivity {
         if (locStart >= 0 && hasLocation) {
             styled.setSpan(new StyleSpan(Typeface.BOLD), locStart, locStart + location.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-        return new NextCourseNotice(styled);
+        return new NextCourseNotice(styled, nearby);
     }
 
     private static final class UpcomingNoticeItem {
@@ -2814,9 +2823,11 @@ public class MainActivity extends AppCompatActivity {
 
     private static class NextCourseNotice {
         final CharSequence message;
+        final boolean nearby;
 
-        NextCourseNotice(CharSequence message) {
+        NextCourseNotice(CharSequence message, boolean nearby) {
             this.message = message;
+            this.nearby = nearby;
         }
     }
 
@@ -3920,23 +3931,27 @@ private void extractAllTables(String passedCookie) {
         final TextView[] teacherRef = new TextView[1];
         final TextView[] locationRef = new TextView[1];
         final TextView[] locationDistanceRef = new TextView[1];
+        final ImageButton[] locationRefreshRef = new ImageButton[1];
         final TextView[] weeksRef = new TextView[1];
         final TextView[] sectionRef = new TextView[1];
 
         final List<Course> sectionTargets = collectCourseSectionTargets(c, mergedCourses);
 
         teacherRef[0] = addEditableInfoRow(rowsContainer, R.drawable.ic_profile, "教师", c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim(),
-            v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
+            v -> showTeacherPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], locationRefreshRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
         rowsContainer.addView(createAgendaEditorDivider());
 
         CourseLocationRowViews locationViews = addEditableLocationInfoRow(rowsContainer, R.drawable.ic_agenda_location_24, "地点", c.location,
-            v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
+            v -> showLocationPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], locationRefreshRef[0], weeksRef[0])),
+            v -> refreshCourseLocationDistance(c, locationRef[0], locationDistanceRef[0], locationRefreshRef[0]),
+            colorOnSurface, colorOnSurface);
         locationRef[0] = locationViews.locationView;
         locationDistanceRef[0] = locationViews.distanceView;
+        locationRefreshRef[0] = locationViews.refreshView;
         rowsContainer.addView(createAgendaEditorDivider());
 
         weeksRef[0] = addEditableInfoRow(rowsContainer, R.drawable.ic_today, "周次", formatWeeksForDisplay(c.weeks),
-            v -> showWeeksPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
+            v -> showWeeksPicker(c, () -> onCourseInfoUpdated(c, teacherRef[0], locationRef[0], locationDistanceRef[0], locationRefreshRef[0], weeksRef[0])), colorOnSurface, colorOnSurface);
         rowsContainer.addView(createAgendaEditorDivider());
 
         sectionRef[0] = addEditableInfoRow(rowsContainer, R.drawable.ic_agenda_time_24, "节次", formatCourseSectionForDisplay(sectionTargets),
@@ -5011,10 +5026,12 @@ private void extractAllTables(String passedCookie) {
     private static final class CourseLocationRowViews {
         final TextView locationView;
         final TextView distanceView;
+        final ImageButton refreshView;
 
-        CourseLocationRowViews(TextView locationView, TextView distanceView) {
+        CourseLocationRowViews(TextView locationView, TextView distanceView, ImageButton refreshView) {
             this.locationView = locationView;
             this.distanceView = distanceView;
+            this.refreshView = refreshView;
         }
     }
 
@@ -5076,7 +5093,10 @@ private void extractAllTables(String passedCookie) {
     }
 
     private CourseLocationRowViews addEditableLocationInfoRow(LinearLayout parent, int iconRes, String label, String locationRaw,
-                                                              View.OnClickListener editAction, int labelColor, int valueColor) {
+                                                              View.OnClickListener editAction,
+                                                              @Nullable View.OnClickListener refreshAction,
+                                                              int labelColor,
+                                                              int valueColor) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -5104,6 +5124,8 @@ private void extractAllTables(String passedCookie) {
         LinearLayout.LayoutParams valueContainerLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         valueContainer.setLayoutParams(valueContainerLp);
 
+        String baseLocation = formatLocationBase(locationRaw);
+
         TextView distanceTv = new TextView(this);
         distanceTv.setTextSize(12f);
         distanceTv.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
@@ -5116,7 +5138,7 @@ private void extractAllTables(String passedCookie) {
         valueContainer.addView(distanceTv);
 
         TextView valueTv = new TextView(this);
-        valueTv.setText(formatLocationBase(locationRaw));
+        valueTv.setText(baseLocation);
         valueTv.setTextSize(15f);
         valueTv.setTypeface(null, Typeface.BOLD);
         valueTv.setTextColor(valueColor);
@@ -5127,6 +5149,29 @@ private void extractAllTables(String passedCookie) {
         valueTv.setPadding(dp(14), dp(8), dp(14), dp(8));
         valueTv.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(valueColor, 28), dp(14)));
         valueContainer.addView(valueTv);
+
+        ImageButton refreshBtn = new ImageButton(this);
+        refreshBtn.setImageResource(R.drawable.ic_refresh);
+        TypedValue selectableBg = new TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, selectableBg, true)) {
+            refreshBtn.setBackgroundResource(selectableBg.resourceId);
+        } else {
+            refreshBtn.setBackgroundColor(Color.TRANSPARENT);
+        }
+        refreshBtn.setPadding(dp(5), dp(5), dp(5), dp(5));
+        refreshBtn.setColorFilter(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        refreshBtn.setContentDescription("刷新位置");
+        refreshBtn.setFocusable(true);
+        LinearLayout.LayoutParams refreshLp = new LinearLayout.LayoutParams(dp(28), dp(28));
+        refreshLp.setMargins(dp(6), 0, 0, 0);
+        refreshBtn.setLayoutParams(refreshLp);
+        if (refreshAction != null && !"未定".equals(baseLocation)) {
+            refreshBtn.setVisibility(View.VISIBLE);
+            refreshBtn.setOnClickListener(refreshAction);
+        } else {
+            refreshBtn.setVisibility(View.GONE);
+        }
+        valueContainer.addView(refreshBtn);
         row.addView(valueContainer);
 
         if (editAction != null) {
@@ -5136,15 +5181,60 @@ private void extractAllTables(String passedCookie) {
         }
 
         parent.addView(row);
-        return new CourseLocationRowViews(valueTv, distanceTv);
+        return new CourseLocationRowViews(valueTv, distanceTv, refreshBtn);
     }
 
-    private void onCourseInfoUpdated(Course c, TextView teacherValue, TextView locationValue, TextView locationDistanceValue, TextView weeksValue) {
+    private void refreshCourseLocationDistance(Course c,
+                                               @Nullable TextView locationValue,
+                                               @Nullable TextView locationDistanceValue,
+                                               @Nullable ImageButton locationRefreshView) {
+        if (c == null) {
+            return;
+        }
+        String baseLocation = formatLocationBase(c.location);
+        if (locationValue != null) {
+            locationValue.setText(baseLocation);
+        }
+        if (locationRefreshView != null) {
+            locationRefreshView.setVisibility("未定".equals(baseLocation) ? View.GONE : View.VISIBLE);
+        }
+        if ("未定".equals(baseLocation)) {
+            updateLocationDistanceHintView(locationDistanceValue, c.location);
+            Toast.makeText(this, "请先设置上课地点", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!CampusBuildingStore.hasLocationPermission(this)) {
+            ensureLocationPermission();
+            updateLocationDistanceHintView(locationDistanceValue, c.location);
+            Toast.makeText(this, "请先开启定位权限", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        CampusBuildingStore.DistanceInfo refreshed = CampusBuildingStore.estimateDistanceFromDevice(this, c.location, true);
+        updateLocationDistanceHintView(locationDistanceValue, c.location);
+        updateNextCourseNotice();
+        if (refreshed.available) {
+            Toast.makeText(this, "已刷新位置距离", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "暂无法获取当前位置", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void onCourseInfoUpdated(Course c,
+                                     TextView teacherValue,
+                                     TextView locationValue,
+                                     TextView locationDistanceValue,
+                                     ImageButton locationRefreshView,
+                                     TextView weeksValue) {
         if (teacherValue != null) {
             teacherValue.setText(c.teacher == null || c.teacher.trim().isEmpty() ? "未定" : c.teacher.trim());
         }
+        String baseLocation = formatLocationBase(c.location);
         if (locationValue != null) {
-            locationValue.setText(formatLocationBase(c.location));
+            locationValue.setText(baseLocation);
+        }
+        if (locationRefreshView != null) {
+            locationRefreshView.setVisibility("未定".equals(baseLocation) ? View.GONE : View.VISIBLE);
         }
         if (locationDistanceValue != null) {
             updateLocationDistanceHintView(locationDistanceValue, c.location);

@@ -11,6 +11,9 @@
     <color name="brand_surface">#FCFCFF</color>
     <color name="brand_surface_variant">#E0E2EC</color>
     <color name="brand_on_surface">#1A1C1E</color>
+    <color name="ai_close_button_bg">#CCFFFFFF</color>
+    <color name="ai_close_button_stroke">#33939AA5</color>
+    <color name="ai_close_button_icon">#B3535963</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

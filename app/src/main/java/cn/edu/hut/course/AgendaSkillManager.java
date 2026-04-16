@@ -92,8 +92,7 @@ public final class AgendaSkillManager {
         }
         Agenda created = AgendaStorageManager.getAgenda(context, id);
         if (created == null) {
-            created = agenda;
-            created.id = id;
+            return "创建失败：写入后校验失败";
         }
         return "创建成功：" + buildAgendaLine(created, false);
     }

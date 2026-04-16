@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ai_close_button_bg">#A8424650</color>
+    <color name="ai_close_button_stroke">#33FFFFFF</color>
+    <color name="ai_close_button_icon">#E6FFFFFF</color>
+</resources>

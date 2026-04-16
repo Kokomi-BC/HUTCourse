@@ -32,6 +32,9 @@
         <activity android:name=".SettingsHomeActivity" />
         <activity android:name=".SettingsAiActivity" />
         <activity
+            android:name=".AiImagePreviewActivity"
+            android:exported="false" />
+        <activity
             android:name=".AiChatActivity"
             android:windowSoftInputMode="adjustNothing|stateHidden" />
 

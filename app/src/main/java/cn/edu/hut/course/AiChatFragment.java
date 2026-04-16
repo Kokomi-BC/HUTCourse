@@ -1,16 +1,26 @@
 package cn.edu.hut.course;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.ImageDecoder;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.provider.MediaStore;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -20,10 +30,13 @@ import android.view.ViewTreeObserver;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -32,8 +45,11 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.graphics.Insets;
 import androidx.core.view.GravityCompat;
@@ -44,6 +60,7 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.fragment.app.Fragment;
 
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.textfield.MaterialAutoCompleteTextView;
 
 import io.noties.markwon.Markwon;
 
@@ -52,6 +69,9 @@ import cn.edu.hut.course.ai.AiPromptCenter;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -70,21 +90,36 @@ import java.util.regex.Pattern;
 
 public class AiChatFragment extends Fragment {
 
-    private static final int IME_GAP_DP = 6;
+    private static final String TAG = "AiChatFragment";
     private static final long INSETS_PRIORITY_HOLD_MS = 160L;
     private static final long IME_PROBE_INTERVAL_MS = 32L;
     private static final long IME_PROBE_DURATION_MS = 1800L;
+    private static final int PROMPT_EXPAND_THRESHOLD_LINES = 4;
+    private static final int IME_DRIVER_NONE = 0;
+    private static final int IME_DRIVER_INSETS = 1;
+    private static final int IME_DRIVER_FALLBACK = 2;
 
     private static final String PREF_AI_CHAT_HISTORY = "ai_chat_history";
     private static final String KEY_CHAT_HISTORY_JSON = "history_json";
     private static final int MAX_HISTORY_SESSIONS = 30;
+    private static final int MAX_TOOL_COMMAND_ROUNDS = 30;
     private static final Pattern TITLE_PATTERN = Pattern.compile("^(?:TITLE|标题)\\s*[:：]\\s*(.+)$", Pattern.CASE_INSENSITIVE);
 
     private DrawerLayout drawerAiChat;
     private LinearLayout chatContainer;
     private ScrollView chatScroll;
     private EditText etPrompt;
+    private EditText etPromptFullscreen;
+    private MaterialAutoCompleteTextView acModelPicker;
+    private ImageButton btnAddImage;
+    private ImageButton btnRemovePendingImage;
+    private View pendingImageContainer;
+    private ImageView ivPendingImage;
     private ImageButton btnSend;
+    private ImageButton btnSendFullscreen;
+    private ImageButton btnExpandComposer;
+    private ImageButton btnCollapseComposer;
+    private TextView tvComposerClear;
     private ImageButton btnOpenHistory;
     private ImageButton btnNewSession;
     private ListView lvHistory;
@@ -93,7 +128,10 @@ public class AiChatFragment extends Fragment {
     private TextView tvHistoryEmpty;
     private TextView tvHistoryMeta;
     private MaterialCardView composerCard;
-    private LinearLayout composerInner;
+    private View composerInner;
+    private View composerFullscreenOverlay;
+    private View composerFullscreenPanel;
+    private View titleModelSwitcherArea;
     private TextView tvAiStatus;
     private int baseHistoryDrawerPaddingTop = 0;
     private int baseHistoryDrawerPaddingBottom = 0;
@@ -101,6 +139,8 @@ public class AiChatFragment extends Fragment {
     private final Handler streamHandler = new Handler(Looper.getMainLooper());
     private final List<ChatSession> sessions = new ArrayList<>();
     private final List<HistoryRow> historyRows = new ArrayList<>();
+    private final List<AiConfigStore.AiModelConfig> availableModels = new ArrayList<>();
+    private final List<String> availableModelLabels = new ArrayList<>();
     private HistorySessionAdapter historyAdapter;
     private ChatSession activeSession;
     private int highlightedHistoryPosition = -1;
@@ -142,9 +182,22 @@ public class AiChatFragment extends Fragment {
     private long imeProbeDeadlineUptime = 0L;
     private int lastGlobalKeyboardHeight = Integer.MIN_VALUE;
     private boolean lastGlobalImeVisible = false;
+    private int imeDriver = IME_DRIVER_NONE;
+    private boolean composerFullscreenMode = false;
+    private boolean suppressPromptMirror = false;
+    private boolean suppressModelPickerCallback = false;
+    private final List<String> pendingImagePaths = new ArrayList<>();
+    @Nullable
+    private ActivityResultLauncher<String> imagePickerLauncher;
 
     public AiChatFragment() {
         super();
+    }
+
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        imagePickerLauncher = registerForActivityResult(new ActivityResultContracts.GetContent(), this::handleImagePicked);
     }
 
     @Override
@@ -162,7 +215,17 @@ public class AiChatFragment extends Fragment {
         chatContainer = view.findViewById(R.id.chatContainer);
         chatScroll = view.findViewById(R.id.chatScroll);
         etPrompt = view.findViewById(R.id.etPrompt);
+        etPromptFullscreen = view.findViewById(R.id.etPromptFullscreen);
+        acModelPicker = view.findViewById(R.id.acModelPicker);
+        btnAddImage = view.findViewById(R.id.btnAddImage);
+        btnRemovePendingImage = view.findViewById(R.id.btnRemovePendingImage);
+        pendingImageContainer = view.findViewById(R.id.pendingImageContainer);
+        ivPendingImage = view.findViewById(R.id.ivPendingImage);
         btnSend = view.findViewById(R.id.btnSend);
+        btnSendFullscreen = view.findViewById(R.id.btnSendFullscreen);
+        btnExpandComposer = view.findViewById(R.id.btnExpandComposer);
+        btnCollapseComposer = view.findViewById(R.id.btnCollapseComposer);
+        tvComposerClear = view.findViewById(R.id.tvComposerClear);
         btnOpenHistory = view.findViewById(R.id.btnOpenHistory);
         btnNewSession = view.findViewById(R.id.btnNewSession);
         lvHistory = view.findViewById(R.id.lvHistory);
@@ -172,6 +235,9 @@ public class AiChatFragment extends Fragment {
         tvHistoryMeta = view.findViewById(R.id.tvHistoryMeta);
         composerCard = view.findViewById(R.id.composerCard);
         composerInner = view.findViewById(R.id.composerInner);
+        composerFullscreenOverlay = view.findViewById(R.id.composerFullscreenOverlay);
+        composerFullscreenPanel = view.findViewById(R.id.composerFullscreenPanel);
+        titleModelSwitcherArea = view.findViewById(R.id.titleModelSwitcherArea);
         tvAiStatus = view.findViewById(R.id.tvAiStatus);
         markwon = Markwon.create(requireContext());
 
@@ -190,6 +256,8 @@ public class AiChatFragment extends Fragment {
         captureMainBottomNavHost();
         configureSoftInputModeForChat();
         configurePromptInput();
+        setupModelPicker();
+        setupImageAttachment();
         setupHistoryDrawer();
         loadHistory();
         ensureFreshSessionOnEnter();
@@ -199,15 +267,14 @@ public class AiChatFragment extends Fragment {
         setupHistoryDrawerOverlayBehavior();
         applyComposerStyle();
         refreshAiStatus();
+        setupComposerFullscreenControls();
 
         if (btnSend != null) {
-            btnSend.setOnClickListener(v -> {
-                if (isAiConversationRunning()) {
-                    stopCurrentAiConversation(true);
-                } else {
-                    sendMessage();
-                }
-            });
+            btnSend.setOnClickListener(v -> onSendButtonPressed());
+            updateSendButtonMode(false);
+        }
+        if (btnSendFullscreen != null) {
+            btnSendFullscreen.setOnClickListener(v -> onSendButtonPressed());
             updateSendButtonMode(false);
         }
         if (btnOpenHistory != null) {
@@ -230,6 +297,9 @@ public class AiChatFragment extends Fragment {
                 }
             });
         }
+
+        refreshModelPickerOptions();
+        refreshComposerDraftUi();
     }
 
     @Override
@@ -243,6 +313,10 @@ public class AiChatFragment extends Fragment {
         applyComposerStyle();
         refreshHistoryRows();
         refreshAiStatus();
+        refreshModelPickerOptions();
+        updateComposerExpandButtonVisibility();
+        refreshComposerDraftUi();
+        maybeResetComposerImeStateAfterInputBlur();
         View root = rootView == null ? null : rootView.findViewById(R.id.rootAiChat);
         if (root != null) {
             ViewCompat.requestApplyInsets(root);
@@ -251,6 +325,8 @@ public class AiChatFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
+        stopImeProbe();
+        clearImeGlobalLayoutFallback();
         if (sessionMenuPopup != null) {
             sessionMenuPopup.dismiss();
             sessionMenuPopup = null;
@@ -273,6 +349,11 @@ public class AiChatFragment extends Fragment {
             composerCard.animate().cancel();
             composerCard.setTranslationY(0f);
         }
+        imeDriver = IME_DRIVER_NONE;
+        composerFullscreenMode = false;
+        pendingImagePaths.clear();
+        availableModels.clear();
+        availableModelLabels.clear();
         super.onDestroyView();
     }
 
@@ -280,21 +361,393 @@ public class AiChatFragment extends Fragment {
         return requireContext();
     }
 
+    private void onSendButtonPressed() {
+        if (isAiConversationRunning()) {
+            stopCurrentAiConversation(true);
+        } else {
+            sendMessage();
+        }
+    }
+
+    private void setupModelPicker() {
+        if (acModelPicker == null) {
+            return;
+        }
+        View.OnClickListener showPickerListener = v -> {
+            if (acModelPicker == null || !acModelPicker.isEnabled()) {
+                return;
+            }
+            acModelPicker.post(() -> {
+                acModelPicker.showDropDown();
+            });
+        };
+        acModelPicker.setKeyListener(null);
+        acModelPicker.setFocusable(false);
+        acModelPicker.setFocusableInTouchMode(false);
+        acModelPicker.setCursorVisible(false);
+        acModelPicker.setLongClickable(false);
+        acModelPicker.setOnClickListener(showPickerListener);
+        acModelPicker.setThreshold(0);
+        if (titleModelSwitcherArea != null) {
+            titleModelSwitcherArea.setFocusable(false);
+            titleModelSwitcherArea.setFocusableInTouchMode(false);
+            titleModelSwitcherArea.setOnClickListener(showPickerListener);
+        }
+        if (tvAiStatus != null) {
+            tvAiStatus.setFocusable(false);
+            tvAiStatus.setFocusableInTouchMode(false);
+            tvAiStatus.setOnClickListener(showPickerListener);
+        }
+        acModelPicker.setOnItemClickListener((parent, view, position, id) -> {
+            if (suppressModelPickerCallback) {
+                return;
+            }
+            if (position < 0 || position >= availableModels.size()) {
+                return;
+            }
+            if (activeSession == null) {
+                startNewSession(false);
+            }
+            if (activeSession != null) {
+                activeSession.modelId = availableModels.get(position).id;
+                if (sessions.contains(activeSession)) {
+                    saveHistory();
+                }
+                syncModelPickerWithActiveSession();
+            }
+        });
+    }
+
+    private void refreshModelPickerOptions() {
+        if (acModelPicker == null || !isAdded()) {
+            return;
+        }
+        availableModels.clear();
+        availableModelLabels.clear();
+        List<AiConfigStore.AiModelConfig> models = AiConfigStore.getModels(ctx());
+        availableModels.addAll(models);
+        for (int i = 0; i < availableModels.size(); i++) {
+            AiConfigStore.AiModelConfig one = availableModels.get(i);
+            availableModelLabels.add(buildModelPickerLabel(one));
+        }
+
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+            ctx(),
+            R.layout.item_ai_model_dropdown,
+            R.id.tvModelDropdownItem,
+            availableModelLabels
+        );
+        acModelPicker.setAdapter(adapter);
+        acModelPicker.setEnabled(!availableModels.isEmpty());
+        syncModelPickerWithActiveSession();
+    }
+
+    private void syncModelPickerWithActiveSession() {
+        if (acModelPicker == null) {
+            return;
+        }
+        if (availableModels.isEmpty()) {
+            suppressModelPickerCallback = true;
+            acModelPicker.setText("未配置模型", false);
+            suppressModelPickerCallback = false;
+            return;
+        }
+
+        if (activeSession == null) {
+            suppressModelPickerCallback = true;
+            acModelPicker.setText(availableModelLabels.get(0), false);
+            suppressModelPickerCallback = false;
+            return;
+        }
+
+        int targetIndex = findModelIndexById(activeSession.modelId);
+        if (targetIndex < 0) {
+            activeSession.modelId = availableModels.get(0).id;
+            targetIndex = 0;
+        }
+
+        suppressModelPickerCallback = true;
+        acModelPicker.setText(availableModelLabels.get(targetIndex), false);
+        suppressModelPickerCallback = false;
+    }
+
+    private String resolveModelDisplayName(@Nullable AiConfigStore.AiModelConfig model) {
+        if (model == null) {
+            return "";
+        }
+        String displayName = safe(model.displayName).trim();
+        if (!displayName.isEmpty()) {
+            return displayName;
+        }
+        String fallbackModel = safe(model.modelName).trim();
+        if (!fallbackModel.isEmpty()) {
+            return fallbackModel;
+        }
+        return "未命名模型";
+    }
+
+    private String buildModelPickerLabel(@Nullable AiConfigStore.AiModelConfig model) {
+        if (model == null) {
+            return "未配置模型";
+        }
+        return resolveModelDisplayName(model);
+    }
+
+    private int findModelIndexById(@Nullable String modelId) {
+        if (TextUtils.isEmpty(modelId)) {
+            return -1;
+        }
+        for (int i = 0; i < availableModels.size(); i++) {
+            AiConfigStore.AiModelConfig one = availableModels.get(i);
+            if (safe(one.id).equals(safe(modelId))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    @Nullable
+    private AiConfigStore.AiModelConfig resolveModelForCurrentSession() {
+        if (availableModels.isEmpty()) {
+            refreshModelPickerOptions();
+        }
+        if (availableModels.isEmpty()) {
+            return null;
+        }
+        if (activeSession == null) {
+            startNewSession(false);
+        }
+        if (activeSession == null) {
+            return availableModels.get(0);
+        }
+        int index = findModelIndexById(activeSession.modelId);
+        if (index < 0) {
+            activeSession.modelId = availableModels.get(0).id;
+            index = 0;
+        }
+        syncModelPickerWithActiveSession();
+        return availableModels.get(index);
+    }
+
+    private void setupImageAttachment() {
+        if (btnAddImage != null) {
+            btnAddImage.setOnClickListener(v -> {
+                if (imagePickerLauncher != null) {
+                    imagePickerLauncher.launch("image/*");
+                }
+            });
+        }
+        if (btnRemovePendingImage != null) {
+            btnRemovePendingImage.setOnClickListener(v -> clearPendingImage());
+        }
+        if (ivPendingImage != null) {
+            ivPendingImage.setOnClickListener(v -> openImagePreview(getLatestPendingImagePath()));
+        }
+        refreshPendingImagePreview();
+    }
+
+    private void handleImagePicked(@Nullable Uri uri) {
+        if (uri == null || !isAdded()) {
+            return;
+        }
+        if (pendingImagePaths.size() >= 4) {
+            Toast.makeText(ctx(), "最多只能添加4张图片", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            String localPath = copyPickedImageToLocal(uri);
+            pendingImagePaths.add(localPath);
+            refreshPendingImagePreview();
+            refreshComposerDraftUi();
+            Toast.makeText(ctx(), "已添加图片（" + pendingImagePaths.size() + "/4）", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(ctx(), "图片处理失败：" + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String copyPickedImageToLocal(@NonNull Uri uri) throws Exception {
+        Bitmap bitmap;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ImageDecoder.Source source = ImageDecoder.createSource(ctx().getContentResolver(), uri);
+            bitmap = ImageDecoder.decodeBitmap(source);
+        } else {
+            try (InputStream in = ctx().getContentResolver().openInputStream(uri)) {
+                bitmap = in == null ? null : BitmapFactory.decodeStream(in);
+            }
+        }
+        if (bitmap == null) {
+            throw new IllegalStateException("无法读取图片");
+        }
+
+        Bitmap toSave = scaleBitmapIfNeeded(bitmap, 960);
+        File dir = new File(ctx().getFilesDir(), "ai_chat_images");
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IllegalStateException("无法创建图片目录");
+        }
+        File target = new File(dir, "img_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().replace("-", "") + ".jpg");
+        try (FileOutputStream out = new FileOutputStream(target)) {
+            if (!toSave.compress(Bitmap.CompressFormat.JPEG, 72, out)) {
+                throw new IllegalStateException("图片写入失败");
+            }
+        }
+
+        if (toSave != bitmap) {
+            bitmap.recycle();
+            toSave.recycle();
+        } else {
+            bitmap.recycle();
+        }
+        return target.getAbsolutePath();
+    }
+
+    private Bitmap scaleBitmapIfNeeded(@NonNull Bitmap source, int maxSide) {
+        int width = source.getWidth();
+        int height = source.getHeight();
+        if (width <= maxSide && height <= maxSide) {
+            return source;
+        }
+        float scale = Math.min((float) maxSide / (float) width, (float) maxSide / (float) height);
+        int targetW = Math.max(1, Math.round(width * scale));
+        int targetH = Math.max(1, Math.round(height * scale));
+        return Bitmap.createScaledBitmap(source, targetW, targetH, true);
+    }
+
+    private void clearPendingImage() {
+        pendingImagePaths.clear();
+        refreshPendingImagePreview();
+        refreshComposerDraftUi();
+    }
+
+    @Nullable
+    private String getLatestPendingImagePath() {
+        if (pendingImagePaths.isEmpty()) {
+            return null;
+        }
+        return pendingImagePaths.get(pendingImagePaths.size() - 1);
+    }
+
+    private void refreshPendingImagePreview() {
+        if (pendingImageContainer == null || ivPendingImage == null) {
+            return;
+        }
+        if (pendingImagePaths.isEmpty()) {
+            pendingImageContainer.setVisibility(View.GONE);
+            ivPendingImage.setImageDrawable(null);
+            return;
+        }
+        String latest = getLatestPendingImagePath();
+        File file = new File(latest == null ? "" : latest);
+        if (!file.exists()) {
+            pendingImagePaths.remove(file.getAbsolutePath());
+            pendingImageContainer.setVisibility(View.GONE);
+            ivPendingImage.setImageDrawable(null);
+            return;
+        }
+        pendingImageContainer.setVisibility(View.VISIBLE);
+        ivPendingImage.setImageURI(Uri.fromFile(file));
+        if (btnRemovePendingImage != null) {
+            btnRemovePendingImage.setContentDescription("清空已选图片（" + pendingImagePaths.size() + "）");
+        }
+    }
+
+    private void openImagePreview(@Nullable String imagePath) {
+        if (!isAdded() || TextUtils.isEmpty(imagePath)) {
+            return;
+        }
+        File imageFile = new File(imagePath);
+        if (!imageFile.exists()) {
+            Toast.makeText(ctx(), "图片不存在", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(ctx(), AiImagePreviewActivity.class);
+        intent.putExtra(AiImagePreviewActivity.EXTRA_IMAGE_PATH, imageFile.getAbsolutePath());
+        startActivity(intent);
+    }
+
+    private boolean hasPendingImage() {
+        return !pendingImagePaths.isEmpty();
+    }
+
+    private boolean hasPromptDraft() {
+        boolean hasMain = etPrompt != null && etPrompt.getText() != null && !TextUtils.isEmpty(etPrompt.getText().toString().trim());
+        boolean hasFullscreen = etPromptFullscreen != null
+                && etPromptFullscreen.getText() != null
+                && !TextUtils.isEmpty(etPromptFullscreen.getText().toString().trim());
+        return hasMain || hasFullscreen;
+    }
+
+    private void refreshComposerDraftUi() {
+        boolean visible = isAiConversationRunning() || hasPromptDraft() || hasPendingImage();
+        if (btnSend != null) {
+            btnSend.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
+        if (btnSendFullscreen != null) {
+            btnSendFullscreen.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
+        updateAddImageButtonPlacement(visible);
+    }
+
+    private void updateAddImageButtonPlacement(boolean sendVisible) {
+        if (btnAddImage == null || !(btnAddImage.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+
+        int targetGravity = Gravity.END | Gravity.CENTER_VERTICAL;
+        int targetBottomMargin = 0;
+        if (sendVisible && btnSend != null && btnSend.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            FrameLayout.LayoutParams sendLp = (FrameLayout.LayoutParams) btnSend.getLayoutParams();
+            int verticalMask = sendLp.gravity & Gravity.VERTICAL_GRAVITY_MASK;
+            boolean alignBottom = verticalMask == Gravity.BOTTOM;
+            targetGravity = alignBottom ? (Gravity.END | Gravity.BOTTOM) : (Gravity.END | Gravity.CENTER_VERTICAL);
+            targetBottomMargin = alignBottom ? sendLp.bottomMargin : 0;
+        }
+        int targetEndMargin = sendVisible ? dp(56) : dp(8);
+
+        FrameLayout.LayoutParams addLp = (FrameLayout.LayoutParams) btnAddImage.getLayoutParams();
+        if (addLp.gravity != targetGravity
+                || addLp.bottomMargin != targetBottomMargin
+                || addLp.getMarginEnd() != targetEndMargin) {
+            addLp.gravity = targetGravity;
+            addLp.bottomMargin = targetBottomMargin;
+            addLp.setMarginEnd(targetEndMargin);
+            btnAddImage.setLayoutParams(addLp);
+        }
+    }
+
     private void configurePromptInput() {
         if (etPrompt == null) return;
         etPrompt.setMinLines(1);
-        etPrompt.setMaxLines(8);
+        etPrompt.setMaxLines(6);
         etPrompt.setHorizontallyScrolling(false);
+        etPrompt.setVerticalScrollBarEnabled(false);
         etPrompt.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        etPrompt.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                syncPromptText(etPrompt, etPromptFullscreen);
+                etPrompt.post(() -> updateComposerExpandButtonVisibility());
+                refreshComposerDraftUi();
+            }
+        });
+        etPrompt.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if ((right - left) != (oldRight - oldLeft)) {
+                updateComposerExpandButtonVisibility();
+            }
+        });
+        etPrompt.setLongClickable(true);
         etPrompt.setOnTouchListener((v, event) -> {
             ViewParent parent = v.getParent();
             if (parent != null && event != null) {
                 int action = event.getActionMasked();
                 if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
-                    if (action == MotionEvent.ACTION_DOWN) {
-                        // 每次点击输入框都重新准备一次，避免仅首次点击触发整体上移。
-                        prepareForImeTransition();
-                    }
                     parent.requestDisallowInterceptTouchEvent(true);
                 } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
                     parent.requestDisallowInterceptTouchEvent(false);
@@ -305,13 +758,234 @@ public class AiChatFragment extends Fragment {
         etPrompt.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
                 prepareForImeTransition();
+            } else {
+                maybeResetComposerImeStateAfterInputBlur();
             }
         });
+
+        if (etPromptFullscreen != null) {
+            etPromptFullscreen.setMinLines(8);
+            etPromptFullscreen.setMaxLines(120);
+            etPromptFullscreen.setHorizontallyScrolling(false);
+            etPromptFullscreen.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+            etPromptFullscreen.addTextChangedListener(new TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+                }
+
+                @Override
+                public void onTextChanged(CharSequence s, int start, int before, int count) {
+                }
+
+                @Override
+                public void afterTextChanged(Editable s) {
+                    syncPromptText(etPromptFullscreen, etPrompt);
+                    etPromptFullscreen.post(() -> updateComposerExpandButtonVisibility());
+                    refreshComposerDraftUi();
+                }
+            });
+            etPromptFullscreen.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus) {
+                    prepareForImeTransition();
+                } else {
+                    maybeResetComposerImeStateAfterInputBlur();
+                }
+            });
+            etPromptFullscreen.setLongClickable(true);
+            etPromptFullscreen.setOnTouchListener((v, event) -> {
+                ViewParent parent = v.getParent();
+                if (parent != null && event != null) {
+                    int action = event.getActionMasked();
+                    if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                        parent.requestDisallowInterceptTouchEvent(true);
+                    } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                        parent.requestDisallowInterceptTouchEvent(false);
+                    }
+                }
+                return false;
+            });
+        }
+        updateComposerExpandButtonVisibility();
+        refreshComposerDraftUi();
+    }
+
+    private void setupComposerFullscreenControls() {
+        if (composerFullscreenOverlay != null) {
+            composerFullscreenOverlay.setOnClickListener(v -> setComposerFullscreenMode(false));
+        }
+        if (composerFullscreenPanel != null) {
+            composerFullscreenPanel.setOnClickListener(v -> {
+            });
+        }
+        if (btnExpandComposer != null) {
+            btnExpandComposer.setOnClickListener(v -> setComposerFullscreenMode(true));
+        }
+        if (btnCollapseComposer != null) {
+            btnCollapseComposer.setOnClickListener(v -> setComposerFullscreenMode(false));
+        }
+        if (tvComposerClear != null) {
+            tvComposerClear.setOnClickListener(v -> clearPromptInput());
+        }
+        updateComposerExpandButtonVisibility();
+        refreshComposerDraftUi();
+    }
+
+    private void clearPromptInput() {
+        suppressPromptMirror = true;
+        if (etPrompt != null) {
+            etPrompt.setText("");
+        }
+        if (etPromptFullscreen != null) {
+            etPromptFullscreen.setText("");
+        }
+        suppressPromptMirror = false;
+        updateComposerExpandButtonVisibility();
+        refreshComposerDraftUi();
+    }
+
+    private void syncPromptText(@Nullable EditText source, @Nullable EditText target) {
+        if (suppressPromptMirror || source == null || target == null) {
+            return;
+        }
+        String sourceText = source.getText() == null ? "" : source.getText().toString();
+        String targetText = target.getText() == null ? "" : target.getText().toString();
+        if (TextUtils.equals(sourceText, targetText)) {
+            return;
+        }
+        suppressPromptMirror = true;
+        target.setText(sourceText);
+        target.setSelection(sourceText.length());
+        suppressPromptMirror = false;
+    }
+
+    private int resolvePromptLineCount(@Nullable EditText input) {
+        if (input == null) {
+            return 1;
+        }
+        int lineCount = input.getLineCount();
+        if (lineCount > 0) {
+            return lineCount;
+        }
+        String raw = input.getText() == null ? "" : input.getText().toString();
+        if (raw.isEmpty()) {
+            return 1;
+        }
+        return Math.max(1, raw.split("\\n", -1).length);
+    }
+
+    private void updateComposerExpandButtonVisibility() {
+        if (btnExpandComposer == null && btnSend == null) {
+            return;
+        }
+        boolean showExpand = false;
+        if (composerFullscreenMode) {
+            showExpand = false;
+        } else {
+            EditText source = etPrompt;
+            if (source != null) {
+                int lineCount = resolvePromptLineCount(source);
+                showExpand = lineCount >= PROMPT_EXPAND_THRESHOLD_LINES;
+            }
+        }
+
+        if (btnExpandComposer != null) {
+            btnExpandComposer.setVisibility(showExpand ? View.VISIBLE : View.GONE);
+        }
+
+        if (btnSend != null && btnSend.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) btnSend.getLayoutParams();
+            int targetGravity = showExpand ? (Gravity.END | Gravity.BOTTOM) : (Gravity.END | Gravity.CENTER_VERTICAL);
+            int targetBottomMargin = showExpand ? dp(4) : 0;
+            if (lp.gravity != targetGravity || lp.bottomMargin != targetBottomMargin) {
+                lp.gravity = targetGravity;
+                lp.bottomMargin = targetBottomMargin;
+                btnSend.setLayoutParams(lp);
+            }
+        }
+
+        updateAddImageButtonPlacement(btnSend != null && btnSend.getVisibility() == View.VISIBLE);
+    }
+
+    private void setComposerFullscreenMode(boolean enabled) {
+        if (composerFullscreenOverlay == null) {
+            return;
+        }
+        if (composerFullscreenMode == enabled) {
+            return;
+        }
+        composerFullscreenMode = enabled;
+        if (enabled) {
+            composerFullscreenOverlay.setVisibility(View.VISIBLE);
+            composerFullscreenOverlay.bringToFront();
+            syncPromptText(etPrompt, etPromptFullscreen);
+            if (etPromptFullscreen != null) {
+                etPromptFullscreen.requestFocus();
+                etPromptFullscreen.post(() -> {
+                    if (etPromptFullscreen == null) {
+                        return;
+                    }
+                    int length = etPromptFullscreen.getText() == null ? 0 : etPromptFullscreen.getText().length();
+                    etPromptFullscreen.setSelection(length);
+                });
+            }
+        } else {
+            composerFullscreenOverlay.setVisibility(View.GONE);
+            syncPromptText(etPromptFullscreen, etPrompt);
+            if (etPrompt != null) {
+                etPrompt.requestFocus();
+                etPrompt.post(() -> {
+                    if (etPrompt == null) {
+                        return;
+                    }
+                    int length = etPrompt.getText() == null ? 0 : etPrompt.getText().length();
+                    etPrompt.setSelection(length);
+                });
+            }
+        }
+        prepareForImeTransition();
+        updateComposerExpandButtonVisibility();
+        refreshComposerDraftUi();
+    }
+
+    @Nullable
+    private EditText getActivePromptInput() {
+        if (composerFullscreenMode && etPromptFullscreen != null) {
+            return etPromptFullscreen;
+        }
+        return etPrompt;
     }
 
     private void prepareForImeTransition() {
         keepChatAnchoredToBottomOnIme = isChatNearBottom();
         pendingBottomScrollOnImeOpen = keepChatAnchoredToBottomOnIme;
+        startImeProbe();
+    }
+
+    private void maybeResetComposerImeStateAfterInputBlur() {
+        boolean mainFocused = etPrompt != null && etPrompt.hasFocus();
+        boolean fullscreenFocused = etPromptFullscreen != null && etPromptFullscreen.hasFocus();
+        if (mainFocused || fullscreenFocused) {
+            return;
+        }
+        View root = rootView == null ? null : rootView.findViewById(R.id.rootAiChat);
+        WindowInsetsCompat insets = root == null ? null : ViewCompat.getRootWindowInsets(root);
+        boolean imeVisible = insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
+        if (!imeVisible) {
+            keepChatAnchoredToBottomOnIme = false;
+            pendingBottomScrollOnImeOpen = false;
+            stopImeProbe();
+            applyImeLiftFromSource(0, IME_DRIVER_NONE);
+        }
+    }
+
+    private void showKeyboard(@Nullable EditText input) {
+        if (input == null || !isAdded()) {
+            return;
+        }
+        InputMethodManager imm = (InputMethodManager) ctx().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+        }
     }
 
     private void configureSoftInputModeForChat() {
@@ -463,12 +1137,17 @@ public class AiChatFragment extends Fragment {
     }
 
     private void updateSendButtonMode(boolean stopMode) {
-        if (btnSend == null) {
-            return;
+        if (btnSend != null) {
+            btnSend.setEnabled(true);
+            btnSend.setImageResource(stopMode ? R.drawable.ic_stop_solid : R.drawable.ic_send_up);
+            btnSend.setContentDescription(stopMode ? "终止对话" : "发送");
         }
-        btnSend.setEnabled(true);
-        btnSend.setImageResource(stopMode ? R.drawable.ic_stop_solid : R.drawable.ic_send_up);
-        btnSend.setContentDescription(stopMode ? "终止对话" : "发送");
+        if (btnSendFullscreen != null) {
+            btnSendFullscreen.setEnabled(true);
+            btnSendFullscreen.setImageResource(stopMode ? R.drawable.ic_stop_solid : R.drawable.ic_send_up);
+            btnSendFullscreen.setContentDescription(stopMode ? "终止对话" : "发送");
+        }
+        refreshComposerDraftUi();
     }
 
     private void captureMainBottomNavHost() {
@@ -584,13 +1263,64 @@ public class AiChatFragment extends Fragment {
         ensureMainBottomNavVisible();
     }
 
-    private int computeComposerLiftForIme(int imeBottom) {
+    private int getMainBottomNavEffectiveHeight() {
+        int height = 0;
+        if (mainBottomNavHost != null) {
+            height = mainBottomNavHost.getHeight();
+            if (height <= 0 && mainBottomNavHost.getLayoutParams() != null) {
+                height = mainBottomNavHost.getLayoutParams().height;
+            }
+        }
+        if (height <= 0) {
+            height = mainBottomNavHostHeight;
+        }
+        return Math.max(0, height);
+    }
+
+    private int resolveSystemBottomInsetForIme(@NonNull View root) {
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+        if (insets == null) {
+            return 0;
+        }
+        Insets navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
+        Insets gestures = insets.getInsets(WindowInsetsCompat.Type.systemGestures());
+        return Math.max(0, Math.max(navBars.bottom, gestures.bottom));
+    }
+
+    private int computeComposerLiftForIme(@NonNull View root, int imeBottom) {
         int keyboard = Math.max(0, imeBottom);
         if (keyboard == 0) {
             return 0;
         }
-        // 增加 dp(IME_GAP_DP) 确保输入框和键盘之间有间隙
-        return Math.max(0, keyboard - Math.max(0, mainBottomNavHostHeight) + dp(IME_GAP_DP));
+        int reservedBottom = getMainBottomNavEffectiveHeight();
+        if (reservedBottom <= 0) {
+            reservedBottom = computeRootBottomInsetToWindow(root);
+        }
+        // Android 12 及以下常见 IME 高度包含系统底栏，需额外扣减避免输入框上方留白。
+        if (shouldPreferFallbackImeDriver()) {
+            reservedBottom += resolveSystemBottomInsetForIme(root);
+        }
+        return Math.max(0, keyboard - reservedBottom);
+    }
+
+    private int computeRootBottomInsetToWindow(@NonNull View root) {
+        View windowRoot = null;
+        if (getActivity() != null && getActivity().getWindow() != null) {
+            windowRoot = getActivity().getWindow().getDecorView();
+        }
+        if (windowRoot == null || windowRoot.getHeight() <= 0) {
+            windowRoot = root.getRootView();
+        }
+        if (windowRoot == null || windowRoot.getHeight() <= 0) {
+            return 0;
+        }
+        int[] rootLocation = new int[2];
+        int[] windowLocation = new int[2];
+        root.getLocationOnScreen(rootLocation);
+        windowRoot.getLocationOnScreen(windowLocation);
+        int rootBottom = rootLocation[1] + root.getHeight();
+        int windowBottom = windowLocation[1] + windowRoot.getHeight();
+        return Math.max(0, windowBottom - rootBottom);
     }
 
     private int computeEffectiveImeBottom(@NonNull View root, @NonNull WindowInsetsCompat insets) {
@@ -615,8 +1345,39 @@ public class AiChatFragment extends Fragment {
         lastInsetsDispatchUptime = SystemClock.uptimeMillis();
     }
 
+    private boolean shouldPreferFallbackImeDriver() {
+        return android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.S;
+    }
+
     private boolean isInsetsDispatchActive() {
+        if (shouldPreferFallbackImeDriver()) {
+            return false;
+        }
         return SystemClock.uptimeMillis() - lastInsetsDispatchUptime <= INSETS_PRIORITY_HOLD_MS;
+    }
+
+    private void applyImeLiftFromSource(int lift, int source) {
+        int effectiveSource = source;
+        if (shouldPreferFallbackImeDriver() && source == IME_DRIVER_INSETS) {
+            effectiveSource = IME_DRIVER_FALLBACK;
+        }
+        int normalizedLift = Math.max(0, lift);
+        if (effectiveSource == IME_DRIVER_FALLBACK && (imeDriver == IME_DRIVER_INSETS || isInsetsDispatchActive())) {
+            return;
+        }
+        if (effectiveSource == IME_DRIVER_INSETS) {
+            imeDriver = IME_DRIVER_INSETS;
+            stopImeProbe();
+        } else if (effectiveSource == IME_DRIVER_FALLBACK) {
+            if (imeDriver == IME_DRIVER_NONE) {
+                imeDriver = IME_DRIVER_FALLBACK;
+            }
+        } else {
+            imeDriver = IME_DRIVER_NONE;
+        }
+        applyComposerImeOffset(normalizedLift);
+        applyChatScrollBottomPadding(normalizedLift);
+        anchorChatToBottomIfNeeded();
     }
 
     private void applyImeInsetBehavior() {
@@ -629,9 +1390,18 @@ public class AiChatFragment extends Fragment {
             Insets navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
             Insets gestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures());
             int imeBottom = computeEffectiveImeBottom(root, insets);
+            if (imeVisible && imeBottom > 0) {
+                markInsetsDispatched();
+            }
+            int appBottomNavHeight = getMainBottomNavEffectiveHeight();
 
-            // 只在IME未弹出时，才给root加底部padding（用于底部导航栏/手势指示器）
-            int targetBottomPadding = imeVisible ? 0 : Math.max(navBars.bottom, gestureInsets.bottom);
+            // 在主界面 fragment 中，底部空间由应用底栏占用；仅在无应用底栏时回退系统底 inset。
+            int targetBottomPadding;
+            if (appBottomNavHeight > 0) {
+                targetBottomPadding = 0;
+            } else {
+                targetBottomPadding = imeVisible ? 0 : Math.max(navBars.bottom, gestureInsets.bottom);
+            }
 
             if (root.getPaddingTop() != statusBars.top || root.getPaddingBottom() != targetBottomPadding) {
                 root.setPadding(
@@ -643,23 +1413,26 @@ public class AiChatFragment extends Fragment {
             }
             applyHistoryDrawerInsets(statusBars.top);
 
-            int lift = imeVisible ? computeComposerLiftForIme(imeBottom) : 0;
+            int lift = (imeVisible && imeBottom > 0) ? computeComposerLiftForIme(root, imeBottom) : 0;
             // 使用标准 WindowInsets + WindowInsetsAnimation 流程：
             // 动画中由 onProgress 驱动，稳态由 onApplyWindowInsets 收敛。
             if (!imeAnimationRunning) {
-                applyComposerImeOffset(lift);
-                applyChatScrollBottomPadding(lift);
-                anchorChatToBottomIfNeeded();
+                if (imeVisible && imeBottom > 0) {
+                    applyImeLiftFromSource(lift, IME_DRIVER_INSETS);
+                } else if (!imeVisible) {
+                    applyImeLiftFromSource(0, IME_DRIVER_NONE);
+                }
             }
 
             if (imeVisible && !lastImeVisible) {
                 if (pendingBottomScrollOnImeOpen && chatScroll != null) {
-                    chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+                    scrollChatToBottom();
                 }
                 pendingBottomScrollOnImeOpen = false;
             } else if (!imeVisible && lastImeVisible) {
                 keepChatAnchoredToBottomOnIme = false;
                 pendingBottomScrollOnImeOpen = false;
+                stopImeProbe();
             }
             lastImeVisible = imeVisible;
 
@@ -690,10 +1463,11 @@ public class AiChatFragment extends Fragment {
                         }
                         if (hasImeAnimationRunning) {
                             int imeBottom = computeEffectiveImeBottom(root, insets);
-                            int lift = computeComposerLiftForIme(imeBottom);
-                            applyComposerImeOffset(lift);
-                            applyChatScrollBottomPadding(lift);
-                            anchorChatToBottomIfNeeded();
+                            if (imeBottom > 0) {
+                                markInsetsDispatched();
+                                int lift = computeComposerLiftForIme(root, imeBottom);
+                                applyImeLiftFromSource(lift, IME_DRIVER_INSETS);
+                            }
                         }
                         return insets;
                     }
@@ -708,15 +1482,18 @@ public class AiChatFragment extends Fragment {
                                     ? 0
                                     : computeEffectiveImeBottom(root, currentInsets);
                             imeAnimationRunning = false;
-                            int lift = imeVisibleNow ? computeComposerLiftForIme(imeBottomNow) : 0;
-                            applyComposerImeOffset(lift);
-                            applyChatScrollBottomPadding(lift);
-                            anchorChatToBottomIfNeeded();
+                            if (imeVisibleNow && imeBottomNow > 0) {
+                                int lift = computeComposerLiftForIme(root, imeBottomNow);
+                                applyImeLiftFromSource(lift, IME_DRIVER_INSETS);
+                            } else {
+                                applyImeLiftFromSource(0, IME_DRIVER_NONE);
+                            }
                             ViewCompat.requestApplyInsets(root);
                         }
                     }
                 });
 
+        setupImeGlobalLayoutFallback(root);
         ViewCompat.requestApplyInsets(root);
     }
 
@@ -762,7 +1539,8 @@ public class AiChatFragment extends Fragment {
                 }
 
                 // WindowInsets 正常分发时，优先由其驱动动画，probe 仅作兜底。
-                if (isInsetsDispatchActive()) {
+                boolean preferFallback = shouldPreferFallbackImeDriver();
+                if (!preferFallback && (imeDriver == IME_DRIVER_INSETS || isInsetsDispatchActive())) {
                     if (SystemClock.uptimeMillis() < imeProbeDeadlineUptime) {
                         streamHandler.postDelayed(this, IME_PROBE_INTERVAL_MS);
                     } else {
@@ -788,10 +1566,19 @@ public class AiChatFragment extends Fragment {
                     imeBottom = fallbackVisibleHeight;
                 }
 
-                int lift = imeLikelyVisible ? computeComposerLiftForIme(imeBottom) : 0;
-                applyComposerImeOffset(lift);
-                applyChatScrollBottomPadding(lift);
-                anchorChatToBottomIfNeeded();
+                if (imeVisibleByInsets && imeBottom > 0) {
+                    int lift = computeComposerLiftForIme(probeRoot, imeBottom);
+                    applyImeLiftFromSource(lift, IME_DRIVER_INSETS);
+                    stopImeProbe();
+                    return;
+                }
+
+                if (imeLikelyVisible) {
+                    int lift = computeComposerLiftForIme(probeRoot, imeBottom);
+                    applyImeLiftFromSource(lift, IME_DRIVER_FALLBACK);
+                } else {
+                    applyImeLiftFromSource(0, IME_DRIVER_NONE);
+                }
 
                 boolean keepRunning = SystemClock.uptimeMillis() < imeProbeDeadlineUptime;
                 if (keepRunning) {
@@ -824,7 +1611,8 @@ public class AiChatFragment extends Fragment {
                 return;
             }
 
-            if (isInsetsDispatchActive()) {
+            boolean preferFallback = shouldPreferFallbackImeDriver();
+            if (!preferFallback && (imeDriver == IME_DRIVER_INSETS || isInsetsDispatchActive())) {
                 return;
             }
 
@@ -845,11 +1633,17 @@ public class AiChatFragment extends Fragment {
             } else {
                 imeBottomForLift = 0;
             }
-            int lift = computeComposerLiftForIme(imeBottomForLift);
 
-            applyComposerImeOffset(lift);
-            applyChatScrollBottomPadding(lift);
-            anchorChatToBottomIfNeeded();
+            if (imeVisibleByInsets && imeBottomByInsets > 0) {
+                int lift = computeComposerLiftForIme(fallbackRoot, imeBottomByInsets);
+                applyImeLiftFromSource(lift, IME_DRIVER_INSETS);
+                stopImeProbe();
+            } else if (imeLikelyVisible) {
+                int lift = computeComposerLiftForIme(fallbackRoot, imeBottomForLift);
+                applyImeLiftFromSource(lift, IME_DRIVER_FALLBACK);
+            } else {
+                applyImeLiftFromSource(0, IME_DRIVER_NONE);
+            }
             lastGlobalKeyboardHeight = fallbackVisibleHeight;
             lastGlobalImeVisible = imeLikelyVisible;
         };
@@ -906,7 +1700,21 @@ public class AiChatFragment extends Fragment {
         if (!keepChatAnchoredToBottomOnIme || chatScroll == null) {
             return;
         }
-        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+        scrollChatToBottom();
+    }
+
+    private void scrollChatToBottom() {
+        if (chatScroll == null || chatContainer == null) {
+            return;
+        }
+        chatScroll.post(() -> {
+            if (chatScroll == null || chatContainer == null) {
+                return;
+            }
+            int contentBottom = chatContainer.getBottom() + chatContainer.getPaddingBottom();
+            int targetY = Math.max(0, contentBottom - chatScroll.getHeight() + chatScroll.getPaddingBottom());
+            chatScroll.scrollTo(0, targetY);
+        });
     }
 
     private boolean isChatNearBottom() {
@@ -934,6 +1742,8 @@ public class AiChatFragment extends Fragment {
                 }
                 clearHistoryHighlight();
                 activeSession = target;
+                clearPendingImage();
+                syncModelPickerWithActiveSession();
                 renderActiveSession();
                 historyAdapter.notifyDataSetChanged();
                 if (drawerAiChat != null) {
@@ -956,7 +1766,10 @@ public class AiChatFragment extends Fragment {
         session.titleFromAi = false;
         session.updatedAt = System.currentTimeMillis();
         session.messages = new ArrayList<>();
+        session.modelId = resolveDefaultModelId();
         activeSession = session;
+        clearPendingImage();
+        syncModelPickerWithActiveSession();
         chatContainer.removeAllViews();
         refreshHistoryRows();
         refreshAiStatus();
@@ -973,6 +1786,10 @@ public class AiChatFragment extends Fragment {
         ChatSession latest = sessions.get(0);
         if (isUntouchedSession(latest)) {
             activeSession = latest;
+            if (TextUtils.isEmpty(activeSession.modelId)) {
+                activeSession.modelId = resolveDefaultModelId();
+            }
+            syncModelPickerWithActiveSession();
             renderActiveSession();
             return;
         }
@@ -994,6 +1811,7 @@ public class AiChatFragment extends Fragment {
     private void renderActiveSession() {
         chatContainer.removeAllViews();
         if (activeSession == null || activeSession.messages == null || activeSession.messages.isEmpty()) {
+            syncModelPickerWithActiveSession();
             refreshAiStatus();
             return;
         }
@@ -1006,10 +1824,15 @@ public class AiChatFragment extends Fragment {
                 addSystemMessage(one.content, false);
                 continue;
             }
+            if (!TextUtils.isEmpty(one.imagePath)) {
+                addImageBubble(isUser, parseImagePaths(one.imagePath), one.content, false, i);
+                continue;
+            }
             addBubble(isUser, one.content, false, false, i);
         }
+        syncModelPickerWithActiveSession();
         refreshAiStatus();
-        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+        scrollChatToBottom();
     }
 
     private void refreshHistoryRows() {
@@ -1111,6 +1934,7 @@ public class AiChatFragment extends Fragment {
                     session.title = obj.optString("title", "新对话");
                     session.titleFromAi = obj.optBoolean("titleFromAi", !TextUtils.isEmpty(session.title) && !"新对话".equals(session.title));
                     session.updatedAt = obj.optLong("updatedAt", System.currentTimeMillis());
+                    session.modelId = obj.optString("modelId", resolveDefaultModelId());
                     session.messages = new ArrayList<>();
                     JSONArray msgArr = obj.optJSONArray("messages");
                     if (msgArr != null) {
@@ -1120,7 +1944,8 @@ public class AiChatFragment extends Fragment {
                             ChatMessage msg = new ChatMessage();
                             msg.role = msgObj.optString("role", "assistant");
                             msg.content = msgObj.optString("content", "");
-                            if (!TextUtils.isEmpty(msg.content)) {
+                            msg.imagePath = msgObj.optString("imagePath", "");
+                            if (!TextUtils.isEmpty(msg.content) || !TextUtils.isEmpty(msg.imagePath)) {
                                 session.messages.add(msg);
                             }
                         }
@@ -1150,12 +1975,14 @@ public class AiChatFragment extends Fragment {
                 obj.put("title", safe(one.title));
                 obj.put("titleFromAi", one.titleFromAi);
                 obj.put("updatedAt", one.updatedAt);
+                obj.put("modelId", safe(one.modelId));
                 JSONArray msgArr = new JSONArray();
                 if (one.messages != null) {
                     for (ChatMessage msg : one.messages) {
                         JSONObject msgObj = new JSONObject();
                         msgObj.put("role", safe(msg.role));
                         msgObj.put("content", safe(msg.content));
+                        msgObj.put("imagePath", safe(msg.imagePath));
                         msgArr.put(msgObj);
                     }
                 }
@@ -1204,11 +2031,19 @@ public class AiChatFragment extends Fragment {
         if (session == null) {
             return false;
         }
-        String title = safe(session.title).trim();
-        if (title.isEmpty() || "新对话".equals(title) || !session.titleFromAi) {
+        if (countNonEmptyMessages(session) < 2) {
             return false;
         }
-        return countNonEmptyMessages(session) >= 2;
+        String title = safe(session.title).trim();
+        if (title.isEmpty() || "新对话".equals(title)) {
+            String fallbackTitle = deriveFallbackSessionTitle(session);
+            if (!TextUtils.isEmpty(fallbackTitle) && !"新对话".equals(fallbackTitle)) {
+                session.title = fallbackTitle;
+                session.titleFromAi = false;
+                title = fallbackTitle;
+            }
+        }
+        return !title.isEmpty() && !"新对话".equals(title);
     }
 
     private int countNonEmptyMessages(ChatSession session) {
@@ -1217,27 +2052,85 @@ public class AiChatFragment extends Fragment {
         }
         int count = 0;
         for (ChatMessage msg : session.messages) {
-            if (msg != null && !TextUtils.isEmpty(msg.content)) {
+            if (msg != null && (!TextUtils.isEmpty(msg.content) || !TextUtils.isEmpty(msg.imagePath))) {
                 count++;
             }
         }
         return count;
     }
 
+    @NonNull
+    private String deriveFallbackSessionTitle(@Nullable ChatSession session) {
+        if (session == null || session.messages == null || session.messages.isEmpty()) {
+            return "新对话";
+        }
+        for (ChatMessage msg : session.messages) {
+            if (msg == null) {
+                continue;
+            }
+            String role = safe(msg.role).trim().toLowerCase(Locale.ROOT);
+            if (!"user".equals(role)) {
+                continue;
+            }
+
+            String normalizedText = normalizeTitleCandidate(msg.content);
+            if (!normalizedText.isEmpty()) {
+                return normalizedText;
+            }
+
+            if (!TextUtils.isEmpty(msg.imagePath)) {
+                return "图片对话";
+            }
+        }
+        return "新对话";
+    }
+
+    @NonNull
+    private String normalizeTitleCandidate(@Nullable String raw) {
+        String normalized = safe(raw)
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .trim()
+                .replaceAll("\\s+", " ");
+        if (normalized.isEmpty() || normalized.startsWith("/")) {
+            return "";
+        }
+        final int maxLen = 18;
+        if (normalized.length() > maxLen) {
+            return normalized.substring(0, maxLen) + "...";
+        }
+        return normalized;
+    }
+
     private void appendMessageToHistory(boolean isUser, String text) {
-        appendMessageToHistoryByRole(isUser ? "user" : "assistant", text);
+        appendMessageToHistoryByRole(isUser ? "user" : "assistant", text, null);
+    }
+
+    private void appendMessageToHistory(boolean isUser, String text, @Nullable List<String> imagePaths) {
+        appendMessageToHistoryByRole(isUser ? "user" : "assistant", text, serializeImagePaths(imagePaths));
     }
 
     private void appendMessageToHistoryByRole(@NonNull String role, String text) {
-        if (TextUtils.isEmpty(text)) {
+        appendMessageToHistoryByRole(role, text, null);
+    }
+
+    private void appendMessageToHistoryByRole(@NonNull String role, String text, @Nullable String imagePath) {
+        if (TextUtils.isEmpty(text) && TextUtils.isEmpty(imagePath)) {
             return;
         }
         if (activeSession == null) {
             startNewSession(false);
         }
+        if (activeSession == null) {
+            return;
+        }
+        if (TextUtils.isEmpty(activeSession.modelId)) {
+            activeSession.modelId = resolveDefaultModelId();
+        }
         ChatMessage msg = new ChatMessage();
         msg.role = role;
-        msg.content = text;
+        msg.content = safe(text);
+        msg.imagePath = safe(imagePath);
         if (activeSession.messages == null) {
             activeSession.messages = new ArrayList<>();
         }
@@ -1292,7 +2185,8 @@ public class AiChatFragment extends Fragment {
         int outline = UiStyleHelper.resolveOutlineColor(ctx());
         int accent = UiStyleHelper.resolveAccentColor(ctx());
         int accentFill = ColorUtils.blendARGB(accent, Color.WHITE, 0.08f);
-        int glass = UiStyleHelper.resolveGlassCardColor(ctx());
+        int fieldBg = ColorUtils.blendARGB(UiStyleHelper.resolveGlassCardColor(ctx()), UiStyleHelper.resolvePageBackgroundColor(ctx()), 0.12f);
+        int fullscreenBg = ColorUtils.blendARGB(UiStyleHelper.resolvePageBackgroundColor(ctx()), Color.WHITE, isDarkMode() ? 0.10f : 0.92f);
 
         if (composerCard != null) {
             composerCard.setCardBackgroundColor(Color.TRANSPARENT);
@@ -1303,19 +2197,67 @@ public class AiChatFragment extends Fragment {
         }
         if (composerInner != null) {
             GradientDrawable composerBg = new GradientDrawable();
-            composerBg.setCornerRadius(dp(26));
-            composerBg.setColor(glass);
+            composerBg.setCornerRadius(dp(28));
+            composerBg.setColor(fieldBg);
             composerBg.setStroke(dp(1), outline);
             composerInner.setBackground(composerBg);
             composerInner.setClipToOutline(true);
         }
         if (etPrompt != null) {
             etPrompt.setTextColor(onSurface);
-            etPrompt.setHintTextColor(ColorUtils.setAlphaComponent(onSurface, 136));
+            etPrompt.setHintTextColor(ColorUtils.setAlphaComponent(onSurface, 146));
+            etPrompt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f);
+        }
+        if (acModelPicker != null) {
+            int pickerText = ColorUtils.setAlphaComponent(onSurface, 184);
+            acModelPicker.setTextColor(pickerText);
+            acModelPicker.setHintTextColor(ColorUtils.setAlphaComponent(pickerText, 138));
+            acModelPicker.setBackground(null);
+            GradientDrawable dropdownBg = new GradientDrawable();
+            dropdownBg.setShape(GradientDrawable.RECTANGLE);
+            dropdownBg.setCornerRadius(dp(14));
+            int dropdownFill = ColorUtils.blendARGB(UiStyleHelper.resolvePageBackgroundColor(ctx()), Color.WHITE, isDarkMode() ? 0.08f : 0.92f);
+            dropdownBg.setColor(dropdownFill);
+            dropdownBg.setStroke(dp(1), ColorUtils.setAlphaComponent(onSurface, 34));
+            acModelPicker.setDropDownBackgroundDrawable(dropdownBg);
+        }
+        if (btnAddImage != null) {
+            btnAddImage.setImageTintList(android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 196)));
+            btnAddImage.setBackgroundTintList(android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 20)));
+        }
+        if (btnRemovePendingImage != null) {
+            btnRemovePendingImage.setImageTintList(android.content.res.ColorStateList.valueOf(ContextCompat.getColor(ctx(), R.color.ai_close_button_icon)));
+        }
+        if (etPromptFullscreen != null) {
+            etPromptFullscreen.setTextColor(onSurface);
+            etPromptFullscreen.setHintTextColor(ColorUtils.setAlphaComponent(onSurface, 146));
+            etPromptFullscreen.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f);
+        }
+        if (composerFullscreenPanel != null) {
+            GradientDrawable fullscreenPanelBg = new GradientDrawable();
+            float corner = dp(22);
+            fullscreenPanelBg.setCornerRadii(new float[]{corner, corner, corner, corner, 0f, 0f, 0f, 0f});
+            fullscreenPanelBg.setColor(fullscreenBg);
+            fullscreenPanelBg.setStroke(dp(1), ColorUtils.setAlphaComponent(onSurface, 26));
+            composerFullscreenPanel.setBackground(fullscreenPanelBg);
+        }
+        if (btnExpandComposer != null) {
+            btnExpandComposer.setImageTintList(android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 172)));
+        }
+        if (btnCollapseComposer != null) {
+            btnCollapseComposer.setImageTintList(android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 172)));
+        }
+        if (tvComposerClear != null) {
+            tvComposerClear.setTextColor(accent);
         }
         if (btnSend != null) {
             btnSend.setBackgroundTintList(android.content.res.ColorStateList.valueOf(accentFill));
             btnSend.setImageTintList(android.content.res.ColorStateList.valueOf(pickReadableTextColor(accentFill)));
+            updateSendButtonMode(isAiConversationRunning());
+        }
+        if (btnSendFullscreen != null) {
+            btnSendFullscreen.setBackgroundTintList(android.content.res.ColorStateList.valueOf(accentFill));
+            btnSendFullscreen.setImageTintList(android.content.res.ColorStateList.valueOf(pickReadableTextColor(accentFill)));
             updateSendButtonMode(isAiConversationRunning());
         }
         if (btnOpenHistory != null) {
@@ -1532,6 +2474,7 @@ public class AiChatFragment extends Fragment {
         sessions.add(0, session);
         if (session == activeSession) {
             activeSession = sessions.get(0);
+            syncModelPickerWithActiveSession();
         }
         refreshHistoryRows();
         saveHistory();
@@ -1547,6 +2490,7 @@ public class AiChatFragment extends Fragment {
             ensureGreetingForActiveSession();
         } else if (removed == activeSession) {
             activeSession = sessions.get(0);
+            syncModelPickerWithActiveSession();
             renderActiveSession();
         }
 
@@ -1569,27 +2513,66 @@ public class AiChatFragment extends Fragment {
             return;
         }
 
-        String userText = etPrompt.getText() == null ? "" : etPrompt.getText().toString().trim();
-        if (userText.isEmpty()) {
+        EditText activeInput = getActivePromptInput();
+        if (activeInput == null) {
+            return;
+        }
+        String rawUserText = activeInput.getText() == null ? "" : activeInput.getText().toString().trim();
+        final boolean hasImage = hasPendingImage();
+        if (rawUserText.isEmpty() && !hasImage) {
+            return;
+        }
+        if (rawUserText.isEmpty() && hasImage) {
+            Toast.makeText(ctx(), "请先输入文字后再发送图片", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        AiConfigStore.AiModelConfig selectedModel = resolveModelForCurrentSession();
+        if (selectedModel == null) {
+            addBubble(false, "请先到“设置 -> AI接入”添加模型。", false);
+            return;
+        }
+        if (TextUtils.isEmpty(selectedModel.apiKey)) {
+            addBubble(false, "请先到“设置 -> AI接入”为当前模型配置 API Key。", false);
+            return;
+        }
+        if (TextUtils.isEmpty(selectedModel.modelName)) {
+            addBubble(false, "请先到“设置 -> AI接入”填写模型名称。", false);
+            return;
+        }
+        if (hasImage && !selectedModel.multimodal) {
+            Toast.makeText(ctx(), "当前模型未启用多模态，请到模型设置中开启后重试", Toast.LENGTH_SHORT).show();
             return;
         }
 
         final boolean requestTitleInFinalAnswer = shouldRequestModelTitleForCurrentTurn();
+        final String modelPromptText = rawUserText;
+        final List<String> imagesForRequest = hasImage
+                ? new ArrayList<>(pendingImagePaths.subList(0, Math.min(4, pendingImagePaths.size())))
+                : java.util.Collections.emptyList();
 
-        addBubble(true, userText, false);
-        etPrompt.setText("");
+        if (hasImage) {
+            addImageBubble(true, imagesForRequest, rawUserText, true, -1);
+        } else {
+            addBubble(true, rawUserText, false);
+        }
+        clearPromptInput();
+        clearPendingImage();
+        if (composerFullscreenMode) {
+            setComposerFullscreenMode(false);
+        }
 
-        if ("/notes".equalsIgnoreCase(userText)) {
+        if (!hasImage && "/notes".equalsIgnoreCase(rawUserText)) {
             addBubble(false, NoteSkillManager.readNotes(ctx()), false);
             return;
         }
-        if (userText.startsWith("/note ")) {
-            String result = NoteSkillManager.appendNote(ctx(), userText.substring(6));
+        if (!hasImage && rawUserText.startsWith("/note ")) {
+            String result = NoteSkillManager.appendNote(ctx(), rawUserText.substring(6));
             addBubble(false, result, false);
             return;
         }
-        if (userText.startsWith("/note-del ")) {
-            String arg = userText.substring(10).trim();
+        if (!hasImage && rawUserText.startsWith("/note-del ")) {
+            String arg = rawUserText.substring(10).trim();
             String result;
             if (arg.matches("\\d+")) {
                 result = NoteSkillManager.deleteNoteByIndex(ctx(), Integer.parseInt(arg));
@@ -1599,8 +2582,8 @@ public class AiChatFragment extends Fragment {
             addBubble(false, result, false);
             return;
         }
-        if (userText.startsWith("/note-edit ")) {
-            String[] parts = userText.substring(11).trim().split("\\s+", 2);
+        if (!hasImage && rawUserText.startsWith("/note-edit ")) {
+            String[] parts = rawUserText.substring(11).trim().split("\\s+", 2);
             if (parts.length < 2 || !parts[0].matches("\\d+")) {
                 addBubble(false, "修改失败：命令格式应为 /note-edit <序号> <内容>", false);
                 return;
@@ -1610,26 +2593,18 @@ public class AiChatFragment extends Fragment {
             addBubble(false, result, false);
             return;
         }
-        if ("/note-clear".equalsIgnoreCase(userText)) {
+        if (!hasImage && "/note-clear".equalsIgnoreCase(rawUserText)) {
             addBubble(false, NoteSkillManager.clearNotes(ctx()), false);
             return;
         }
-        if (userText.startsWith("/cmd ")) {
-            String cmd = userText.substring(5).trim();
-            SkillCommandCenter.CommandBatchResult one = SkillCommandCenter.executeCommandsWithFeedback(ctx(), java.util.Collections.singletonList(cmd));
+        if (!hasImage && rawUserText.startsWith("/cmd ")) {
+            String cmd = rawUserText.substring(5).trim();
+            List<String> manualCommands = SkillCommandCenter.extractCommands("CMD: " + cmd);
+            if (manualCommands.isEmpty()) {
+                manualCommands = java.util.Collections.singletonList(cmd);
+            }
+            SkillCommandCenter.CommandBatchResult one = SkillCommandCenter.executeCommandsWithFeedback(ctx(), manualCommands);
             addSystemMessage(one.userFeedback, true);
-            return;
-        }
-
-        String apiKey = AiConfigStore.getApiKey(ctx());
-        if (apiKey.isEmpty()) {
-            addBubble(false, "请先到“设置 -> AI接入”配置API Key。", false);
-            return;
-        }
-
-        String configuredModel = AiConfigStore.getModel(ctx());
-        if (configuredModel.isEmpty()) {
-            addBubble(false, "请先到“设置 -> AI接入”填写模型名或接入点 ID。", false);
             return;
         }
 
@@ -1637,30 +2612,51 @@ public class AiChatFragment extends Fragment {
         updateSendButtonMode(true);
         addBubble(false, "思考中...", true);
 
-        final String provider = AiConfigStore.getProvider(ctx());
-        final String baseUrl = AiConfigStore.getBaseUrl(ctx());
-        final String model = configuredModel;
+        final String provider = selectedModel.provider;
+        final String baseUrl = selectedModel.baseUrl;
+        final String model = selectedModel.modelName;
+        final String apiKey = selectedModel.apiKey;
 
         Thread worker = new Thread(() -> {
             String reply = "";
             boolean cancelled = false;
             try {
+                if (hasImage) {
+                    Log.i(TAG, "multimodal request start token=" + requestToken
+                            + ", model=" + safe(model)
+                            + ", provider=" + safe(provider)
+                            + ", imageCount=" + imagesForRequest.size()
+                            + ", promptLen=" + modelPromptText.length());
+                }
                 ensureAiRequestActiveOrThrow(requestToken);
                 reply = runModelWithSkillCommands(
                         provider,
                         baseUrl,
                         apiKey,
                         model,
-                        userText,
+                        modelPromptText,
                         requestTitleInFinalAnswer,
-                        requestToken
+                        requestToken,
+                        imagesForRequest
                 );
                 ensureAiRequestActiveOrThrow(requestToken);
+                if (hasImage) {
+                    Log.i(TAG, "multimodal request finish token=" + requestToken
+                            + ", replyLen=" + safe(reply).length());
+                }
             } catch (InterruptedException stopEx) {
                 cancelled = true;
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                if (hasImage) {
+                    Log.e(TAG, "multimodal request failed token=" + requestToken
+                            + ", reason=" + safe(e.getMessage()), e);
+                }
                 if (isAiRequestActive(requestToken)) {
-                    reply = "请求失败：" + e.getMessage();
+                    String reason = e.getMessage();
+                    if (TextUtils.isEmpty(reason)) {
+                        reason = hasImage ? "图文请求异常中断，请重试并尽量缩小图片" : "请求过程异常中断，请重试";
+                    }
+                    reply = "请求失败：" + reason;
                 } else {
                     cancelled = true;
                 }
@@ -1690,6 +2686,14 @@ public class AiChatFragment extends Fragment {
                 String visibleReplyRaw = TextUtils.isEmpty(parsed.title) ? finalReply : parsed.replyBody;
                 String visibleReply = stripLeadingToolFeedbackLines(visibleReplyRaw);
                 if (TextUtils.isEmpty(visibleReply.trim())) {
+                    if (hasImage) {
+                        Log.w(TAG, "multimodal visible reply empty token=" + requestToken
+                                + ", rawReply=" + clipForLog(finalReply));
+                    }
+                    String fallback = hasImage
+                            ? "图文请求未返回可显示内容，请重试或缩小图片后再试。"
+                            : "模型未返回可显示内容，请稍后重试。";
+                    addBubble(false, fallback, false);
                     finishAiConversationRequest(requestToken);
                     return;
                 }
@@ -1713,10 +2717,11 @@ public class AiChatFragment extends Fragment {
         }
     }
 
-        private String runModelWithSkillCommands(String provider, String baseUrl, String apiKey, String model,
-                             String userText,
+    private String runModelWithSkillCommands(String provider, String baseUrl, String apiKey, String model,
+                                             String userText,
                                              boolean requestTitleInFinalAnswer,
-                                             long requestToken) throws Exception {
+                                             long requestToken,
+                                             @Nullable List<String> imagePaths) throws Exception {
         String skillIndex = SkillCommandCenter.buildSkillIndexFromFrontmatter(ctx());
         String systemPrompt = AiPromptCenter.buildSystemPrompt();
         boolean includeCurrentTime = true;
@@ -1728,10 +2733,13 @@ public class AiChatFragment extends Fragment {
         );
 
         ensureAiRequestActiveOrThrow(requestToken);
-        String assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, firstTurnPrompt);
+        String assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, firstTurnPrompt, imagePaths);
         ensureAiRequestActiveOrThrow(requestToken);
+        if (imagePaths != null && !imagePaths.isEmpty() && ("模型返回为空".equals(assistantOutput) || assistantOutput.startsWith("模型返回为空（"))) {
+            Log.w(TAG, "multimodal first round empty token=" + requestToken + ", output=" + clipForLog(assistantOutput));
+        }
 
-        for (int round = 1; round <= 10; round++) {
+        for (int round = 1; round <= MAX_TOOL_COMMAND_ROUNDS; round++) {
             ensureAiRequestActiveOrThrow(requestToken);
             List<String> commands = SkillCommandCenter.extractCommands(assistantOutput);
             if (commands.isEmpty()) {
@@ -1750,19 +2758,19 @@ public class AiChatFragment extends Fragment {
                 });
             }
 
-                String nextPrompt = AiPromptCenter.buildToolFollowupPrompt(
+            String nextPrompt = AiPromptCenter.buildToolFollowupPrompt(
                     userText,
                     assistantOutput,
                     commands,
                     commandResult,
                     requestTitleInFinalAnswer
-                );
+            );
             ensureAiRequestActiveOrThrow(requestToken);
-            assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, nextPrompt);
+            assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, nextPrompt, (List<String>) null);
             ensureAiRequestActiveOrThrow(requestToken);
         }
 
-        return assistantOutput + "\n\n(已达到最大命令轮次，若需继续请重试)";
+        return assistantOutput + "\n\n(已达到最大命令轮次" + MAX_TOOL_COMMAND_ROUNDS + "次，若需继续请重试)";
     }
 
     private void addSystemMessage(String text) {
@@ -1808,7 +2816,7 @@ public class AiChatFragment extends Fragment {
         tv.setLayoutParams(lp);
 
         chatContainer.addView(tv);
-        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+        scrollChatToBottom();
     }
 
     private boolean isToolFeedbackMessage(String text) {
@@ -1975,7 +2983,133 @@ public class AiChatFragment extends Fragment {
         }
 
         chatContainer.addView(tv);
-        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+        scrollChatToBottom();
+    }
+
+    private void addImageBubble(boolean isUser,
+                                @Nullable List<String> imagePaths,
+                                @Nullable String caption,
+                                boolean persistToHistory,
+                                int historyIndexHint) {
+        int historyIndex = historyIndexHint;
+        if (persistToHistory) {
+            appendMessageToHistory(isUser, safe(caption), imagePaths);
+            historyIndex = getActiveSessionLastMessageIndex();
+        }
+
+        maybeAddAssistantSeparator(isUser, false);
+
+        LinearLayout wrapper = new LinearLayout(ctx());
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setTag(new MessageViewMeta(isUser, safe(caption), false, historyIndex));
+        LinearLayout.LayoutParams wrapperLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wrapperLp.gravity = isUser ? Gravity.END : Gravity.START;
+        wrapperLp.setMargins(0, dp(8), 0, dp(8));
+        wrapper.setLayoutParams(wrapperLp);
+
+        List<String> validImagePaths = imagePaths == null ? java.util.Collections.emptyList() : imagePaths;
+        for (String onePath : validImagePaths) {
+            if (TextUtils.isEmpty(onePath)) {
+                continue;
+            }
+            File file = new File(onePath);
+            if (!file.exists()) {
+                continue;
+            }
+                MaterialCardView imageCard = new MaterialCardView(ctx());
+                imageCard.setCardElevation(0f);
+                imageCard.setRadius(dp(16));
+                imageCard.setStrokeWidth(dp(1));
+                imageCard.setStrokeColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 32));
+                int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.66f);
+                LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(maxWidth, ViewGroup.LayoutParams.WRAP_CONTENT);
+                if (wrapper.getChildCount() > 0) {
+                    cardLp.topMargin = dp(6);
+                }
+                imageCard.setLayoutParams(cardLp);
+
+                ImageView image = new ImageView(ctx());
+                image.setAdjustViewBounds(true);
+                image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                image.setImageURI(Uri.fromFile(file));
+                imageCard.setOnClickListener(v -> openImagePreview(file.getAbsolutePath()));
+                image.setOnClickListener(v -> openImagePreview(file.getAbsolutePath()));
+                imageCard.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                wrapper.addView(imageCard);
+        }
+
+        if (!TextUtils.isEmpty(caption)) {
+            TextView captionView = new TextView(ctx());
+            captionView.setTextSize(isUser ? 15f : 16f);
+            captionView.setLineSpacing(0f, isUser ? 1.08f : 1.2f);
+            if (isUser) {
+                captionView.setText(normalizePlainText(caption));
+                captionView.setTextColor(pickTextColor(true));
+                int pad = dp(14);
+                captionView.setPadding(pad, pad, pad, pad);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setCornerRadius(dp(20));
+                bg.setColor(pickBubbleColor(true));
+                bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 36));
+                captionView.setBackground(bg);
+                LinearLayout.LayoutParams captionLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                captionLp.topMargin = dp(6);
+                captionView.setLayoutParams(captionLp);
+            } else {
+                markwon.setMarkdown(captionView, normalizeMarkdown(caption));
+                captionView.setTextColor(UiStyleHelper.resolveOnSurfaceColor(ctx()));
+                captionView.setPadding(0, dp(4), 0, 0);
+                LinearLayout.LayoutParams captionLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                captionView.setLayoutParams(captionLp);
+            }
+            applyNativeLongPressTextMenu(captionView);
+            bindMessageMetadata(captionView, isUser, safe(caption), historyIndex);
+            wrapper.addView(captionView);
+        }
+
+        if (wrapper.getChildCount() == 0) {
+            return;
+        }
+
+        chatContainer.addView(wrapper);
+        scrollChatToBottom();
+    }
+
+    private String serializeImagePaths(@Nullable List<String> imagePaths) {
+        if (imagePaths == null || imagePaths.isEmpty()) {
+            return "";
+        }
+        JSONArray arr = new JSONArray();
+        for (String one : imagePaths) {
+            if (!TextUtils.isEmpty(one)) {
+                arr.put(one);
+            }
+        }
+        return arr.length() == 0 ? "" : arr.toString();
+    }
+
+    @NonNull
+    private List<String> parseImagePaths(@Nullable String raw) {
+        List<String> result = new ArrayList<>();
+        if (TextUtils.isEmpty(raw)) {
+            return result;
+        }
+        String trimmed = raw.trim();
+        if (trimmed.startsWith("[")) {
+            try {
+                JSONArray arr = new JSONArray(trimmed);
+                for (int i = 0; i < arr.length(); i++) {
+                    String one = arr.optString(i, "");
+                    if (!TextUtils.isEmpty(one)) {
+                        result.add(one);
+                    }
+                }
+                return result;
+            } catch (Exception ignored) {
+            }
+        }
+        result.add(trimmed);
+        return result;
     }
 
     private TextView addAssistantStreamingBubble() {
@@ -1997,7 +3131,7 @@ public class AiChatFragment extends Fragment {
         tv.setLayoutParams(lp);
 
         chatContainer.addView(tv);
-        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+        scrollChatToBottom();
         return tv;
     }
 
@@ -2040,7 +3174,7 @@ public class AiChatFragment extends Fragment {
                 String partial = normalized.substring(0, cursor[0]);
                 if (streamingBubble != null) {
                     markwon.setMarkdown(streamingBubble, partial);
-                    chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+                    scrollChatToBottom();
                 }
                 if (cursor[0] < total) {
                     activeStreamTicker = this;
@@ -2069,8 +3203,17 @@ public class AiChatFragment extends Fragment {
         }
         MessageViewMeta meta = new MessageViewMeta(isUser, safe(rawText), false, historyIndex);
         bubbleView.setTag(meta);
+        applyNativeLongPressTextMenu(bubbleView);
         bubbleView.setOnTouchListener(null);
         bubbleView.setOnLongClickListener(null);
+    }
+
+    private void applyNativeLongPressTextMenu(@Nullable TextView bubbleView) {
+        if (bubbleView == null) {
+            return;
+        }
+        bubbleView.setTextIsSelectable(true);
+        bubbleView.setLongClickable(true);
     }
 
     private void removeTypingBubble() {
@@ -2191,15 +3334,39 @@ public class AiChatFragment extends Fragment {
         }
         int count = 0;
         for (ChatMessage msg : session.messages) {
-            if (msg != null && "user".equalsIgnoreCase(msg.role) && !TextUtils.isEmpty(msg.content)) {
+            if (msg != null
+                    && "user".equalsIgnoreCase(msg.role)
+                    && (!TextUtils.isEmpty(msg.content) || !TextUtils.isEmpty(msg.imagePath))) {
                 count++;
             }
         }
         return count;
     }
 
+    private String resolveDefaultModelId() {
+        if (!availableModels.isEmpty()) {
+            return safe(availableModels.get(0).id);
+        }
+        if (!isAdded()) {
+            return "";
+        }
+        List<AiConfigStore.AiModelConfig> models = AiConfigStore.getModels(ctx());
+        if (models.isEmpty()) {
+            return "";
+        }
+        return safe(models.get(0).id);
+    }
+
     private String safe(String text) {
         return text == null ? "" : text;
+    }
+
+    private String clipForLog(@Nullable String text) {
+        String normalized = safe(text).replace('\n', ' ').replace('\r', ' ');
+        if (normalized.length() <= 800) {
+            return normalized;
+        }
+        return normalized.substring(0, 800) + "...(truncated)";
     }
 
     private void applyPageVisualStyle() {
@@ -2214,6 +3381,10 @@ public class AiChatFragment extends Fragment {
     }
 
     public boolean handleBackPressed() {
+        if (composerFullscreenMode) {
+            setComposerFullscreenMode(false);
+            return true;
+        }
         if (drawerAiChat != null && drawerAiChat.isDrawerOpen(GravityCompat.START)) {
             drawerAiChat.closeDrawer(GravityCompat.START);
             return true;
@@ -2252,6 +3423,7 @@ public class AiChatFragment extends Fragment {
     private static final class ChatMessage {
         String role;
         String content;
+        String imagePath;
     }
 
     private static final class ChatSession {
@@ -2259,6 +3431,7 @@ public class AiChatFragment extends Fragment {
         String title;
         boolean titleFromAi;
         long updatedAt;
+        String modelId;
         List<ChatMessage> messages;
     }
 
@@ -2440,6 +3613,8 @@ public class AiChatFragment extends Fragment {
                     }
                     clearHistoryHighlight();
                     activeSession = target;
+                    clearPendingImage();
+                    syncModelPickerWithActiveSession();
                     renderActiveSession();
                     notifyDataSetChanged();
                     if (drawerAiChat != null) {

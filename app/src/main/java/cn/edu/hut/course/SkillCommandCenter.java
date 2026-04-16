@@ -3,6 +3,8 @@ package cn.edu.hut.course;
 import android.content.Context;
 import android.content.res.AssetManager;
 
+import cn.edu.hut.course.data.AgendaStorageManager;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,6 +22,7 @@ public final class SkillCommandCenter {
 
     private static final String SKILL_ROOT = "skills";
     private static final Pattern CMD_PATTERN = Pattern.compile(".*?(?i)CMD\\s*[:：]\\s*(.*)$");
+    private static final Pattern AGENDA_ID_PATTERN = Pattern.compile("\\[id=(\\d+)]");
 
     private SkillCommandCenter() {
     }
@@ -45,13 +48,14 @@ public final class SkillCommandCenter {
     }
 
     public static CommandBatchResult executeCommandsWithFeedback(Context context, List<String> commands) {
-        if (commands == null || commands.isEmpty()) {
+        List<String> normalizedCommands = normalizeBatchCommands(commands);
+        if (normalizedCommands.isEmpty()) {
             return new CommandBatchResult("无命令可执行", "无可执行操作");
         }
         StringBuilder modelSb = new StringBuilder();
         List<String> uiLines = new ArrayList<>();
         int index = 1;
-        for (String raw : commands) {
+        for (String raw : normalizedCommands) {
             SingleExecution single = executeSingle(context, raw);
             modelSb.append(index).append(". ").append(raw).append(" => ").append(single.modelResult).append("\n");
             if (single.userFeedback != null && !single.userFeedback.trim().isEmpty()) {
@@ -93,6 +97,26 @@ public final class SkillCommandCenter {
             return normalized + "。";
         }
         return "已完成：" + normalized + "。";
+    }
+
+    private static List<String> normalizeBatchCommands(List<String> commands) {
+        List<String> normalized = new ArrayList<>();
+        if (commands == null || commands.isEmpty()) {
+            return normalized;
+        }
+        for (String raw : commands) {
+            String text = raw == null ? "" : raw.trim();
+            if (text.isEmpty()) {
+                continue;
+            }
+            List<String> expanded = extractCommands("CMD: " + text);
+            if (expanded.isEmpty()) {
+                normalized.add(text);
+            } else {
+                normalized.addAll(expanded);
+            }
+        }
+        return normalized;
     }
 
     private static SingleExecution executeSingle(Context context, String rawCommand) {
@@ -174,9 +198,7 @@ public final class SkillCommandCenter {
             return new SingleExecution(result, "已按关键词查询日程");
         }
         if (lower.startsWith("agenda.create ")) {
-            String payload = cmd.substring("agenda.create ".length()).trim();
-            String result = AgendaSkillManager.create(context, payload);
-            return new SingleExecution(result, result.startsWith("创建成功") ? "已创建日程" : result);
+            return executeAgendaCreateWithVerification(context, cmd);
         }
         if (lower.startsWith("agenda.update ")) {
             String[] parts = cmd.split("\\s+", 3);
@@ -199,6 +221,51 @@ public final class SkillCommandCenter {
 
         String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>";
         return new SingleExecution(unknown, "存在不支持的命令");
+    }
+
+    private static SingleExecution executeAgendaCreateWithVerification(Context context, String cmd) {
+        String payload = cmd.substring("agenda.create ".length()).trim();
+        int beforeCount = AgendaStorageManager.loadAllAgendas(context).size();
+
+        String result = AgendaSkillManager.create(context, payload);
+        if (!result.startsWith("创建成功")) {
+            return new SingleExecution(result, result);
+        }
+        if (isAgendaCreatePersisted(context, result, beforeCount)) {
+            return new SingleExecution(result, "已创建日程");
+        }
+
+        String retryResult = AgendaSkillManager.create(context, payload);
+        if (!retryResult.startsWith("创建成功")) {
+            return new SingleExecution(retryResult, retryResult);
+        }
+        if (isAgendaCreatePersisted(context, retryResult, beforeCount)) {
+            return new SingleExecution(retryResult, "已创建日程");
+        }
+
+        String verifyFailed = "创建失败：写入校验未通过，请重试";
+        return new SingleExecution(verifyFailed, verifyFailed);
+    }
+
+    private static boolean isAgendaCreatePersisted(Context context, String result, int beforeCount) {
+        long createdId = extractAgendaId(result);
+        if (createdId > 0 && AgendaStorageManager.getAgenda(context, createdId) != null) {
+            return true;
+        }
+        return AgendaStorageManager.loadAllAgendas(context).size() > beforeCount;
+    }
+
+    private static long extractAgendaId(String result) {
+        String text = result == null ? "" : result;
+        Matcher matcher = AGENDA_ID_PATTERN.matcher(text);
+        if (!matcher.find()) {
+            return -1L;
+        }
+        try {
+            return Long.parseLong(matcher.group(1));
+        } catch (Exception ignored) {
+            return -1L;
+        }
     }
 
     private static String readSkillDetail(Context context, String skillName) {

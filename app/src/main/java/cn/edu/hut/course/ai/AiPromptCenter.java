@@ -20,6 +20,8 @@ public final class AiPromptCenter {
         system.append("可用命令: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>。\n");
         system.append("agenda.create/agenda.update 的 JSON 字段建议使用: title, description, location, date, start/end（也兼容 startTime/endTime）, priority, repeat, monthlyStrategy；时间格式统一为 HH:mm；priority/repeat/location 可省略，默认 low/none/空地点。\n");
         system.append("location 可留空；若为校内地点会自动标准化（楼栋+房间），否则按自定义地点保存。\n");
+        system.append("最多连续调用工具30轮；达到上限后停止工具调用，直接给出当前可得结论。\n");
+        system.append("除非用户明确要求删除/清空，否则不要调用 agenda.delete、note.delete、note.clear。\n");
         system.append("当信息足够时输出最终答复，不要输出CMD。\n");
         system.append("若本轮要继续调用工具，只输出CMD行，不要输出TITLE。\n");
         system.append("是否需要TITLE由用户提示中的[标题策略]决定。\n");
@@ -64,6 +66,7 @@ public final class AiPromptCenter {
         } else {
             nextPrompt.append("如果仍需要更多工具，继续输出CMD行；否则直接输出最终正文，不要输出TITLE行。\n");
         }
+        nextPrompt.append("最多可连续调用工具30轮；若已接近上限，优先收敛并直接回答。\n");
         nextPrompt.append("注意: 最终正文不要复述工具执行过程（如已查询/已调用），只保留结果与解释。\n");
 
         return nextPrompt.toString();
