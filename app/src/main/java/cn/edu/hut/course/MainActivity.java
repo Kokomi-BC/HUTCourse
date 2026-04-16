@@ -5126,6 +5126,29 @@ private void extractAllTables(String passedCookie) {
 
         String baseLocation = formatLocationBase(locationRaw);
 
+        ImageButton refreshBtn = new ImageButton(this);
+        refreshBtn.setImageResource(R.drawable.ic_refresh);
+        TypedValue selectableBg = new TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, selectableBg, true)) {
+            refreshBtn.setBackgroundResource(selectableBg.resourceId);
+        } else {
+            refreshBtn.setBackgroundColor(Color.TRANSPARENT);
+        }
+        refreshBtn.setPadding(dp(5), dp(5), dp(5), dp(5));
+        refreshBtn.setColorFilter(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        refreshBtn.setContentDescription("刷新位置");
+        refreshBtn.setFocusable(true);
+        LinearLayout.LayoutParams refreshLp = new LinearLayout.LayoutParams(dp(28), dp(28));
+        refreshLp.setMargins(0, 0, dp(4), 0);
+        refreshBtn.setLayoutParams(refreshLp);
+        if (refreshAction != null && !"未定".equals(baseLocation)) {
+            refreshBtn.setVisibility(View.VISIBLE);
+            refreshBtn.setOnClickListener(refreshAction);
+        } else {
+            refreshBtn.setVisibility(View.GONE);
+        }
+        valueContainer.addView(refreshBtn);
+
         TextView distanceTv = new TextView(this);
         distanceTv.setTextSize(12f);
         distanceTv.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
@@ -5150,28 +5173,6 @@ private void extractAllTables(String passedCookie) {
         valueTv.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(valueColor, 28), dp(14)));
         valueContainer.addView(valueTv);
 
-        ImageButton refreshBtn = new ImageButton(this);
-        refreshBtn.setImageResource(R.drawable.ic_refresh);
-        TypedValue selectableBg = new TypedValue();
-        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, selectableBg, true)) {
-            refreshBtn.setBackgroundResource(selectableBg.resourceId);
-        } else {
-            refreshBtn.setBackgroundColor(Color.TRANSPARENT);
-        }
-        refreshBtn.setPadding(dp(5), dp(5), dp(5), dp(5));
-        refreshBtn.setColorFilter(UiStyleHelper.resolveOnSurfaceVariantColor(this));
-        refreshBtn.setContentDescription("刷新位置");
-        refreshBtn.setFocusable(true);
-        LinearLayout.LayoutParams refreshLp = new LinearLayout.LayoutParams(dp(28), dp(28));
-        refreshLp.setMargins(dp(6), 0, 0, 0);
-        refreshBtn.setLayoutParams(refreshLp);
-        if (refreshAction != null && !"未定".equals(baseLocation)) {
-            refreshBtn.setVisibility(View.VISIBLE);
-            refreshBtn.setOnClickListener(refreshAction);
-        } else {
-            refreshBtn.setVisibility(View.GONE);
-        }
-        valueContainer.addView(refreshBtn);
         row.addView(valueContainer);
 
         if (editAction != null) {
