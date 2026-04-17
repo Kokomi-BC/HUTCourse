@@ -39,12 +39,22 @@ public final class AiGateway {
     private static final int IMAGE_CONNECT_TIMEOUT_MS = 30_000;
     private static final int IMAGE_READ_TIMEOUT_MS = 180_000;
 
+    public static final class RequestCacheHint {
+        public final String conversationId;
+        public final String promptCacheKey;
+
+        public RequestCacheHint(String conversationId, String promptCacheKey) {
+            this.conversationId = safe(conversationId).trim();
+            this.promptCacheKey = safe(promptCacheKey).trim();
+        }
+    }
+
     private AiGateway() {
     }
 
     public static String chat(String provider, String baseUrl, String apiKey, String model,
                               String systemPrompt, String userPrompt) throws Exception {
-        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, (List<String>) null);
+        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, (List<String>) null, null);
     }
 
     public static String chat(String provider, String baseUrl, String apiKey, String model,
@@ -53,42 +63,58 @@ public final class AiGateway {
         if (latestImagePath != null && !latestImagePath.trim().isEmpty()) {
             images.add(latestImagePath);
         }
-        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, images);
+        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, images, null);
     }
 
     public static String chat(String provider, String baseUrl, String apiKey, String model,
                               String systemPrompt, String userPrompt, List<String> imagePaths) throws Exception {
+        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, null);
+    }
+
+    public static String chat(String provider, String baseUrl, String apiKey, String model,
+                              String systemPrompt, String userPrompt, List<String> imagePaths,
+                              RequestCacheHint cacheHint) throws Exception {
         boolean hasImage = imagePaths != null && !imagePaths.isEmpty();
         if (AiConfigStore.PROVIDER_SDK.equals(provider)) {
             if (hasImage) {
                 // 现有 SDK 版本对多模态消息支持有限，图文请求统一走兼容接口。
-                return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths);
+                return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, cacheHint);
             }
             try {
-                return chatWithSdk(apiKey, model, systemPrompt, userPrompt);
+                return chatWithSdk(apiKey, model, systemPrompt, userPrompt, cacheHint);
             } catch (Exception sdkEx) {
                 // SDK 失败时回退到 OpenAI 兼容接口，保证可用性。
-                return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, null);
+                return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, null, cacheHint);
             }
         }
         if (hasImage) {
-            return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths);
+            return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, cacheHint);
         }
-        return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, null);
+        return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, null, cacheHint);
     }
 
-    private static String chatWithSdk(String apiKey, String model, String systemPrompt, String userPrompt) throws Exception {
+    private static String chatWithSdk(String apiKey, String model, String systemPrompt,
+                                      String userPrompt, RequestCacheHint cacheHint) throws Exception {
         OpenAiService service = new OpenAiService(apiKey, Duration.ofSeconds(45));
         try {
             List<ChatMessage> messages = new ArrayList<>();
             messages.add(new ChatMessage("system", systemPrompt));
             messages.add(new ChatMessage("user", userPrompt));
 
-            ChatCompletionRequest request = ChatCompletionRequest.builder()
+            ChatCompletionRequest.ChatCompletionRequestBuilder builder = ChatCompletionRequest.builder()
                     .model(model)
                     .messages(messages)
-                    .temperature(0.2)
-                    .build();
+                    .temperature(0.2);
+
+            if (cacheHint != null && !cacheHint.conversationId.isEmpty()) {
+                try {
+                    builder.getClass().getMethod("user", String.class).invoke(builder, cacheHint.conversationId);
+                } catch (Throwable ignored) {
+                    // 低版本 SDK 可能无 user 字段，忽略并继续。
+                }
+            }
+
+            ChatCompletionRequest request = builder.build();
 
             ChatCompletionResult result = service.createChatCompletion(request);
             if (result.getChoices() == null || result.getChoices().isEmpty() || result.getChoices().get(0).getMessage() == null) {
@@ -103,9 +129,12 @@ public final class AiGateway {
 
     private static String chatWithCurl(String baseUrl, String apiKey, String model,
                                        String systemPrompt, String userPrompt,
-                                       List<String> imagePaths) throws Exception {
+                                       List<String> imagePaths,
+                                       RequestCacheHint cacheHint) throws Exception {
         String endpoint = buildEndpoint(baseUrl, "/chat/completions");
         boolean hasImage = imagePaths != null && !imagePaths.isEmpty();
+        String conversationId = cacheHint == null ? "" : safe(cacheHint.conversationId);
+        String promptCacheKey = cacheHint == null ? "" : safe(cacheHint.promptCacheKey);
         int imageCount = Math.min(4, imagePaths == null ? 0 : imagePaths.size());
         long totalImageBytes = sumSourceImageBytes(imagePaths);
         HttpURLConnection conn = null;
@@ -113,6 +142,8 @@ public final class AiGateway {
             Log.i(TAG, "chatWithCurl start endpoint=" + endpoint
                     + ", model=" + safe(model)
                     + ", hasImage=" + hasImage
+                + ", conversationIdPresent=" + !conversationId.isEmpty()
+                + ", cacheKeyPresent=" + !promptCacheKey.isEmpty()
                     + ", imageCount=" + imageCount
                     + ", imageBytes=" + totalImageBytes
                     + ", promptLen=" + (userPrompt == null ? 0 : userPrompt.length()));
@@ -126,9 +157,19 @@ public final class AiGateway {
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("Accept", "application/json");
             conn.setRequestProperty("Connection", "close");
+            if (!conversationId.isEmpty()) {
+                conn.setRequestProperty("X-Conversation-Id", conversationId);
+                conn.setRequestProperty("X-Session-Id", conversationId);
+            }
+            if (!promptCacheKey.isEmpty()) {
+                conn.setRequestProperty("X-Prompt-Cache-Key", promptCacheKey);
+            }
 
             JSONObject payload = new JSONObject();
             payload.put("model", model);
+            if (!conversationId.isEmpty()) {
+                payload.put("user", conversationId);
+            }
             JSONArray messages = new JSONArray();
             messages.put(new JSONObject().put("role", "system").put("content", systemPrompt));
             if (hasImage) {

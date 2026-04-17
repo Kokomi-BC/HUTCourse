@@ -72,6 +72,8 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -103,6 +105,9 @@ public class AiChatFragment extends Fragment {
     private static final String KEY_CHAT_HISTORY_JSON = "history_json";
     private static final int MAX_HISTORY_SESSIONS = 30;
     private static final int MAX_TOOL_COMMAND_ROUNDS = 30;
+    private static final int MAX_MODEL_CONTEXT_MESSAGES = 12;
+    private static final int MAX_MODEL_CONTEXT_CHARS = 3200;
+    private static final int MAX_MODEL_CONTEXT_ITEM_CHARS = 280;
     private static final Pattern TITLE_PATTERN = Pattern.compile("^(?:TITLE|标题)\\s*[:：]\\s*(.+)$", Pattern.CASE_INSENSITIVE);
 
     private DrawerLayout drawerAiChat;
@@ -677,7 +682,7 @@ public class AiChatFragment extends Fragment {
     }
 
     private void refreshComposerDraftUi() {
-        boolean visible = isAiConversationRunning() || hasPromptDraft() || hasPendingImage();
+        boolean visible = true;
         if (btnSend != null) {
             btnSend.setVisibility(visible ? View.VISIBLE : View.GONE);
         }
@@ -2547,6 +2552,8 @@ public class AiChatFragment extends Fragment {
 
         final boolean requestTitleInFinalAnswer = shouldRequestModelTitleForCurrentTurn();
         final String modelPromptText = rawUserText;
+        final String contextAwarePromptText = buildContextAwarePromptText(modelPromptText);
+        final AiGateway.RequestCacheHint cacheHint = buildRequestCacheHint(selectedModel.modelName, contextAwarePromptText);
         final List<String> imagesForRequest = hasImage
                 ? new ArrayList<>(pendingImagePaths.subList(0, Math.min(4, pendingImagePaths.size())))
                 : java.util.Collections.emptyList();
@@ -2634,10 +2641,11 @@ public class AiChatFragment extends Fragment {
                         baseUrl,
                         apiKey,
                         model,
-                        modelPromptText,
+                    contextAwarePromptText,
                         requestTitleInFinalAnswer,
                         requestToken,
-                        imagesForRequest
+                    imagesForRequest,
+                    cacheHint
                 );
                 ensureAiRequestActiveOrThrow(requestToken);
                 if (hasImage) {
@@ -2717,11 +2725,147 @@ public class AiChatFragment extends Fragment {
         }
     }
 
+    private String buildContextAwarePromptText(String userText) {
+        String raw = safe(userText).trim();
+        if (raw.isEmpty()) {
+            return "";
+        }
+        String context = buildConversationContextSnippet(raw);
+        if (TextUtils.isEmpty(context)) {
+            return raw;
+        }
+        return "[历史对话上下文]\n"
+                + context
+                + "\n\n[当前用户问题]\n"
+                + raw;
+    }
+
+    private String buildConversationContextSnippet(String currentUserText) {
+        if (activeSession == null || activeSession.messages == null || activeSession.messages.isEmpty()) {
+            return "";
+        }
+
+        List<String> lines = new ArrayList<>();
+        int totalChars = 0;
+        int omitted = 0;
+        int skipTailIndex = -1;
+
+        String currentTrimmed = safe(currentUserText).trim();
+        int tailIndex = activeSession.messages.size() - 1;
+        if (tailIndex >= 0) {
+            ChatMessage tail = activeSession.messages.get(tailIndex);
+            if (tail != null
+                    && "user".equalsIgnoreCase(safe(tail.role))
+                    && TextUtils.equals(safe(tail.content).trim(), currentTrimmed)) {
+                skipTailIndex = tailIndex;
+            }
+        }
+
+        for (int i = activeSession.messages.size() - 1; i >= 0; i--) {
+            if (i == skipTailIndex) {
+                continue;
+            }
+            ChatMessage one = activeSession.messages.get(i);
+            if (one == null) {
+                continue;
+            }
+            String role = safe(one.role).trim().toLowerCase(Locale.ROOT);
+            boolean isUser = "user".equals(role);
+            boolean isAssistant = "assistant".equals(role);
+            if (!isUser && !isAssistant) {
+                continue;
+            }
+            if (isAssistant && isToolFeedbackMessage(one.content)) {
+                continue;
+            }
+
+            String body = compactForModelContext(one.content);
+            if (!TextUtils.isEmpty(one.imagePath)) {
+                body = body.isEmpty() ? "(发送了图片)" : "(发送了图片) " + body;
+            }
+            if (body.isEmpty()) {
+                continue;
+            }
+
+            String line = (isUser ? "用户: " : "助手: ") + body;
+            if (line.length() > MAX_MODEL_CONTEXT_ITEM_CHARS) {
+                line = line.substring(0, MAX_MODEL_CONTEXT_ITEM_CHARS) + "...";
+            }
+
+            if (lines.size() >= MAX_MODEL_CONTEXT_MESSAGES || totalChars + line.length() > MAX_MODEL_CONTEXT_CHARS) {
+                omitted++;
+                continue;
+            }
+
+            lines.add(line);
+            totalChars += line.length();
+        }
+
+        if (lines.isEmpty()) {
+            return "";
+        }
+
+        Collections.reverse(lines);
+        StringBuilder sb = new StringBuilder();
+        if (omitted > 0) {
+            sb.append("已省略更早 ").append(omitted).append(" 条历史消息。\n");
+        }
+        for (String line : lines) {
+            sb.append("- ").append(line).append('\n');
+        }
+        return sb.toString().trim();
+    }
+
+    private String compactForModelContext(@Nullable String text) {
+        String normalized = safe(text)
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (normalized.length() > MAX_MODEL_CONTEXT_ITEM_CHARS) {
+            return normalized.substring(0, MAX_MODEL_CONTEXT_ITEM_CHARS) + "...";
+        }
+        return normalized;
+    }
+
+    @NonNull
+    private AiGateway.RequestCacheHint buildRequestCacheHint(String model, String contextAwarePrompt) {
+        String conversationId = activeSession == null ? "" : safe(activeSession.id).trim();
+        if (conversationId.isEmpty()) {
+            conversationId = "local-" + System.currentTimeMillis();
+        }
+        String cacheSeed = safe(model) + "|" + safe(contextAwarePrompt);
+        String digest = sha256Hex(cacheSeed);
+        if (digest.length() > 24) {
+            digest = digest.substring(0, 24);
+        }
+        return new AiGateway.RequestCacheHint(conversationId, "chat-" + digest);
+    }
+
+    private String sha256Hex(String raw) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = md.digest(safe(raw).getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) {
+                sb.append(String.format(Locale.ROOT, "%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception ignored) {
+            return Integer.toHexString(safe(raw).hashCode());
+        }
+    }
+
     private String runModelWithSkillCommands(String provider, String baseUrl, String apiKey, String model,
                                              String userText,
                                              boolean requestTitleInFinalAnswer,
                                              long requestToken,
-                                             @Nullable List<String> imagePaths) throws Exception {
+                                             @Nullable List<String> imagePaths,
+                                             @Nullable AiGateway.RequestCacheHint cacheHint) throws Exception {
         String skillIndex = SkillCommandCenter.buildSkillIndexFromFrontmatter(ctx());
         String systemPrompt = AiPromptCenter.buildSystemPrompt();
         boolean includeCurrentTime = true;
@@ -2733,7 +2877,7 @@ public class AiChatFragment extends Fragment {
         );
 
         ensureAiRequestActiveOrThrow(requestToken);
-        String assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, firstTurnPrompt, imagePaths);
+        String assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, firstTurnPrompt, imagePaths, cacheHint);
         ensureAiRequestActiveOrThrow(requestToken);
         if (imagePaths != null && !imagePaths.isEmpty() && ("模型返回为空".equals(assistantOutput) || assistantOutput.startsWith("模型返回为空（"))) {
             Log.w(TAG, "multimodal first round empty token=" + requestToken + ", output=" + clipForLog(assistantOutput));
@@ -2766,7 +2910,7 @@ public class AiChatFragment extends Fragment {
                     requestTitleInFinalAnswer
             );
             ensureAiRequestActiveOrThrow(requestToken);
-            assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, nextPrompt, (List<String>) null);
+                assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, nextPrompt, (List<String>) null, cacheHint);
             ensureAiRequestActiveOrThrow(requestToken);
         }
 

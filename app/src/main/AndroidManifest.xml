@@ -35,6 +35,9 @@
             android:name=".AiImagePreviewActivity"
             android:exported="false" />
         <activity
+            android:name=".AgendaOverviewActivity"
+            android:exported="false" />
+        <activity
             android:name=".AiChatActivity"
             android:windowSoftInputMode="adjustNothing|stateHidden" />
 

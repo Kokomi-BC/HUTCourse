@@ -126,20 +126,23 @@ public class MainActivity extends AppCompatActivity {
     private static final int WEEK_OVERVIEW_BAR_MAX_HEIGHT_DP = 84;
     private static final int WEEK_OVERVIEW_TODAY_DOT_SIZE_DP = 6;
     private static final int WEEK_OVERVIEW_TODAY_DOT_GAP_DP = 6;
+    private static final int AGENDA_OVERVIEW_STATUS_ONGOING = 1;
+    private static final int AGENDA_OVERVIEW_STATUS_UPCOMING = 2;
+    private static final int AGENDA_OVERVIEW_STATUS_ENDED = 3;
 
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
     private com.google.android.material.card.MaterialCardView cardTodayWeekOverview;
-    private TextView tvMainTitle, tvEmptyHint, tvNextCourseNotice;
+    private TextView tvMainTitle, tvEmptyHint, tvNextCourseNotice, tvAgendaOverviewSummary, tvScheduleTitleDivider, tvScheduleAgendaEntry;
     private TextView tvTodayWeek, tvTodayDate, tvTodayWeekTotal, tvTodayWeekDone, tvNowTime;
     private TextView tvProfileName, tvProfileStudentId, tvProfileClass, tvProfileCollege;
-    private ImageButton btnCloseNextCourseNotice;
+    private ImageButton btnCloseNextCourseNotice, btnAgendaOverviewBack, btnAgendaOverviewAdd;
     private FloatingActionButton fabAddAgenda;
     private BottomNavigationView bottomNav;
     private View bottomNavHost;
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
-    private View pageSchedule, pageToday, pageAi, pageProfile, titleContainer, rootMain;
-    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip;
+    private View pageSchedule, pageToday, pageAi, pageProfile, pageAgenda, titleContainer, rootMain;
+    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer;
 
     private final List<Course> allCourses = new ArrayList<>();
     private int currentWeek = 1;
@@ -151,6 +154,9 @@ public class MainActivity extends AppCompatActivity {
     private int weekOverviewPreviewWeek = -1;
     private int weekOverviewPreviewDay = -1;
     private boolean todayEndedTimelineCollapsed = true;
+    private boolean agendaOngoingCollapsed = false;
+    private boolean agendaUpcomingCollapsed = false;
+    private boolean agendaEndedCollapsed = true;
     private int selectedNavItemId = R.id.nav_schedule;
     private int lastRealtimeWeek = -1;
     private int lastRealtimeDay = -1;
@@ -172,11 +178,18 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateTitle() {
         boolean scheduleVisible = pageSchedule != null && pageSchedule.getVisibility() == View.VISIBLE;
+        boolean titleVisible = scheduleVisible;
         if (tvMainTitle != null) {
-            tvMainTitle.setText(scheduleVisible ? ("第" + currentWeek + "周课表") : "");
+            tvMainTitle.setText(titleVisible ? ("第" + currentWeek + "周课表") : "");
+        }
+        if (tvScheduleTitleDivider != null) {
+            tvScheduleTitleDivider.setVisibility(titleVisible ? View.VISIBLE : View.GONE);
+        }
+        if (tvScheduleAgendaEntry != null) {
+            tvScheduleAgendaEntry.setVisibility(titleVisible ? View.VISIBLE : View.GONE);
         }
         if (titleContainer != null) {
-            titleContainer.setVisibility(scheduleVisible ? View.VISIBLE : View.GONE);
+            titleContainer.setVisibility(titleVisible ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -188,6 +201,12 @@ public class MainActivity extends AppCompatActivity {
 
         if (tvMainTitle != null) {
             tvMainTitle.setTextColor(colorOnSurface);
+        }
+        if (tvScheduleTitleDivider != null) {
+            tvScheduleTitleDivider.setTextColor(colorOnSurface);
+        }
+        if (tvScheduleAgendaEntry != null) {
+            tvScheduleAgendaEntry.setTextColor(colorOnSurface);
         }
         if (tvNowTime != null) {
             tvNowTime.setTextColor(colorPrimary);
@@ -344,8 +363,11 @@ public class MainActivity extends AppCompatActivity {
         tvMainTitle = findViewById(R.id.tvMainTitle);
         rootMain = findViewById(R.id.rootMain);
         titleContainer = findViewById(R.id.titleContainer);
+        tvScheduleTitleDivider = findViewById(R.id.tvScheduleTitleDivider);
+        tvScheduleAgendaEntry = findViewById(R.id.tvScheduleAgendaEntry);
         tvEmptyHint = findViewById(R.id.tvEmptyHint);
         pageSchedule = findViewById(R.id.pageSchedule);
+        pageAgenda = findViewById(R.id.pageAgenda);
         pageToday = findViewById(R.id.pageToday);
         pageAi = findViewById(R.id.pageAi);
         pageProfile = findViewById(R.id.pageProfile);
@@ -356,6 +378,10 @@ public class MainActivity extends AppCompatActivity {
         tvTodayWeekDone = findViewById(R.id.tvTodayWeekDone);
         todayCoursesContainer = findViewById(R.id.todayCoursesContainer);
         layoutTodayWeekStrip = findViewById(R.id.layoutTodayWeekStrip);
+        agendaOverviewContainer = findViewById(R.id.agendaOverviewContainer);
+        tvAgendaOverviewSummary = findViewById(R.id.tvAgendaOverviewSummary);
+        btnAgendaOverviewBack = findViewById(R.id.btnAgendaOverviewBack);
+        btnAgendaOverviewAdd = findViewById(R.id.btnAgendaOverviewAdd);
         cardTodayWeekOverview = findViewById(R.id.cardTodayWeekOverview);
         bottomNavHost = findViewById(R.id.bottomNavHost);
         bottomNav = findViewById(R.id.bottomNav);
@@ -377,6 +403,18 @@ public class MainActivity extends AppCompatActivity {
 
         if (fabAddAgenda != null) {
             fabAddAgenda.setOnClickListener(v -> showAgendaEditorSheet(null, resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek())));
+        }
+        if (tvScheduleAgendaEntry != null) {
+            tvScheduleAgendaEntry.setOnClickListener(v -> openAgendaOverviewActivity());
+        }
+        if (btnAgendaOverviewBack != null) {
+            btnAgendaOverviewBack.setOnClickListener(v -> switchToSchedulePage());
+        }
+        if (btnAgendaOverviewAdd != null) {
+            btnAgendaOverviewAdd.setOnClickListener(v -> {
+                Calendar preferred = selectedTodayDate == null ? Calendar.getInstance() : selectedTodayDate;
+                showAgendaEditorSheet(null, cloneAsDay(preferred));
+            });
         }
 
         View itemSettingsEntry = findViewById(R.id.itemSettingsEntry);
@@ -496,6 +534,10 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                if (pageAgenda != null && pageAgenda.getVisibility() == View.VISIBLE) {
+                    switchToSchedulePage();
+                    return;
+                }
                 if (pageAi != null && pageAi.getVisibility() == View.VISIBLE) {
                     Fragment fragment = getSupportFragmentManager().findFragmentById(R.id.pageAi);
                     if (fragment instanceof AiChatFragment && ((AiChatFragment) fragment).handleBackPressed()) {
@@ -510,6 +552,7 @@ public class MainActivity extends AppCompatActivity {
         bottomNav.setOnItemReselectedListener(item -> {
             selectedNavItemId = item.getItemId();
             if (item.getItemId() == R.id.nav_schedule) {
+                switchToSchedulePage();
                 jumpToActualCurrentWeek(true);
                 updateNextCourseNotice();
             } else if (item.getItemId() == R.id.nav_today) {
@@ -521,10 +564,15 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        View.OnClickListener weekSelectorClick = v -> showWeekSelector();
-        tvMainTitle.setOnClickListener(weekSelectorClick);
-        if (titleContainer != null) {
-            titleContainer.setOnClickListener(weekSelectorClick);
+        if (tvMainTitle != null) {
+            tvMainTitle.setOnClickListener(v -> {
+                boolean scheduleVisible = pageSchedule != null && pageSchedule.getVisibility() == View.VISIBLE;
+                if (scheduleVisible) {
+                    showWeekSelector();
+                } else {
+                    switchToSchedulePage();
+                }
+            });
         }
 
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
@@ -571,6 +619,9 @@ public class MainActivity extends AppCompatActivity {
         renderProfileFromLocal();
         updateBackground();
         refreshTodayPage();
+        if (pageAgenda != null && pageAgenda.getVisibility() == View.VISIBLE) {
+            renderAgendaOverviewPage();
+        }
         updateTodayHeaderClock();
         startNoticeTicker();
     }
@@ -656,6 +707,7 @@ public class MainActivity extends AppCompatActivity {
     private void switchToTodayPage() {
         if (pageToday != null) pageToday.setVisibility(View.VISIBLE);
         if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
+        if (pageAgenda != null) pageAgenda.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
         if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.VISIBLE);
@@ -666,15 +718,32 @@ public class MainActivity extends AppCompatActivity {
     private void switchToSchedulePage() {
         if (pageToday != null) pageToday.setVisibility(View.GONE);
         if (pageSchedule != null) pageSchedule.setVisibility(View.VISIBLE);
+        if (pageAgenda != null) pageAgenda.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
         if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         updateTitle();
     }
 
+    private void openAgendaOverviewActivity() {
+        startActivity(new Intent(this, AgendaOverviewActivity.class));
+    }
+
+    private void switchToAgendaOverviewPage() {
+        if (pageToday != null) pageToday.setVisibility(View.GONE);
+        if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
+        if (pageAgenda != null) pageAgenda.setVisibility(View.VISIBLE);
+        if (pageAi != null) pageAi.setVisibility(View.GONE);
+        if (pageProfile != null) pageProfile.setVisibility(View.GONE);
+        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
+        updateTitle();
+        renderAgendaOverviewPage();
+    }
+
     private void switchToAiPage() {
         if (pageToday != null) pageToday.setVisibility(View.GONE);
         if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
+        if (pageAgenda != null) pageAgenda.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.VISIBLE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
         if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
@@ -684,12 +753,21 @@ public class MainActivity extends AppCompatActivity {
     private void switchToProfilePage() {
         if (pageToday != null) pageToday.setVisibility(View.GONE);
         if (pageSchedule != null) pageSchedule.setVisibility(View.GONE);
+        if (pageAgenda != null) pageAgenda.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.VISIBLE);
         if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         renderProfileFromLocal();
         updateTitle();
         styleProfileCards();
+    }
+
+    private void refreshAgendaDependentViews() {
+        refreshTodayPage();
+        drawGrid();
+        if (pageAgenda != null && pageAgenda.getVisibility() == View.VISIBLE) {
+            renderAgendaOverviewPage();
+        }
     }
 
     private void showPageForNavItem(int navItemId) {
@@ -743,6 +821,29 @@ public class MainActivity extends AppCompatActivity {
     private void openCourseEditorFromAction(Intent data) {
         if (data == null) return;
         String action = data.getStringExtra("action");
+
+        if ("open_agenda_editor".equals(action)) {
+            data.removeExtra("action");
+            long agendaId = data.getLongExtra("agenda_id", -1L);
+            String agendaDate = safeText(data.getStringExtra("agenda_date"));
+
+            Agenda targetAgenda = agendaId > 0 ? AgendaStorageManager.getAgenda(this, agendaId) : null;
+            Calendar preferredDate = resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek());
+            if (targetAgenda != null) {
+                Calendar parsed = AgendaStorageManager.parseDateOrNull(targetAgenda.date);
+                if (parsed != null) {
+                    preferredDate = parsed;
+                }
+            } else if (!TextUtils.isEmpty(agendaDate)) {
+                Calendar parsed = AgendaStorageManager.parseDateOrNull(agendaDate);
+                if (parsed != null) {
+                    preferredDate = parsed;
+                }
+            }
+            showAgendaEditorSheet(targetAgenda, preferredDate);
+            return;
+        }
+
         if (!"open_course_editor".equals(action)) return;
         String name = data.getStringExtra("course_name");
         int day = data.getIntExtra("course_day", -1);
@@ -1941,6 +2042,276 @@ public class MainActivity extends AppCompatActivity {
             todayCoursesContainer.addView(endedHeader);
             todayCoursesContainer.addView(endedContainer);
         }
+    }
+
+    private void renderAgendaOverviewPage() {
+        if (agendaOverviewContainer == null) {
+            return;
+        }
+        agendaOverviewContainer.removeAllViews();
+
+        List<Agenda> allAgendas = AgendaStorageManager.loadAllAgendas(this);
+        if (allAgendas == null) {
+            allAgendas = new ArrayList<>();
+        }
+        List<Agenda> ongoingAgendas = new ArrayList<>();
+        List<Agenda> upcomingAgendas = new ArrayList<>();
+        List<Agenda> endedAgendas = new ArrayList<>();
+
+        Calendar now = Calendar.getInstance();
+        Calendar today = cloneAsDay(now);
+        int nowMinute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+
+        for (Agenda agenda : allAgendas) {
+            if (agenda == null) {
+                continue;
+            }
+            int status = resolveAgendaOverviewStatus(agenda, today, nowMinute);
+            if (status == AGENDA_OVERVIEW_STATUS_ONGOING) {
+                ongoingAgendas.add(agenda);
+            } else if (status == AGENDA_OVERVIEW_STATUS_ENDED) {
+                endedAgendas.add(agenda);
+            } else {
+                upcomingAgendas.add(agenda);
+            }
+        }
+
+        sortAgendaOverviewItems(ongoingAgendas, false);
+        sortAgendaOverviewItems(upcomingAgendas, false);
+        sortAgendaOverviewItems(endedAgendas, true);
+
+        if (tvAgendaOverviewSummary != null) {
+            int total = ongoingAgendas.size() + upcomingAgendas.size() + endedAgendas.size();
+            if (total <= 0) {
+                tvAgendaOverviewSummary.setText("暂无日程");
+            } else {
+                StringBuilder summaryBuilder = new StringBuilder("共" + total + "条");
+                if (!ongoingAgendas.isEmpty()) {
+                    summaryBuilder.append(" · 进行中").append(ongoingAgendas.size());
+                }
+                summaryBuilder.append(" · 将要开始").append(upcomingAgendas.size());
+                summaryBuilder.append(" · 已结束").append(endedAgendas.size());
+                tvAgendaOverviewSummary.setText(summaryBuilder.toString());
+            }
+        }
+
+        if (!ongoingAgendas.isEmpty()) {
+            addAgendaOverviewStatusSection("进行中", ongoingAgendas, AGENDA_OVERVIEW_STATUS_ONGOING);
+        }
+        addAgendaOverviewStatusSection("将要开始", upcomingAgendas, AGENDA_OVERVIEW_STATUS_UPCOMING);
+        addAgendaOverviewStatusSection("已结束", endedAgendas, AGENDA_OVERVIEW_STATUS_ENDED);
+    }
+
+    private void addAgendaOverviewStatusSection(String sectionName, List<Agenda> agendas, int statusType) {
+        if (agendaOverviewContainer == null) {
+            return;
+        }
+        List<Agenda> safeAgendas = agendas == null ? new ArrayList<>() : agendas;
+
+        MaterialCardView sectionHeader = new MaterialCardView(this);
+        sectionHeader.setCardBackgroundColor(Color.TRANSPARENT);
+        sectionHeader.setCardElevation(0f);
+        sectionHeader.setStrokeWidth(0);
+        sectionHeader.setUseCompatPadding(false);
+        sectionHeader.setRadius(dp(12));
+        sectionHeader.setClickable(true);
+        sectionHeader.setFocusable(true);
+        sectionHeader.setRippleColor(ColorStateList.valueOf(Color.TRANSPARENT));
+        sectionHeader.setForeground(null);
+
+        LinearLayout sectionHeaderRow = new LinearLayout(this);
+        sectionHeaderRow.setOrientation(LinearLayout.HORIZONTAL);
+        sectionHeaderRow.setGravity(Gravity.CENTER_VERTICAL);
+        sectionHeaderRow.setPadding(dp(10), dp(6), dp(10), dp(6));
+        sectionHeaderRow.setClickable(false);
+        sectionHeaderRow.setFocusable(false);
+
+        TextView sectionHeaderText = new TextView(this);
+        sectionHeaderText.setTextSize(13f);
+        sectionHeaderText.setTypeface(null, Typeface.BOLD);
+        sectionHeaderText.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        sectionHeaderText.setIncludeFontPadding(false);
+        sectionHeaderRow.addView(sectionHeaderText);
+
+        ImageView sectionHeaderArrow = new ImageView(this);
+        LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(18), dp(18));
+        arrowLp.setMargins(dp(6), 0, 0, 0);
+        sectionHeaderArrow.setLayoutParams(arrowLp);
+        sectionHeaderArrow.setImageTintList(ColorStateList.valueOf(UiStyleHelper.resolveOnSurfaceColor(this)));
+        sectionHeaderRow.addView(sectionHeaderArrow);
+
+        sectionHeader.addView(sectionHeaderRow, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout sectionContent = new LinearLayout(this);
+        sectionContent.setOrientation(LinearLayout.VERTICAL);
+        sectionContent.setVisibility(isAgendaOverviewSectionCollapsed(statusType) ? View.GONE : View.VISIBLE);
+
+        if (safeAgendas.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("暂无日程");
+            empty.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+            empty.setTextSize(13f);
+            empty.setPadding(dp(4), 0, dp(4), dp(8));
+            sectionContent.addView(empty);
+        } else {
+            populateAgendaOverviewDateGroups(sectionContent, safeAgendas);
+        }
+
+        Runnable refreshHeader = () -> {
+            boolean collapsed = isAgendaOverviewSectionCollapsed(statusType);
+            sectionHeaderText.setText(sectionName + "（" + safeAgendas.size() + "）");
+            sectionHeaderArrow.setImageResource(collapsed
+                    ? R.drawable.ic_chevron_down_wide_24
+                    : R.drawable.ic_chevron_up_wide_24);
+            sectionContent.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        };
+        refreshHeader.run();
+
+        sectionHeader.setOnClickListener(v -> {
+            setAgendaOverviewSectionCollapsed(statusType, !isAgendaOverviewSectionCollapsed(statusType));
+            refreshHeader.run();
+        });
+
+        agendaOverviewContainer.addView(sectionHeader);
+        agendaOverviewContainer.addView(sectionContent);
+    }
+
+    private void populateAgendaOverviewDateGroups(LinearLayout container, List<Agenda> agendas) {
+        if (container == null || agendas == null || agendas.isEmpty()) {
+            return;
+        }
+        String currentDate = null;
+        for (Agenda agenda : agendas) {
+            if (agenda == null) {
+                continue;
+            }
+            String dateKey = safeText(agenda.date).trim();
+            if (dateKey.isEmpty()) {
+                dateKey = "未设置日期";
+            }
+            if (!TextUtils.equals(currentDate, dateKey)) {
+                currentDate = dateKey;
+                container.addView(createAgendaOverviewDateLabel(formatAgendaOverviewDateLabel(dateKey)));
+            }
+            container.addView(createAgendaTimelineCard(agenda));
+        }
+    }
+
+    private TextView createAgendaOverviewDateLabel(String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        label.setTextSize(13f);
+        label.setTypeface(null, Typeface.BOLD);
+        label.setIncludeFontPadding(false);
+        label.setPadding(dp(4), dp(2), dp(4), dp(4));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(2), 0, dp(8));
+        label.setLayoutParams(lp);
+        return label;
+    }
+
+    private String formatAgendaOverviewDateLabel(String rawDate) {
+        String dateText = safeText(rawDate).trim();
+        if (dateText.isEmpty()) {
+            return "未设置日期";
+        }
+        if ("未设置日期".equals(dateText)) {
+            return dateText;
+        }
+        Calendar parsed = AgendaStorageManager.parseDateOrNull(dateText);
+        if (parsed == null) {
+            return dateText;
+        }
+        Calendar normalized = cloneAsDay(parsed);
+        int day = toMondayFirstDay(normalized);
+        return String.format(Locale.getDefault(), "%04d-%02d-%02d 周%s",
+                normalized.get(Calendar.YEAR),
+                normalized.get(Calendar.MONTH) + 1,
+                normalized.get(Calendar.DAY_OF_MONTH),
+                WEEK_DAY_LABELS[Math.max(0, Math.min(6, day - 1))]);
+    }
+
+    private int resolveAgendaOverviewStatus(Agenda agenda, Calendar today, int nowMinute) {
+        if (agenda == null || today == null) {
+            return AGENDA_OVERVIEW_STATUS_UPCOMING;
+        }
+        Calendar agendaDate = AgendaStorageManager.parseDateOrNull(agenda.date);
+        if (agendaDate == null) {
+            return AGENDA_OVERVIEW_STATUS_UPCOMING;
+        }
+        Calendar normalized = cloneAsDay(agendaDate);
+        if (normalized.before(today)) {
+            return AGENDA_OVERVIEW_STATUS_ENDED;
+        }
+        if (normalized.after(today)) {
+            return AGENDA_OVERVIEW_STATUS_UPCOMING;
+        }
+        if (agenda.endMinute <= nowMinute) {
+            return AGENDA_OVERVIEW_STATUS_ENDED;
+        }
+        if (agenda.startMinute <= nowMinute) {
+            return AGENDA_OVERVIEW_STATUS_ONGOING;
+        }
+        return AGENDA_OVERVIEW_STATUS_UPCOMING;
+    }
+
+    private void sortAgendaOverviewItems(List<Agenda> agendas, boolean endedOrder) {
+        if (agendas == null || agendas.size() <= 1) {
+            return;
+        }
+        agendas.sort((left, right) -> {
+            Calendar leftDate = AgendaStorageManager.parseDateOrNull(left == null ? null : left.date);
+            Calendar rightDate = AgendaStorageManager.parseDateOrNull(right == null ? null : right.date);
+
+            if (leftDate == null && rightDate != null) {
+                return 1;
+            }
+            if (leftDate != null && rightDate == null) {
+                return -1;
+            }
+            if (leftDate != null && rightDate != null) {
+                int dateCmp = Long.compare(leftDate.getTimeInMillis(), rightDate.getTimeInMillis());
+                if (dateCmp != 0) {
+                    return endedOrder ? -dateCmp : dateCmp;
+                }
+            } else {
+                int rawCmp = safeText(left == null ? null : left.date).compareToIgnoreCase(safeText(right == null ? null : right.date));
+                if (rawCmp != 0) {
+                    return endedOrder ? -rawCmp : rawCmp;
+                }
+            }
+
+            int timeCmp = endedOrder
+                    ? Integer.compare(right == null ? 0 : right.endMinute, left == null ? 0 : left.endMinute)
+                    : Integer.compare(left == null ? 0 : left.startMinute, right == null ? 0 : right.startMinute);
+            if (timeCmp != 0) {
+                return timeCmp;
+            }
+            return safeText(left == null ? null : left.title).compareToIgnoreCase(safeText(right == null ? null : right.title));
+        });
+    }
+
+    private boolean isAgendaOverviewSectionCollapsed(int statusType) {
+        if (statusType == AGENDA_OVERVIEW_STATUS_ONGOING) {
+            return agendaOngoingCollapsed;
+        }
+        if (statusType == AGENDA_OVERVIEW_STATUS_ENDED) {
+            return agendaEndedCollapsed;
+        }
+        return agendaUpcomingCollapsed;
+    }
+
+    private void setAgendaOverviewSectionCollapsed(int statusType, boolean collapsed) {
+        if (statusType == AGENDA_OVERVIEW_STATUS_ONGOING) {
+            agendaOngoingCollapsed = collapsed;
+            return;
+        }
+        if (statusType == AGENDA_OVERVIEW_STATUS_ENDED) {
+            agendaEndedCollapsed = collapsed;
+            return;
+        }
+        agendaUpcomingCollapsed = collapsed;
     }
 
     private void addTodayTimelineSection(String sectionName, List<TodayTimelineItem> items) {
@@ -4358,8 +4729,7 @@ private void extractAllTables(String passedCookie) {
             Toast.makeText(this, source == null ? "已新增日程" : "已保存日程", Toast.LENGTH_SHORT).show();
             dialog.dismiss();
             setSelectedTodayDate(selectedDate[0]);
-            refreshTodayPage();
-            drawGrid();
+            refreshAgendaDependentViews();
         };
 
         LinearLayout actionRow = new LinearLayout(this);
@@ -4383,8 +4753,7 @@ private void extractAllTables(String passedCookie) {
                             Toast.makeText(this, "已删除日程", Toast.LENGTH_SHORT).show();
                             dialog.dismiss();
                             setSelectedTodayDate(selectedDate[0]);
-                            refreshTodayPage();
-                            drawGrid();
+                            refreshAgendaDependentViews();
                         } else {
                             Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show();
                         }
