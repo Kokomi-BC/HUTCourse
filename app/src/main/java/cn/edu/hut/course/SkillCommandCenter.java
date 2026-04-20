@@ -44,10 +44,14 @@ public final class SkillCommandCenter {
     }
 
     public static String executeCommands(Context context, List<String> commands) {
-        return executeCommandsWithFeedback(context, commands).modelFeedback;
+        return executeCommandsWithFeedback(context, commands, "").modelFeedback;
     }
 
     public static CommandBatchResult executeCommandsWithFeedback(Context context, List<String> commands) {
+        return executeCommandsWithFeedback(context, commands, "");
+    }
+
+    public static CommandBatchResult executeCommandsWithFeedback(Context context, List<String> commands, String originalUserText) {
         List<String> normalizedCommands = normalizeBatchCommands(commands);
         if (normalizedCommands.isEmpty()) {
             return new CommandBatchResult("无命令可执行", "无可执行操作");
@@ -56,7 +60,7 @@ public final class SkillCommandCenter {
         List<String> uiLines = new ArrayList<>();
         int index = 1;
         for (String raw : normalizedCommands) {
-            SingleExecution single = executeSingle(context, raw);
+            SingleExecution single = executeSingle(context, raw, originalUserText);
             modelSb.append(index).append(". ").append(raw).append(" => ").append(single.modelResult).append("\n");
             if (single.userFeedback != null && !single.userFeedback.trim().isEmpty()) {
                 uiLines.add(toFormalFeedbackLine(single.userFeedback));
@@ -119,7 +123,21 @@ public final class SkillCommandCenter {
         return normalized;
     }
 
-    private static SingleExecution executeSingle(Context context, String rawCommand) {
+    private static boolean hasFutureDayIntent(String userText) {
+        String text = userText == null ? "" : userText.trim().toLowerCase(Locale.ROOT);
+        if (text.isEmpty()) {
+            return false;
+        }
+        return text.contains("明天")
+                || text.contains("明日")
+                || text.contains("明晚")
+                || text.contains("后天")
+                || text.contains("大后天")
+                || text.contains("次日")
+                || text.contains("tomorrow");
+    }
+
+    private static SingleExecution executeSingle(Context context, String rawCommand, String originalUserText) {
         String cmd = rawCommand == null ? "" : rawCommand.trim();
         if (cmd.isEmpty()) return new SingleExecution("命令为空", "命令为空");
 
@@ -183,6 +201,33 @@ public final class SkillCommandCenter {
             return new SingleExecution(result, "已按关键词查询课程");
         }
 
+        if ("classroom.login.status".equals(lower) || "classroom.login".equals(lower)) {
+            String result = "提示：classroom.login.status 已下线，请直接调用 classroom.empty.query 或 classroom.usage.today，未登录会在查询结果中返回";
+            return new SingleExecution(result, "已忽略过时登录校验命令");
+        }
+
+        if (lower.startsWith("classroom.empty.query ")) {
+            String payload = cmd.substring("classroom.empty.query ".length()).trim();
+            payload = ClassroomSkillManager.alignEmptyQueryPayloadWithUserText(payload, originalUserText);
+            String result = ClassroomSkillManager.queryEmptyRoomsByTime(context, payload);
+            return new SingleExecution(result, result.startsWith("空教室查询") ? "已查询空教室" : result);
+        }
+        if ("classroom.empty.query".equals(lower)) {
+            return new SingleExecution("查询失败：命令格式应为 classroom.empty.query <json>", "查询失败：命令格式错误");
+        }
+        if (lower.startsWith("classroom.usage.today ")) {
+            if (hasFutureDayIntent(originalUserText)) {
+                String result = "查询失败：检测到用户询问未来日期，请改用 classroom.empty.query 并显式指定 date/day 与时间段";
+                return new SingleExecution(result, result);
+            }
+            String roomName = cmd.substring("classroom.usage.today ".length()).trim();
+            String result = ClassroomSkillManager.queryRoomTodayUsage(context, roomName);
+            return new SingleExecution(result, result.startsWith("教室今日使用情况") ? "已查询教室今日使用情况" : result);
+        }
+        if ("classroom.usage.today".equals(lower)) {
+            return new SingleExecution("查询失败：命令格式应为 classroom.usage.today <公共xxx>", "查询失败：命令格式错误");
+        }
+
         if ("agenda.read.today".equals(lower)) {
             String result = AgendaSkillManager.readToday(context);
             return new SingleExecution(result, "已查询今日日程");
@@ -219,7 +264,7 @@ public final class SkillCommandCenter {
             return new SingleExecution(result, result.startsWith("删除成功") ? "已删除日程" : result);
         }
 
-        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>";
+        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | classroom.empty.query <json> | classroom.usage.today <公共xxx> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>";
         return new SingleExecution(unknown, "存在不支持的命令");
     }
 
@@ -559,6 +604,7 @@ public final class SkillCommandCenter {
         return lower.startsWith("skill.")
             || lower.startsWith("note.")
             || lower.startsWith("course.")
+            || lower.startsWith("classroom.")
             || lower.startsWith("agenda.");
     }
 }

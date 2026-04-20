@@ -1,8 +1,10 @@
 package cn.edu.hut.course;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -45,6 +47,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
@@ -60,6 +63,7 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.fragment.app.Fragment;
 
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.MaterialAutoCompleteTextView;
 
 import io.noties.markwon.Markwon;
@@ -82,10 +86,12 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -108,7 +114,12 @@ public class AiChatFragment extends Fragment {
     private static final int MAX_MODEL_CONTEXT_MESSAGES = 12;
     private static final int MAX_MODEL_CONTEXT_CHARS = 3200;
     private static final int MAX_MODEL_CONTEXT_ITEM_CHARS = 280;
+    private static final int MAX_TOOL_RESULT_FOR_MODEL_CHARS = 2200;
     private static final Pattern TITLE_PATTERN = Pattern.compile("^(?:TITLE|标题)\\s*[:：]\\s*(.+)$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COMMAND_RESULT_LINE_PATTERN = Pattern.compile("^\\d+\\.\\s+.+?=>\\s*(.*)$");
+    private static final String SYSTEM_CARD_PREFIX = "CARD_JSON:";
+    private static final String SYSTEM_CARD_TYPE_JWXT_LOGIN = "jwxt_login";
+    private static final String SYSTEM_CARD_ACTION_OPEN_JWXT_LOGIN = "open_jwxt_login";
 
     private DrawerLayout drawerAiChat;
     private LinearLayout chatContainer;
@@ -194,6 +205,10 @@ public class AiChatFragment extends Fragment {
     private final List<String> pendingImagePaths = new ArrayList<>();
     @Nullable
     private ActivityResultLauncher<String> imagePickerLauncher;
+    @Nullable
+    private ActivityResultLauncher<Intent> jwxtLoginLauncher;
+    @Nullable
+    private PendingLoginContinuation pendingLoginContinuation;
 
     public AiChatFragment() {
         super();
@@ -203,6 +218,7 @@ public class AiChatFragment extends Fragment {
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         imagePickerLauncher = registerForActivityResult(new ActivityResultContracts.GetContent(), this::handleImagePicked);
+        jwxtLoginLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), this::handleJwxtLoginResult);
     }
 
     @Override
@@ -2623,10 +2639,12 @@ public class AiChatFragment extends Fragment {
         final String baseUrl = selectedModel.baseUrl;
         final String model = selectedModel.modelName;
         final String apiKey = selectedModel.apiKey;
+        final String modelId = safe(selectedModel.id);
 
         Thread worker = new Thread(() -> {
             String reply = "";
             boolean cancelled = false;
+            PendingLoginContinuation loginContinuation = null;
             try {
                 if (hasImage) {
                     Log.i(TAG, "multimodal request start token=" + requestToken
@@ -2641,17 +2659,21 @@ public class AiChatFragment extends Fragment {
                         baseUrl,
                         apiKey,
                         model,
-                    contextAwarePromptText,
+                        modelId,
+                        contextAwarePromptText,
+                        modelPromptText,
                         requestTitleInFinalAnswer,
                         requestToken,
-                    imagesForRequest,
-                    cacheHint
+                        imagesForRequest,
+                        cacheHint
                 );
                 ensureAiRequestActiveOrThrow(requestToken);
                 if (hasImage) {
                     Log.i(TAG, "multimodal request finish token=" + requestToken
                             + ", replyLen=" + safe(reply).length());
                 }
+            } catch (LoginRequiredException loginEx) {
+                loginContinuation = loginEx.continuation;
             } catch (InterruptedException stopEx) {
                 cancelled = true;
             } catch (Throwable e) {
@@ -2671,6 +2693,29 @@ public class AiChatFragment extends Fragment {
             }
 
             if (!isAiRequestActive(requestToken)) {
+                return;
+            }
+
+            if (loginContinuation != null) {
+                final PendingLoginContinuation finalLoginContinuation = loginContinuation;
+                if (!isAdded()) {
+                    finishAiConversationRequest(requestToken);
+                    return;
+                }
+                requireActivity().runOnUiThread(() -> {
+                    if (!isAiRequestActive(requestToken)) {
+                        return;
+                    }
+                    removeTypingBubble();
+                    pendingLoginContinuation = finalLoginContinuation;
+                    String cardPayload = buildJwxtLoginCardPayload(
+                            finalLoginContinuation.userText,
+                            finalLoginContinuation.modelId,
+                            finalLoginContinuation.requestTitleInFinalAnswer
+                    );
+                    addSystemMessage(cardPayload, true);
+                    finishAiConversationRequest(requestToken);
+                });
                 return;
             }
 
@@ -2723,6 +2768,195 @@ public class AiChatFragment extends Fragment {
         if (!isAiRequestActive(requestToken) || Thread.currentThread().isInterrupted()) {
             throw new InterruptedException("AI对话已终止");
         }
+    }
+
+    private void handleJwxtLoginResult(@Nullable ActivityResult result) {
+        if (!isAdded() || result == null) {
+            return;
+        }
+        boolean loginSuccess = result.getResultCode() == Activity.RESULT_OK
+                && result.getData() != null
+                && result.getData().getBooleanExtra("login_success", false);
+        if (!loginSuccess) {
+            Toast.makeText(ctx(), "尚未完成教务系统登录，暂无法继续当前查询。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(ctx(), "教务系统登录成功，正在继续处理当前请求。", Toast.LENGTH_SHORT).show();
+        resumePendingAiAfterLogin();
+    }
+
+    private void launchJwxtLoginFromCard(@Nullable String resumePrompt,
+                                          @Nullable String resumeModelId,
+                                          boolean requestTitleInFinalAnswer) {
+        if (!isAdded()) {
+            return;
+        }
+        if (!TextUtils.isEmpty(resumePrompt)) {
+            pendingLoginContinuation = new PendingLoginContinuation(
+                    resumePrompt,
+                    requestTitleInFinalAnswer,
+                    resumeModelId
+            );
+        }
+        Intent intent = new Intent(ctx(), BrowserActivity.class);
+        intent.putExtra("url", CourseScraper.LOGIN_URL);
+        intent.putExtra("autoCloseOnLoginSuccess", true);
+        if (jwxtLoginLauncher != null) {
+            jwxtLoginLauncher.launch(intent);
+        } else {
+            startActivity(intent);
+        }
+    }
+
+    private void resumePendingAiAfterLogin() {
+        PendingLoginContinuation continuation = pendingLoginContinuation;
+        if (continuation == null || TextUtils.isEmpty(continuation.userText)) {
+            return;
+        }
+        pendingLoginContinuation = null;
+        continueAiConversationAfterLogin(continuation);
+    }
+
+    private void continueAiConversationAfterLogin(@NonNull PendingLoginContinuation continuation) {
+        if (isAiConversationRunning()) {
+            return;
+        }
+        if (activeSession == null) {
+            startNewSession(false);
+        }
+        if (activeSession != null && !TextUtils.isEmpty(continuation.modelId)) {
+            activeSession.modelId = continuation.modelId;
+            syncModelPickerWithActiveSession();
+        }
+
+        AiConfigStore.AiModelConfig selectedModel = resolveModelForCurrentSession();
+        if (selectedModel == null) {
+            addBubble(false, "请先到“设置 -> AI接入”添加模型。", false);
+            return;
+        }
+        if (TextUtils.isEmpty(selectedModel.apiKey)) {
+            addBubble(false, "请先到“设置 -> AI接入”为当前模型配置 API Key。", false);
+            return;
+        }
+        if (TextUtils.isEmpty(selectedModel.modelName)) {
+            addBubble(false, "请先到“设置 -> AI接入”填写模型名称。", false);
+            return;
+        }
+
+        final String modelPromptText = safe(continuation.userText);
+        final boolean requestTitleInFinalAnswer = continuation.requestTitleInFinalAnswer;
+        final String contextAwarePromptText = buildContextAwarePromptText(modelPromptText);
+        final AiGateway.RequestCacheHint cacheHint = buildRequestCacheHint(selectedModel.modelName, contextAwarePromptText);
+
+        final long requestToken = beginAiConversationRequest();
+        updateSendButtonMode(true);
+        addBubble(false, "思考中...", true);
+
+        final String provider = selectedModel.provider;
+        final String baseUrl = selectedModel.baseUrl;
+        final String model = selectedModel.modelName;
+        final String apiKey = selectedModel.apiKey;
+        final String modelId = safe(selectedModel.id);
+
+        Thread worker = new Thread(() -> {
+            String reply = "";
+            boolean cancelled = false;
+            PendingLoginContinuation loginContinuation = null;
+            try {
+                ensureAiRequestActiveOrThrow(requestToken);
+                reply = runModelWithSkillCommands(
+                        provider,
+                        baseUrl,
+                        apiKey,
+                        model,
+                        modelId,
+                        contextAwarePromptText,
+                    modelPromptText,
+                        requestTitleInFinalAnswer,
+                        requestToken,
+                        (List<String>) null,
+                        cacheHint
+                );
+                ensureAiRequestActiveOrThrow(requestToken);
+            } catch (LoginRequiredException loginEx) {
+                loginContinuation = loginEx.continuation;
+            } catch (InterruptedException stopEx) {
+                cancelled = true;
+            } catch (Throwable e) {
+                if (isAiRequestActive(requestToken)) {
+                    String reason = e.getMessage();
+                    if (TextUtils.isEmpty(reason)) {
+                        reason = "请求过程异常中断，请重试";
+                    }
+                    reply = "请求失败：" + reason;
+                } else {
+                    cancelled = true;
+                }
+            }
+
+            if (!isAiRequestActive(requestToken)) {
+                return;
+            }
+
+            if (loginContinuation != null) {
+                final PendingLoginContinuation finalLoginContinuation = loginContinuation;
+                if (!isAdded()) {
+                    finishAiConversationRequest(requestToken);
+                    return;
+                }
+                requireActivity().runOnUiThread(() -> {
+                    if (!isAiRequestActive(requestToken)) {
+                        return;
+                    }
+                    removeTypingBubble();
+                    pendingLoginContinuation = finalLoginContinuation;
+                    String cardPayload = buildJwxtLoginCardPayload(
+                            finalLoginContinuation.userText,
+                            finalLoginContinuation.modelId,
+                            finalLoginContinuation.requestTitleInFinalAnswer
+                    );
+                    addSystemMessage(cardPayload, true);
+                    finishAiConversationRequest(requestToken);
+                });
+                return;
+            }
+
+            final String finalReply = reply;
+            final boolean finalCancelled = cancelled;
+            if (!isAdded()) {
+                if (!finalCancelled) {
+                    finishAiConversationRequest(requestToken);
+                }
+                return;
+            }
+            requireActivity().runOnUiThread(() -> {
+                if (finalCancelled || !isAiRequestActive(requestToken)) {
+                    return;
+                }
+                removeTypingBubble();
+                ReplyWithTitle parsed = extractTitle(finalReply);
+                if (requestTitleInFinalAnswer && !TextUtils.isEmpty(parsed.title)) {
+                    updateSessionTitle(parsed.title);
+                }
+                String visibleReplyRaw = TextUtils.isEmpty(parsed.title) ? finalReply : parsed.replyBody;
+                String visibleReply = stripLeadingToolFeedbackLines(visibleReplyRaw);
+                if (TextUtils.isEmpty(visibleReply.trim())) {
+                    addBubble(false, "模型未返回可显示内容，请稍后重试。", false);
+                    finishAiConversationRequest(requestToken);
+                    return;
+                }
+                streamAssistantReply(visibleReply, requestToken, renderedView -> {
+                    if (!isAiRequestActive(requestToken)) {
+                        return;
+                    }
+                    appendMessageToHistory(false, visibleReply);
+                    bindMessageMetadata(renderedView, false, visibleReply, getActiveSessionLastMessageIndex());
+                    finishAiConversationRequest(requestToken);
+                });
+            });
+        }, "ai-chat-resume-" + requestToken);
+        bindAiWorkerThread(requestToken, worker);
+        worker.start();
     }
 
     private String buildContextAwarePromptText(String userText) {
@@ -2861,7 +3095,9 @@ public class AiChatFragment extends Fragment {
     }
 
     private String runModelWithSkillCommands(String provider, String baseUrl, String apiKey, String model,
-                                             String userText,
+                                             String modelId,
+                                             String modelUserText,
+                                             String originalUserText,
                                              boolean requestTitleInFinalAnswer,
                                              long requestToken,
                                              @Nullable List<String> imagePaths,
@@ -2871,17 +3107,31 @@ public class AiChatFragment extends Fragment {
         boolean includeCurrentTime = true;
         String firstTurnPrompt = AiPromptCenter.buildFirstTurnUserPrompt(
                 skillIndex,
-                userText,
+            modelUserText,
                 includeCurrentTime,
                 requestTitleInFinalAnswer
         );
 
         ensureAiRequestActiveOrThrow(requestToken);
-        String assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, firstTurnPrompt, imagePaths, cacheHint);
+        String assistantOutput = requestModelReplyWithRetry(
+            provider,
+            baseUrl,
+            apiKey,
+            model,
+            systemPrompt,
+            firstTurnPrompt,
+            imagePaths,
+            cacheHint,
+            0
+        );
         ensureAiRequestActiveOrThrow(requestToken);
         if (imagePaths != null && !imagePaths.isEmpty() && ("模型返回为空".equals(assistantOutput) || assistantOutput.startsWith("模型返回为空（"))) {
             Log.w(TAG, "multimodal first round empty token=" + requestToken + ", output=" + clipForLog(assistantOutput));
         }
+
+        boolean toolFeedbackShown = false;
+        final Set<String> toolFeedbackItems = new LinkedHashSet<>();
+        final int[] toolFeedbackHistoryIndex = new int[]{-1};
 
         for (int round = 1; round <= MAX_TOOL_COMMAND_ROUNDS; round++) {
             ensureAiRequestActiveOrThrow(requestToken);
@@ -2890,40 +3140,323 @@ public class AiChatFragment extends Fragment {
                 return assistantOutput;
             }
 
-            SkillCommandCenter.CommandBatchResult batch = SkillCommandCenter.executeCommandsWithFeedback(ctx(), commands);
+            SkillCommandCenter.CommandBatchResult batch = SkillCommandCenter.executeCommandsWithFeedback(ctx(), commands, originalUserText);
             String commandResult = batch.modelFeedback;
             String roundMessage = batch.userFeedback;
+            List<String> roundFeedbackItems = extractToolFeedbackItems(roundMessage);
+            if (!roundFeedbackItems.isEmpty()) {
+                toolFeedbackItems.addAll(roundFeedbackItems);
+            }
+            final String aggregatedToolFeedback = buildAggregatedToolFeedbackMessage(toolFeedbackItems);
             ensureAiRequestActiveOrThrow(requestToken);
-            if (isAdded() && isAiRequestActive(requestToken)) {
+            if (!toolFeedbackShown && isAdded() && isAiRequestActive(requestToken)) {
                 requireActivity().runOnUiThread(() -> {
                     if (isAiRequestActive(requestToken)) {
-                        addSystemMessage(roundMessage, true);
+                        toolFeedbackHistoryIndex[0] = addSystemMessage(aggregatedToolFeedback, true);
+                    }
+                });
+                toolFeedbackShown = true;
+            } else if (!roundFeedbackItems.isEmpty() && isAdded() && isAiRequestActive(requestToken)) {
+                requireActivity().runOnUiThread(() -> {
+                    if (!isAiRequestActive(requestToken)) {
+                        return;
+                    }
+                    if (toolFeedbackHistoryIndex[0] >= 0) {
+                        updateSystemTextMessageByHistoryIndex(toolFeedbackHistoryIndex[0], aggregatedToolFeedback);
                     }
                 });
             }
 
+            if (isJwxtLoginRequired(commandResult)) {
+                throw new LoginRequiredException(
+                        "教务登录状态失效，请先完成登录后继续",
+                    new PendingLoginContinuation(originalUserText, requestTitleInFinalAnswer, modelId)
+                );
+            }
+
+            String commandResultForModel = compactToolResultForModel(commandResult);
             String nextPrompt = AiPromptCenter.buildToolFollowupPrompt(
-                    userText,
+                    originalUserText,
                     assistantOutput,
                     commands,
-                    commandResult,
+                    commandResultForModel,
                     requestTitleInFinalAnswer
             );
             ensureAiRequestActiveOrThrow(requestToken);
-                assistantOutput = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, nextPrompt, (List<String>) null, cacheHint);
+            try {
+                assistantOutput = requestModelReplyWithRetry(
+                        provider,
+                        baseUrl,
+                        apiKey,
+                        model,
+                        systemPrompt,
+                        nextPrompt,
+                        null,
+                        cacheHint,
+                        round
+                );
+            } catch (Exception followupEx) {
+                String fallbackReply = buildFallbackReplyFromCommandBatch(batch);
+                if (!TextUtils.isEmpty(fallbackReply)) {
+                    Log.w(TAG, "tool followup model call failed, fallback to command result, reason=" + clipForLog(followupEx.getMessage()), followupEx);
+                    return fallbackReply;
+                }
+                throw followupEx;
+            }
             ensureAiRequestActiveOrThrow(requestToken);
         }
 
         return assistantOutput + "\n\n(已达到最大命令轮次" + MAX_TOOL_COMMAND_ROUNDS + "次，若需继续请重试)";
     }
 
-    private void addSystemMessage(String text) {
-        addSystemMessage(text, false);
+    private String requestModelReplyWithRetry(String provider,
+                                              String baseUrl,
+                                              String apiKey,
+                                              String model,
+                                              String systemPrompt,
+                                              String userPrompt,
+                                              @Nullable List<String> imagePaths,
+                                              @Nullable AiGateway.RequestCacheHint baseCacheHint,
+                                              int roundTag) throws Exception {
+        AiGateway.RequestCacheHint roundCacheHint = buildRoundCacheHint(baseCacheHint, model, userPrompt, roundTag);
+        try {
+            return AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, roundCacheHint);
+        } catch (Exception firstEx) {
+            if (!isLikelyTimeoutException(firstEx)) {
+                throw firstEx;
+            }
+            Log.w(TAG, "model call timeout, retry once without cache hint, round=" + roundTag
+                    + ", reason=" + clipForLog(firstEx.getMessage()), firstEx);
+            return AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, null);
+        }
     }
 
-    private void addSystemMessage(String text, boolean persistToHistory) {
-        if (TextUtils.isEmpty(text)) {
+    @NonNull
+    private AiGateway.RequestCacheHint buildRoundCacheHint(@Nullable AiGateway.RequestCacheHint baseCacheHint,
+                                                           @Nullable String model,
+                                                           @Nullable String userPrompt,
+                                                           int roundTag) {
+        String conversationId = baseCacheHint == null ? "" : safe(baseCacheHint.conversationId).trim();
+        if (conversationId.isEmpty() && activeSession != null) {
+            conversationId = safe(activeSession.id).trim();
+        }
+        if (conversationId.isEmpty()) {
+            conversationId = "local-" + System.currentTimeMillis();
+        }
+        String digest = sha256Hex(safe(model) + "|r=" + roundTag + "|" + safe(userPrompt));
+        if (digest.length() > 24) {
+            digest = digest.substring(0, 24);
+        }
+        return new AiGateway.RequestCacheHint(conversationId, "chat-r" + Math.max(0, roundTag) + "-" + digest);
+    }
+
+    private boolean isLikelyTimeoutException(@Nullable Throwable error) {
+        Throwable cursor = error;
+        int guard = 0;
+        while (cursor != null && guard < 6) {
+            String className = cursor.getClass().getName().toLowerCase(Locale.ROOT);
+            if (className.contains("timeout") || cursor instanceof java.io.InterruptedIOException) {
+                return true;
+            }
+            String msg = safe(cursor.getMessage()).toLowerCase(Locale.ROOT);
+            if (msg.contains("timed out")
+                    || msg.contains("timeout")
+                    || msg.contains("调用模型超时")
+                    || msg.contains("请求超时")) {
+                return true;
+            }
+            cursor = cursor.getCause();
+            guard++;
+        }
+        return false;
+    }
+
+    private String compactToolResultForModel(@Nullable String commandResult) {
+        String normalized = safe(commandResult)
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .trim();
+        if (normalized.length() <= MAX_TOOL_RESULT_FOR_MODEL_CHARS) {
+            return normalized;
+        }
+        int keep = Math.max(800, MAX_TOOL_RESULT_FOR_MODEL_CHARS - 70);
+        return normalized.substring(0, keep)
+                + "\n...(工具返回较长，剩余内容已截断，共"
+                + normalized.length()
+                + "字符)";
+    }
+
+    private String buildFallbackReplyFromCommandBatch(@NonNull SkillCommandCenter.CommandBatchResult batch) {
+        String readable = extractReadableCommandResult(batch.modelFeedback);
+        if (TextUtils.isEmpty(readable)) {
+            readable = safe(batch.userFeedback)
+                    .replaceFirst("^工具执行情况[：:]\\s*", "")
+                    .trim();
+        }
+        if (TextUtils.isEmpty(readable)) {
+            return "";
+        }
+        return "已完成相关操作，先为你返回可确认的结果：\n"
+                + readable
+                + "\n\n如需我继续补充说明或下一步建议，请直接告诉我。";
+    }
+
+    private String extractReadableCommandResult(@Nullable String modelFeedback) {
+        String normalized = safe(modelFeedback)
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        String[] lines = normalized.split("\\n");
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String one = safe(line).trim();
+            if (one.isEmpty()) {
+                continue;
+            }
+            Matcher matcher = COMMAND_RESULT_LINE_PATTERN.matcher(one);
+            if (matcher.matches()) {
+                one = safe(matcher.group(1)).trim();
+            }
+            if (one.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(one);
+        }
+        return sb.toString().trim();
+    }
+
+    @NonNull
+    private List<String> extractToolFeedbackItems(@Nullable String feedback) {
+        List<String> items = new ArrayList<>();
+        String normalized = safe(feedback)
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .trim();
+        if (normalized.isEmpty()) {
+            return items;
+        }
+        String[] lines = normalized.split("\\n");
+        for (String rawLine : lines) {
+            String line = safe(rawLine).trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (line.startsWith("工具执行情况")) {
+                continue;
+            }
+            line = line.replaceFirst("^(?:[-*•]|\\d+[.)、：:]?)\\s*", "").trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (!line.endsWith("。") && !line.endsWith("！") && !line.endsWith("？")) {
+                line = line + "。";
+            }
+            items.add(line);
+        }
+        if (items.isEmpty()) {
+            items.add("已完成本轮工具调用。");
+        }
+        return items;
+    }
+
+    @NonNull
+    private String buildAggregatedToolFeedbackMessage(@NonNull Set<String> items) {
+        StringBuilder sb = new StringBuilder("工具执行情况：\n");
+        if (items.isEmpty()) {
+            sb.append("已完成本轮工具调用。");
+            return sb.toString();
+        }
+        int index = 0;
+        for (String one : items) {
+            String line = safe(one).trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (index > 0) {
+                sb.append('\n');
+            }
+            sb.append("- ").append(line);
+            index++;
+        }
+        if (index == 0) {
+            sb.append("已完成本轮工具调用。");
+        }
+        return sb.toString();
+    }
+
+    private void updateSystemTextMessageByHistoryIndex(int historyIndex, @Nullable String newText) {
+        if (historyIndex < 0) {
             return;
+        }
+        String normalized = safe(newText).trim();
+        if (normalized.isEmpty()) {
+            return;
+        }
+
+        boolean changed = false;
+        if (activeSession != null && activeSession.messages != null
+                && historyIndex >= 0 && historyIndex < activeSession.messages.size()) {
+            ChatMessage message = activeSession.messages.get(historyIndex);
+            if (message != null && "system".equalsIgnoreCase(safe(message.role))) {
+                if (!TextUtils.equals(safe(message.content), normalized)) {
+                    message.content = normalized;
+                    changed = true;
+                }
+            }
+        }
+
+        TextView target = findSystemTextMessageViewByHistoryIndex(historyIndex);
+        if (target != null) {
+            target.setText(normalized);
+            bindMessageMetadata(target, false, normalized, historyIndex);
+        }
+
+        if (changed) {
+            if (sessions.contains(activeSession)) {
+                touchActiveSession();
+                refreshHistoryRows();
+                saveHistory();
+            } else {
+                promoteActiveSessionToHistoryIfEligible();
+            }
+        }
+    }
+
+    @Nullable
+    private TextView findSystemTextMessageViewByHistoryIndex(int historyIndex) {
+        if (chatContainer == null || historyIndex < 0) {
+            return null;
+        }
+        for (int i = chatContainer.getChildCount() - 1; i >= 0; i--) {
+            View child = chatContainer.getChildAt(i);
+            if (!(child instanceof TextView)) {
+                continue;
+            }
+            Object tag = child.getTag();
+            if (!(tag instanceof MessageViewMeta)) {
+                continue;
+            }
+            MessageViewMeta meta = (MessageViewMeta) tag;
+            if (!meta.isUser && !meta.typing && meta.historyIndex == historyIndex) {
+                return (TextView) child;
+            }
+        }
+        return null;
+    }
+
+    private int addSystemMessage(String text) {
+        return addSystemMessage(text, false);
+    }
+
+    private int addSystemMessage(String text, boolean persistToHistory) {
+        if (TextUtils.isEmpty(text)) {
+            return -1;
         }
 
         String normalized = safe(text)
@@ -2931,12 +3464,26 @@ public class AiChatFragment extends Fragment {
                 .replace("\r", "\n")
                 .trim();
         if (normalized.isEmpty()) {
-            return;
+            return -1;
         }
+
+        int historyIndex = -1;
+
+        SystemCardPayload cardPayload = parseSystemCardPayload(normalized);
+        if (cardPayload != null) {
+            if (persistToHistory) {
+                appendMessageToHistoryByRole("system", cardPayload.rawPayload);
+                historyIndex = getActiveSessionLastMessageIndex();
+            }
+            renderSystemCard(cardPayload);
+            return historyIndex;
+        }
+
         String noticeText = normalized.startsWith("工具") ? normalized : "工具执行情况：\n" + normalized;
 
         if (persistToHistory) {
             appendMessageToHistoryByRole("system", noticeText);
+            historyIndex = getActiveSessionLastMessageIndex();
         }
 
         TextView tv = new TextView(ctx());
@@ -2959,8 +3506,176 @@ public class AiChatFragment extends Fragment {
         lp.setMargins(dp(2), dp(2), dp(2), dp(3));
         tv.setLayoutParams(lp);
 
+        bindMessageMetadata(tv, false, noticeText, historyIndex);
+
         chatContainer.addView(tv);
         scrollChatToBottom();
+        return historyIndex;
+    }
+
+    private boolean isJwxtLoginRequired(@Nullable String commandResult) {
+        String lower = safe(commandResult).toLowerCase(Locale.ROOT);
+        return lower.contains("未登录或登录已失效")
+                || lower.contains("请先登录教务系统")
+                || lower.contains("教务登录状态：未登录")
+                || lower.contains("请先在“设置-账号与教务”完成登录");
+    }
+
+    private String buildJwxtLoginCardPayload(@Nullable String resumePrompt,
+                                             @Nullable String resumeModelId,
+                                             boolean requestTitleInFinalAnswer) {
+        try {
+            JSONObject obj = new JSONObject();
+            obj.put("type", SYSTEM_CARD_TYPE_JWXT_LOGIN);
+            obj.put("title", "教务系统登录状态已失效");
+            obj.put("description", "请先完成教务系统登录。登录成功后，系统将自动继续处理当前查询请求。");
+            obj.put("action", SYSTEM_CARD_ACTION_OPEN_JWXT_LOGIN);
+            obj.put("actionText", "前往教务系统登录");
+            obj.put("resumePrompt", safe(resumePrompt));
+            obj.put("resumeModelId", safe(resumeModelId));
+            obj.put("requestTitle", requestTitleInFinalAnswer);
+            return SYSTEM_CARD_PREFIX + obj;
+        } catch (Exception ignored) {
+            return "工具执行情况：\n教务登录状态已失效，请先登录教务系统。";
+        }
+    }
+
+    @Nullable
+    private SystemCardPayload parseSystemCardPayload(@Nullable String raw) {
+        String text = safe(raw).trim();
+        if (!text.startsWith(SYSTEM_CARD_PREFIX)) {
+            return null;
+        }
+        String jsonText = text.substring(SYSTEM_CARD_PREFIX.length()).trim();
+        if (jsonText.isEmpty()) {
+            return null;
+        }
+        try {
+            JSONObject obj = new JSONObject(jsonText);
+            String type = safe(obj.optString("type", "")).trim();
+            if (type.isEmpty()) {
+                return null;
+            }
+            String title = safe(obj.optString("title", "")).trim();
+            String description = safe(obj.optString("description", "")).trim();
+            String action = safe(obj.optString("action", "")).trim();
+            String actionText = safe(obj.optString("actionText", "")).trim();
+            String resumePrompt = safe(obj.optString("resumePrompt", "")).trim();
+            String resumeModelId = safe(obj.optString("resumeModelId", "")).trim();
+            boolean requestTitle = obj.optBoolean("requestTitle", false);
+            return new SystemCardPayload(
+                    text,
+                    type,
+                    title,
+                    description,
+                    action,
+                    actionText,
+                    resumePrompt,
+                    resumeModelId,
+                    requestTitle
+            );
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void renderSystemCard(@NonNull SystemCardPayload payload) {
+        if (chatContainer == null) {
+            return;
+        }
+
+        maybeAddAssistantSeparator(false, false);
+
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(ctx());
+        int accent = UiStyleHelper.resolveAccentColor(ctx());
+
+        MaterialCardView card = new MaterialCardView(ctx());
+        card.setCardElevation(0f);
+        card.setRadius(dp(24));
+        card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(ctx()));
+        card.setStrokeWidth(dp(1));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 38));
+        card.setTag(new MessageViewMeta(false, payload.rawPayload, false, -1));
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        cardLp.setMargins(0, dp(8), 0, dp(8));
+        card.setLayoutParams(cardLp);
+
+        LinearLayout content = new LinearLayout(ctx());
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(16), dp(14), dp(16), dp(14));
+
+        TextView titleView = new TextView(ctx());
+        titleView.setText(TextUtils.isEmpty(payload.title) ? "工具卡片" : payload.title);
+        titleView.setTextColor(onSurface);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+        titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        titleView.setIncludeFontPadding(false);
+        content.addView(titleView);
+
+        if (!TextUtils.isEmpty(payload.description)) {
+            TextView descView = new TextView(ctx());
+            descView.setText(payload.description);
+            descView.setTextColor(ColorUtils.setAlphaComponent(onSurface, 190));
+            descView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+            descView.setLineSpacing(0f, 1.18f);
+            descView.setIncludeFontPadding(false);
+            LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            descLp.topMargin = dp(8);
+            descView.setLayoutParams(descLp);
+            content.addView(descView);
+        }
+
+        if (!TextUtils.isEmpty(payload.action)) {
+            MaterialButton actionButton = new MaterialButton(ctx(), null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            actionButton.setText(TextUtils.isEmpty(payload.actionText) ? "立即前往" : payload.actionText);
+            actionButton.setAllCaps(false);
+            actionButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+            actionButton.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            actionButton.setInsetTop(0);
+            actionButton.setInsetBottom(0);
+            actionButton.setCornerRadius(dp(14));
+            actionButton.setStrokeWidth(dp(1));
+            actionButton.setStrokeColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 196)));
+            actionButton.setBackgroundTintList(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 26)));
+            actionButton.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 82)));
+            actionButton.setTextColor(accent);
+            actionButton.setPadding(dp(12), dp(8), dp(12), dp(8));
+
+            LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            actionLp.topMargin = dp(12);
+            actionButton.setLayoutParams(actionLp);
+
+            actionButton.setOnClickListener(v -> handleSystemCardAction(payload));
+            content.addView(actionButton);
+        }
+
+        card.setOnClickListener(v -> {
+            if (!TextUtils.isEmpty(payload.action)) {
+                handleSystemCardAction(payload);
+            }
+        });
+
+        card.addView(content);
+        chatContainer.addView(card);
+        scrollChatToBottom();
+    }
+
+    private void handleSystemCardAction(@NonNull SystemCardPayload payload) {
+        if (SYSTEM_CARD_ACTION_OPEN_JWXT_LOGIN.equals(payload.action)) {
+            launchJwxtLoginFromCard(payload.resumePrompt, payload.resumeModelId, payload.requestTitleInFinalAnswer);
+            return;
+        }
+        Toast.makeText(ctx(), "当前卡片动作暂不支持执行。", Toast.LENGTH_SHORT).show();
     }
 
     private boolean isToolFeedbackMessage(String text) {
@@ -3000,6 +3715,12 @@ public class AiChatFragment extends Fragment {
                     || candidate.startsWith("已按课程名查询课程")
                     || candidate.startsWith("按关键词查询课程")
                     || candidate.startsWith("已按关键词查询课程")
+                    || candidate.startsWith("查询教务登录状态")
+                    || candidate.startsWith("已查询教务登录状态")
+                    || candidate.startsWith("查询空教室")
+                    || candidate.startsWith("已查询空教室")
+                    || candidate.startsWith("查询教室今日使用情况")
+                    || candidate.startsWith("已查询教室今日使用情况")
                     || candidate.startsWith("查询今日日程")
                     || candidate.startsWith("已查询今日日程")
                     || candidate.startsWith("查询指定日期日程")
@@ -3561,6 +4282,59 @@ public class AiChatFragment extends Fragment {
             this.rawText = rawText;
             this.typing = typing;
             this.historyIndex = historyIndex;
+        }
+    }
+
+    private static final class PendingLoginContinuation {
+        final String userText;
+        final boolean requestTitleInFinalAnswer;
+        final String modelId;
+
+        PendingLoginContinuation(String userText, boolean requestTitleInFinalAnswer, String modelId) {
+            this.userText = userText == null ? "" : userText;
+            this.requestTitleInFinalAnswer = requestTitleInFinalAnswer;
+            this.modelId = modelId == null ? "" : modelId;
+        }
+    }
+
+    private static final class LoginRequiredException extends Exception {
+        final PendingLoginContinuation continuation;
+
+        LoginRequiredException(String message, PendingLoginContinuation continuation) {
+            super(message);
+            this.continuation = continuation;
+        }
+    }
+
+    private static final class SystemCardPayload {
+        final String rawPayload;
+        final String type;
+        final String title;
+        final String description;
+        final String action;
+        final String actionText;
+        final String resumePrompt;
+        final String resumeModelId;
+        final boolean requestTitleInFinalAnswer;
+
+        SystemCardPayload(String rawPayload,
+                          String type,
+                          String title,
+                          String description,
+                          String action,
+                          String actionText,
+                          String resumePrompt,
+                          String resumeModelId,
+                          boolean requestTitleInFinalAnswer) {
+            this.rawPayload = rawPayload == null ? "" : rawPayload;
+            this.type = type == null ? "" : type;
+            this.title = title == null ? "" : title;
+            this.description = description == null ? "" : description;
+            this.action = action == null ? "" : action;
+            this.actionText = actionText == null ? "" : actionText;
+            this.resumePrompt = resumePrompt == null ? "" : resumePrompt;
+            this.resumeModelId = resumeModelId == null ? "" : resumeModelId;
+            this.requestTitleInFinalAnswer = requestTitleInFinalAnswer;
         }
     }
 

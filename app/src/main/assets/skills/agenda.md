@@ -13,7 +13,7 @@ description: "Manage schedule agendas with create/read/search/update/delete, inc
 
 ## Commands
 
-- agenda.read.today: 查询今日日程。
+- `agenda.read.today`: 查询今日日程。
 - `agenda.read.date yyyy-MM-dd`: 查询指定日期日程。
 - `agenda.search 关键词`: 在标题与详细描述中搜索日程。
 - `agenda.create {json}`: 新增日程。
