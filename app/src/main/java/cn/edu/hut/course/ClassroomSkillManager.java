@@ -68,13 +68,26 @@ public final class ClassroomSkillManager {
         try {
             String responseBody = runRoomQuery(queryContext, request.date, request.date, request.dayOfWeek, request.slotIndexes, "");
 
-            JsonRoomRowsResult jsonRowsResult = parseRoomRowsFromJson(responseBody);
+            JsonRoomRowsResult jsonRowsResult = parseRoomRowsFromJson(responseBody, request.slotIndexes);
             if (jsonRowsResult.recognized) {
                 List<RoomInfo> matchedFromJson = collectEmptyPublicRoomsFromJson(jsonRowsResult.rows);
                 return formatEmptyRoomQueryResult(request, matchedFromJson);
             }
 
-            TablePair tablePair = findRoomTables(Jsoup.parse(responseBody));
+            String fallbackBody = responseBody;
+            if (!containsAllSlots(request.slotIndexes)) {
+                fallbackBody = runRoomQuery(queryContext, request.date, request.date, request.dayOfWeek, allSlotIndexes(), "");
+                JsonRoomRowsResult fallbackJsonRows = parseRoomRowsFromJson(fallbackBody, request.slotIndexes);
+                if (fallbackJsonRows.recognized) {
+                    List<RoomInfo> matchedFromJson = collectEmptyPublicRoomsFromJson(fallbackJsonRows.rows);
+                    return formatEmptyRoomQueryResult(request, matchedFromJson);
+                }
+            }
+
+            TablePair tablePair = findRoomTables(Jsoup.parse(safe(fallbackBody)));
+            if (!tablePair.valid() && !safe(responseBody).equals(safe(fallbackBody))) {
+                tablePair = findRoomTables(Jsoup.parse(safe(responseBody)));
+            }
             if (!tablePair.valid()) {
                 return "查询失败：教务返回内容格式暂不支持，请稍后重试";
             }
@@ -164,7 +177,7 @@ public final class ClassroomSkillManager {
 
         for (int slot = 0; slot < SLOT_CODES.length; slot++) {
             String responseBody = runRoomQuery(queryContext, date, date, dayOfWeek, Collections.singletonList(slot), "");
-            JsonRoomRowsResult parsed = parseRoomRowsFromJson(responseBody);
+            JsonRoomRowsResult parsed = parseRoomRowsFromJson(responseBody, Collections.singletonList(slot));
             if (!parsed.recognized) {
                 recognizedAll = false;
                 break;
@@ -175,7 +188,7 @@ public final class ClassroomSkillManager {
                 continue;
             }
             foundRoom = true;
-            occupiedBySlot.add(hasUsageMarker(row.usageMarker));
+            occupiedBySlot.add(hasAnyUsageMarker(row.usageMarkers));
         }
 
         if (!recognizedAll) {
@@ -269,7 +282,7 @@ public final class ClassroomSkillManager {
             if (!roomName.startsWith("公共")) {
                 continue;
             }
-            if (hasUsageMarker(row.usageMarker)) {
+            if (hasAnyUsageMarker(row.usageMarkers)) {
                 continue;
             }
             matched.add(new RoomInfo(roomName, safe(row.roomType).trim(), safe(row.seatText).trim()));
@@ -305,7 +318,19 @@ public final class ClassroomSkillManager {
         return !text.replace("&nbsp;", "").trim().isEmpty();
     }
 
-    private static JsonRoomRowsResult parseRoomRowsFromJson(String responseBody) {
+    private static boolean hasAnyUsageMarker(List<String> markers) {
+        if (markers == null || markers.isEmpty()) {
+            return false;
+        }
+        for (String marker : markers) {
+            if (hasUsageMarker(marker)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static JsonRoomRowsResult parseRoomRowsFromJson(String responseBody, List<Integer> requestedSlotIndexes) {
         String trimmed = safe(responseBody).trim();
         if (trimmed.isEmpty() || (!trimmed.startsWith("[") && !trimmed.startsWith("{"))) {
             return JsonRoomRowsResult.notRecognized();
@@ -321,16 +346,32 @@ public final class ClassroomSkillManager {
             List<JsonRoomRow> parsedRows = new ArrayList<>();
             for (int i = 0; i < roomRows.length(); i++) {
                 JSONArray row = roomRows.optJSONArray(i);
-                if (row == null || row.length() == 0) {
+                if (row == null || row.length() < 2) {
                     continue;
                 }
 
                 String roomName = row.optString(0, "");
-                String usageMarker = row.isNull(1) ? "" : row.optString(1, "");
-                String seatText = row.optString(3, "");
-                String roomType = row.optString(4, "");
+                int rowLength = row.length();
+                int markerCount = Math.max(1, rowLength - 4);
+                List<String> usageMarkers = new ArrayList<>();
+                if (requestedSlotIndexes != null && !requestedSlotIndexes.isEmpty()) {
+                    for (int slotIndex : requestedSlotIndexes) {
+                        int markerColumn = slotIndex + 1;
+                        if (markerColumn >= 1 && markerColumn <= markerCount) {
+                            usageMarkers.add(row.isNull(markerColumn) ? "" : row.optString(markerColumn, ""));
+                        }
+                    }
+                }
+                if (usageMarkers.isEmpty()) {
+                    for (int markerColumn = 1; markerColumn <= markerCount; markerColumn++) {
+                        usageMarkers.add(row.isNull(markerColumn) ? "" : row.optString(markerColumn, ""));
+                    }
+                }
+
+                String seatText = rowLength >= 4 ? row.optString(rowLength - 2, "") : "";
+                String roomType = rowLength >= 3 ? row.optString(rowLength - 1, "") : "";
                 if (!safe(roomName).trim().isEmpty()) {
-                    parsedRows.add(new JsonRoomRow(roomName, usageMarker, seatText, roomType));
+                    parsedRows.add(new JsonRoomRow(roomName, usageMarkers, seatText, roomType));
                 }
             }
             return JsonRoomRowsResult.recognized(parsedRows);
@@ -422,7 +463,7 @@ public final class ClassroomSkillManager {
         if (isLoginResponse(result)) {
             throw new IllegalStateException("未登录或登录已失效，请先登录教务系统");
         }
-        if (result.code != HttpURLConnection.HTTP_OK || safe(result.body).isEmpty()) {
+        if (result.code != HttpURLConnection.HTTP_OK) {
             throw new IllegalStateException("教务系统查询失败，状态码=" + result.code);
         }
         return result.body;
@@ -544,6 +585,32 @@ public final class ClassroomSkillManager {
             }
         }
         return cols;
+    }
+
+    private static List<Integer> allSlotIndexes() {
+        List<Integer> all = new ArrayList<>();
+        for (int i = 0; i < SLOT_CODES.length; i++) {
+            all.add(i);
+        }
+        return all;
+    }
+
+    private static boolean containsAllSlots(List<Integer> slotIndexes) {
+        if (slotIndexes == null || slotIndexes.isEmpty()) {
+            return false;
+        }
+        boolean[] picked = new boolean[SLOT_CODES.length];
+        for (int slot : slotIndexes) {
+            if (slot >= 0 && slot < SLOT_CODES.length) {
+                picked[slot] = true;
+            }
+        }
+        for (boolean one : picked) {
+            if (!one) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static EmptyRoomRequest parseEmptyRoomRequest(String payload) {
@@ -1181,13 +1248,13 @@ public final class ClassroomSkillManager {
 
     private static final class JsonRoomRow {
         final String roomName;
-        final String usageMarker;
+        final List<String> usageMarkers;
         final String seatText;
         final String roomType;
 
-        JsonRoomRow(String roomName, String usageMarker, String seatText, String roomType) {
+        JsonRoomRow(String roomName, List<String> usageMarkers, String seatText, String roomType) {
             this.roomName = roomName;
-            this.usageMarker = usageMarker;
+            this.usageMarkers = usageMarkers;
             this.seatText = seatText;
             this.roomType = roomType;
         }

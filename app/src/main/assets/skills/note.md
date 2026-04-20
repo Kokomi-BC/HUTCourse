@@ -1,20 +1,22 @@
 ---
 name: note
-description: "Create and read concise user notes or todos. Keep records brief and actionable, with total stored notes capped at 1000 characters."
+description: "Only record key items the user explicitly asks to remember (preferences, constraints, long-term reminders). Keep notes concise and capped at 1000 characters."
 ---
 
 # Note Skill
 
 ## Purpose
 
-- 记录用户的重要事项与待办。
-- 支持读取当前记录并返回简明摘要。
+- 仅记录用户明确要求“记住/记录”的关键信息。
+- 用于长期有效的偏好、约束、重要待办，不记录普通闲聊内容。
 
 ## Rules
 
-- 仅记录关键信息，避免长篇解释。
-- 单条建议控制在 160 字以内。
-- 所有记录累计不超过 1000 字；超出时优先移除最旧条目。
+- 只有在用户明确表达“请记住/帮我记一下/后续按这个来”时才写入。
+- 优先记录：用户偏好、固定要求、长期提醒、关键身份/背景约束。
+- 不记录：临时对话细节、可即时推断的信息、冗余背景描述。
+- 单条控制在 160 字以内，保留可执行关键信息。
+- 总长度不超过 1000 字，超出时优先删除最旧且不重要条目。
 
 ## Commands
 
@@ -34,5 +36,6 @@ description: "Create and read concise user notes or todos. Keep records brief an
 
 ## Response Style
 
-- 优先使用短句。
-- 输出可执行项，不输出冗余背景。
+- 使用短句。
+- 先给结果，再给简短状态（如“已记录/已更新/无需记录”）。
+- 若内容不属于关键记忆，明确提示“不建议写入长期记录”。
