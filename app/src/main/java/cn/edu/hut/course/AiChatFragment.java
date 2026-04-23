@@ -119,7 +119,10 @@ public class AiChatFragment extends Fragment {
     private static final Pattern COMMAND_RESULT_LINE_PATTERN = Pattern.compile("^\\d+\\.\\s+.+?=>\\s*(.*)$");
     private static final String SYSTEM_CARD_PREFIX = "CARD_JSON:";
     private static final String SYSTEM_CARD_TYPE_JWXT_LOGIN = "jwxt_login";
+    private static final String SYSTEM_CARD_TYPE_API_CONFIG = "api_config";
     private static final String SYSTEM_CARD_ACTION_OPEN_JWXT_LOGIN = "open_jwxt_login";
+    private static final String SYSTEM_CARD_ACTION_OPEN_AI_SETTINGS = "open_ai_settings";
+    private static final String SYSTEM_CARD_ACTION_OPEN_AMAP_NAVIGATION = "open_amap_navigation";
 
     private DrawerLayout drawerAiChat;
     private LinearLayout chatContainer;
@@ -2550,15 +2553,24 @@ public class AiChatFragment extends Fragment {
 
         AiConfigStore.AiModelConfig selectedModel = resolveModelForCurrentSession();
         if (selectedModel == null) {
-            addBubble(false, "请先到“设置 -> AI接入”添加模型。", false);
+            addSystemMessage(buildApiConfigCardPayload(
+                    "尚未配置AI模型",
+                    "请先前往 AI 接入添加模型并填写 API Key。"
+            ), true);
             return;
         }
         if (TextUtils.isEmpty(selectedModel.apiKey)) {
-            addBubble(false, "请先到“设置 -> AI接入”为当前模型配置 API Key。", false);
+            addSystemMessage(buildApiConfigCardPayload(
+                    "当前模型缺少 API Key",
+                    "请先配置当前模型的 API Key，配置后即可继续提问。"
+            ), true);
             return;
         }
         if (TextUtils.isEmpty(selectedModel.modelName)) {
-            addBubble(false, "请先到“设置 -> AI接入”填写模型名称。", false);
+            addSystemMessage(buildApiConfigCardPayload(
+                    "当前模型缺少模型名",
+                    "请先填写模型名/接入点 ID，配置完成后再试。"
+            ), true);
             return;
         }
         if (hasImage && !selectedModel.multimodal) {
@@ -2831,15 +2843,24 @@ public class AiChatFragment extends Fragment {
 
         AiConfigStore.AiModelConfig selectedModel = resolveModelForCurrentSession();
         if (selectedModel == null) {
-            addBubble(false, "请先到“设置 -> AI接入”添加模型。", false);
+            addSystemMessage(buildApiConfigCardPayload(
+                    "尚未配置AI模型",
+                    "请先前往 AI 接入添加模型并填写 API Key。"
+            ), true);
             return;
         }
         if (TextUtils.isEmpty(selectedModel.apiKey)) {
-            addBubble(false, "请先到“设置 -> AI接入”为当前模型配置 API Key。", false);
+            addSystemMessage(buildApiConfigCardPayload(
+                    "当前模型缺少 API Key",
+                    "请先配置当前模型的 API Key，配置后即可继续提问。"
+            ), true);
             return;
         }
         if (TextUtils.isEmpty(selectedModel.modelName)) {
-            addBubble(false, "请先到“设置 -> AI接入”填写模型名称。", false);
+            addSystemMessage(buildApiConfigCardPayload(
+                    "当前模型缺少模型名",
+                    "请先填写模型名/接入点 ID，配置完成后再试。"
+            ), true);
             return;
         }
 
@@ -3143,6 +3164,7 @@ public class AiChatFragment extends Fragment {
             SkillCommandCenter.CommandBatchResult batch = SkillCommandCenter.executeCommandsWithFeedback(ctx(), commands, originalUserText);
             String commandResult = batch.modelFeedback;
             String roundMessage = batch.userFeedback;
+            String systemCardPayload = extractSystemCardPayloadFromCommandResult(commandResult);
             List<String> roundFeedbackItems = extractToolFeedbackItems(roundMessage);
             if (!roundFeedbackItems.isEmpty()) {
                 toolFeedbackItems.addAll(roundFeedbackItems);
@@ -3163,6 +3185,15 @@ public class AiChatFragment extends Fragment {
                     }
                     if (toolFeedbackHistoryIndex[0] >= 0) {
                         updateSystemTextMessageByHistoryIndex(toolFeedbackHistoryIndex[0], aggregatedToolFeedback);
+                    }
+                });
+            }
+
+            if (!TextUtils.isEmpty(systemCardPayload) && isAdded() && isAiRequestActive(requestToken)) {
+                final String finalCardPayload = systemCardPayload;
+                requireActivity().runOnUiThread(() -> {
+                    if (isAiRequestActive(requestToken)) {
+                        addSystemMessage(finalCardPayload, true);
                     }
                 });
             }
@@ -3329,6 +3360,36 @@ public class AiChatFragment extends Fragment {
             sb.append(one);
         }
         return sb.toString().trim();
+    }
+
+    @NonNull
+    private String extractSystemCardPayloadFromCommandResult(@Nullable String modelFeedback) {
+        String normalized = safe(modelFeedback)
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (normalized.startsWith(SYSTEM_CARD_PREFIX)) {
+            return normalized;
+        }
+        String[] lines = normalized.split("\\n");
+        for (String one : lines) {
+            String line = safe(one).trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            int markerIndex = line.indexOf(SYSTEM_CARD_PREFIX);
+            if (markerIndex < 0) {
+                continue;
+            }
+            String payload = line.substring(markerIndex).trim();
+            if (!payload.isEmpty()) {
+                return payload;
+            }
+        }
+        return "";
     }
 
     @NonNull
@@ -3540,6 +3601,20 @@ public class AiChatFragment extends Fragment {
         }
     }
 
+    private String buildApiConfigCardPayload(@NonNull String title, @NonNull String description) {
+        try {
+            JSONObject obj = new JSONObject();
+            obj.put("type", SYSTEM_CARD_TYPE_API_CONFIG);
+            obj.put("title", title);
+            obj.put("description", description);
+            obj.put("action", SYSTEM_CARD_ACTION_OPEN_AI_SETTINGS);
+            obj.put("actionText", "点击去配置API");
+            return SYSTEM_CARD_PREFIX + obj;
+        } catch (Exception ignored) {
+            return "请先到设置中配置 AI 模型与 API Key。";
+        }
+    }
+
     @Nullable
     private SystemCardPayload parseSystemCardPayload(@Nullable String raw) {
         String text = safe(raw).trim();
@@ -3563,6 +3638,9 @@ public class AiChatFragment extends Fragment {
             String resumePrompt = safe(obj.optString("resumePrompt", "")).trim();
             String resumeModelId = safe(obj.optString("resumeModelId", "")).trim();
             boolean requestTitle = obj.optBoolean("requestTitle", false);
+            String targetName = safe(obj.optString("targetName", "")).trim();
+            double targetLat = obj.has("targetLat") ? obj.optDouble("targetLat", Double.NaN) : Double.NaN;
+            double targetLng = obj.has("targetLng") ? obj.optDouble("targetLng", Double.NaN) : Double.NaN;
             return new SystemCardPayload(
                     text,
                     type,
@@ -3572,7 +3650,10 @@ public class AiChatFragment extends Fragment {
                     actionText,
                     resumePrompt,
                     resumeModelId,
-                    requestTitle
+                    requestTitle,
+                    targetName,
+                    targetLat,
+                    targetLng
             );
         } catch (Exception ignored) {
             return null;
@@ -3673,6 +3754,24 @@ public class AiChatFragment extends Fragment {
     private void handleSystemCardAction(@NonNull SystemCardPayload payload) {
         if (SYSTEM_CARD_ACTION_OPEN_JWXT_LOGIN.equals(payload.action)) {
             launchJwxtLoginFromCard(payload.resumePrompt, payload.resumeModelId, payload.requestTitleInFinalAnswer);
+            return;
+        }
+        if (SYSTEM_CARD_ACTION_OPEN_AI_SETTINGS.equals(payload.action)) {
+            try {
+                startActivity(new Intent(ctx(), SettingsAiActivity.class));
+            } catch (Exception ignored) {
+                Toast.makeText(ctx(), "无法打开 AI 设置页", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        if (SYSTEM_CARD_ACTION_OPEN_AMAP_NAVIGATION.equals(payload.action)) {
+            String result = NavigationSkillManager.openAmapNavigationByCoordinate(
+                    ctx(),
+                    payload.targetName,
+                    payload.targetLat,
+                    payload.targetLng
+            );
+            Toast.makeText(ctx(), result, Toast.LENGTH_SHORT).show();
             return;
         }
         Toast.makeText(ctx(), "当前卡片动作暂不支持执行。", Toast.LENGTH_SHORT).show();
@@ -4316,6 +4415,9 @@ public class AiChatFragment extends Fragment {
         final String resumePrompt;
         final String resumeModelId;
         final boolean requestTitleInFinalAnswer;
+        final String targetName;
+        final double targetLat;
+        final double targetLng;
 
         SystemCardPayload(String rawPayload,
                           String type,
@@ -4325,7 +4427,10 @@ public class AiChatFragment extends Fragment {
                           String actionText,
                           String resumePrompt,
                           String resumeModelId,
-                          boolean requestTitleInFinalAnswer) {
+                          boolean requestTitleInFinalAnswer,
+                          String targetName,
+                          double targetLat,
+                          double targetLng) {
             this.rawPayload = rawPayload == null ? "" : rawPayload;
             this.type = type == null ? "" : type;
             this.title = title == null ? "" : title;
@@ -4335,6 +4440,9 @@ public class AiChatFragment extends Fragment {
             this.resumePrompt = resumePrompt == null ? "" : resumePrompt;
             this.resumeModelId = resumeModelId == null ? "" : resumeModelId;
             this.requestTitleInFinalAnswer = requestTitleInFinalAnswer;
+            this.targetName = targetName == null ? "" : targetName;
+            this.targetLat = targetLat;
+            this.targetLng = targetLng;
         }
     }
 

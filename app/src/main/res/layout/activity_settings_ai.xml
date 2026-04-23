@@ -79,6 +79,33 @@
             app:icon="@drawable/ic_add"
             app:iconGravity="textStart"
             app:iconPadding="8dp" />
+
+        <TextView
+            style="@style/Widget.MyApplication.SettingsRowTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="Tavily配置" />
+
+        <TextView
+            android:id="@+id/tvTavilyConfigSummary"
+            style="@style/Widget.MyApplication.SettingsRowSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="未配置 Tavily API Key" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTavilyConfig"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="18dp"
+            android:text="编辑 Tavily 配置"
+            android:textAllCaps="false" />
     </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

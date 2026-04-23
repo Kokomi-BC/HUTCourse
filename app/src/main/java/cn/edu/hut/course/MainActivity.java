@@ -132,17 +132,19 @@ public class MainActivity extends AppCompatActivity {
 
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
     private com.google.android.material.card.MaterialCardView cardTodayWeekOverview;
+    private com.google.android.material.card.MaterialCardView cardTodayWeather;
     private TextView tvMainTitle, tvEmptyHint, tvNextCourseNotice, tvAgendaOverviewSummary, tvScheduleTitleDivider, tvScheduleAgendaEntry;
     private TextView tvTodayWeek, tvTodayDate, tvTodayWeekTotal, tvTodayWeekDone, tvNowTime;
+    private TextView tvTodayWeatherUpdate;
     private TextView tvProfileName, tvProfileStudentId, tvProfileClass, tvProfileCollege;
-    private ImageButton btnCloseNextCourseNotice, btnAgendaOverviewBack, btnAgendaOverviewAdd;
+    private ImageButton btnCloseNextCourseNotice, btnAgendaOverviewBack, btnAgendaOverviewAdd, btnTodayWeatherRefresh;
     private FloatingActionButton fabAddAgenda;
     private BottomNavigationView bottomNav;
     private View bottomNavHost;
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
     private View pageSchedule, pageToday, pageAi, pageProfile, pageAgenda, titleContainer, rootMain;
-    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer;
+    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer, layoutTodayWeatherList;
 
     private final List<Course> allCourses = new ArrayList<>();
     private int currentWeek = 1;
@@ -153,6 +155,7 @@ public class MainActivity extends AppCompatActivity {
     private Calendar selectedTodayDate;
     private int weekOverviewPreviewWeek = -1;
     private int weekOverviewPreviewDay = -1;
+    private boolean todayWeatherRefreshing = false;
     private boolean todayEndedTimelineCollapsed = true;
     private boolean agendaOngoingCollapsed = false;
     private boolean agendaUpcomingCollapsed = false;
@@ -222,6 +225,12 @@ public class MainActivity extends AppCompatActivity {
         }
         if (tvTodayWeekDone != null) {
             tvTodayWeekDone.setTextColor(colorOnSurfaceVariant);
+        }
+        if (tvTodayWeatherUpdate != null) {
+            tvTodayWeatherUpdate.setTextColor(colorOnSurfaceVariant);
+        }
+        if (btnTodayWeatherRefresh != null) {
+            btnTodayWeatherRefresh.setColorFilter(colorOnSurface);
         }
 
         if (bottomNav != null) {
@@ -376,13 +385,17 @@ public class MainActivity extends AppCompatActivity {
         tvTodayDate = findViewById(R.id.tvTodayDate);
         tvTodayWeekTotal = findViewById(R.id.tvTodayWeekTotal);
         tvTodayWeekDone = findViewById(R.id.tvTodayWeekDone);
+        tvTodayWeatherUpdate = findViewById(R.id.tvTodayWeatherUpdate);
         todayCoursesContainer = findViewById(R.id.todayCoursesContainer);
         layoutTodayWeekStrip = findViewById(R.id.layoutTodayWeekStrip);
+        layoutTodayWeatherList = findViewById(R.id.layoutTodayWeatherList);
         agendaOverviewContainer = findViewById(R.id.agendaOverviewContainer);
         tvAgendaOverviewSummary = findViewById(R.id.tvAgendaOverviewSummary);
         btnAgendaOverviewBack = findViewById(R.id.btnAgendaOverviewBack);
         btnAgendaOverviewAdd = findViewById(R.id.btnAgendaOverviewAdd);
         cardTodayWeekOverview = findViewById(R.id.cardTodayWeekOverview);
+        cardTodayWeather = findViewById(R.id.cardTodayWeather);
+        btnTodayWeatherRefresh = findViewById(R.id.btnTodayWeatherRefresh);
         bottomNavHost = findViewById(R.id.bottomNavHost);
         bottomNav = findViewById(R.id.bottomNav);
         viewPager = findViewById(R.id.viewPager);
@@ -403,6 +416,9 @@ public class MainActivity extends AppCompatActivity {
 
         if (fabAddAgenda != null) {
             fabAddAgenda.setOnClickListener(v -> showAgendaEditorSheet(null, resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek())));
+        }
+        if (btnTodayWeatherRefresh != null) {
+            btnTodayWeatherRefresh.setOnClickListener(v -> refreshTodayWeather(true));
         }
         if (tvScheduleAgendaEntry != null) {
             tvScheduleAgendaEntry.setOnClickListener(v -> openAgendaOverviewActivity());
@@ -1780,6 +1796,7 @@ public class MainActivity extends AppCompatActivity {
         renderTodayTimelineCards(courses, agendas, viewingToday);
         renderTodayWeekOverview(actualWeek, previewDay, currentDay, currentSeconds);
         styleTodayOverviewCard();
+        refreshTodayWeather(false);
     }
 
     private void disableParentClipping(@NonNull View target) {
@@ -1908,13 +1925,141 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void styleTodayOverviewCard() {
-        if (cardTodayWeekOverview == null) return;
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
-        cardTodayWeekOverview.setCardElevation(0f);
-        cardTodayWeekOverview.setRadius(dp(24));
-        cardTodayWeekOverview.setStrokeWidth(dp(1));
-        cardTodayWeekOverview.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
-        cardTodayWeekOverview.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+        if (cardTodayWeekOverview != null) {
+            cardTodayWeekOverview.setCardElevation(0f);
+            cardTodayWeekOverview.setRadius(dp(24));
+            cardTodayWeekOverview.setStrokeWidth(dp(1));
+            cardTodayWeekOverview.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+            cardTodayWeekOverview.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+        }
+        if (cardTodayWeather != null) {
+            cardTodayWeather.setCardElevation(0f);
+            cardTodayWeather.setRadius(dp(24));
+            cardTodayWeather.setStrokeWidth(dp(1));
+            cardTodayWeather.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+            cardTodayWeather.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+        }
+    }
+
+    private void refreshTodayWeather(boolean forceRefresh) {
+        if (tvTodayWeatherUpdate == null || layoutTodayWeatherList == null) {
+            return;
+        }
+        if (todayWeatherRefreshing) {
+            return;
+        }
+
+        todayWeatherRefreshing = true;
+        if (btnTodayWeatherRefresh != null) {
+            btnTodayWeatherRefresh.setEnabled(false);
+            btnTodayWeatherRefresh.setAlpha(0.5f);
+        }
+        if (forceRefresh) {
+            tvTodayWeatherUpdate.setText("正在刷新天气...");
+        }
+
+        TianyuanWeatherManager.requestWeather(this, forceRefresh, snapshot -> {
+            todayWeatherRefreshing = false;
+            if (btnTodayWeatherRefresh != null) {
+                btnTodayWeatherRefresh.setEnabled(true);
+                btnTodayWeatherRefresh.setAlpha(1f);
+            }
+            renderTodayWeather(snapshot);
+        });
+    }
+
+    private void renderTodayWeather(@Nullable TianyuanWeatherManager.WeatherSnapshot snapshot) {
+        if (tvTodayWeatherUpdate == null || layoutTodayWeatherList == null) {
+            return;
+        }
+
+        layoutTodayWeatherList.removeAllViews();
+        if (snapshot == null || !snapshot.success || snapshot.forecasts == null || snapshot.forecasts.isEmpty()) {
+            String msg = snapshot == null ? "天气加载失败" : (TextUtils.isEmpty(snapshot.message) ? "天气加载失败" : snapshot.message);
+            tvTodayWeatherUpdate.setText(msg);
+            TextView empty = new TextView(this);
+            empty.setText("暂未获取到株洲天元区近三天天气");
+            empty.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+            empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+            layoutTodayWeatherList.addView(empty);
+            return;
+        }
+
+        String updateLabel = snapshot.fromCache ? "天气缓存" : "天气已更新";
+        if (!TextUtils.isEmpty(snapshot.updateTime)) {
+            updateLabel = updateLabel + " · " + snapshot.updateTime;
+        }
+        if (!TextUtils.isEmpty(snapshot.message)) {
+            updateLabel = updateLabel + "（" + snapshot.message + "）";
+        }
+        tvTodayWeatherUpdate.setText(updateLabel);
+
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+        int primary = getTimetableThemeColor();
+        for (int i = 0; i < snapshot.forecasts.size(); i++) {
+            TianyuanWeatherManager.DayForecast one = snapshot.forecasts.get(i);
+            MaterialCardView row = new MaterialCardView(this);
+            row.setCardElevation(0f);
+            row.setRadius(dp(16));
+            row.setStrokeWidth(dp(1));
+            row.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+            row.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+
+            LinearLayout content = new LinearLayout(this);
+            content.setOrientation(LinearLayout.VERTICAL);
+            content.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+            TextView title = new TextView(this);
+            title.setText(TextUtils.isEmpty(one.dayLabel) ? "预报" + (i + 1) : one.dayLabel);
+            title.setTextColor(onSurface);
+            title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+
+            TextView summary = new TextView(this);
+            StringBuilder summaryBuilder = new StringBuilder();
+            if (!TextUtils.isEmpty(one.weather)) {
+                summaryBuilder.append(one.weather);
+            }
+            if (!TextUtils.isEmpty(one.temperature)) {
+                if (summaryBuilder.length() > 0) {
+                    summaryBuilder.append(" · ");
+                }
+                summaryBuilder.append(one.temperature);
+            }
+            if (!TextUtils.isEmpty(one.wind)) {
+                if (summaryBuilder.length() > 0) {
+                    summaryBuilder.append(" · ");
+                }
+                summaryBuilder.append(one.wind);
+            }
+            if (summaryBuilder.length() == 0) {
+                summaryBuilder.append("暂无天气详情");
+            }
+            summary.setText(summaryBuilder.toString());
+            summary.setTextColor(onSurfaceVariant);
+            summary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+            summary.setPadding(0, dp(4), 0, 0);
+
+            content.addView(title);
+            content.addView(summary);
+            row.addView(content);
+
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            );
+            if (i > 0) {
+                lp.topMargin = dp(8);
+            }
+            row.setLayoutParams(lp);
+            layoutTodayWeatherList.addView(row);
+        }
+
+        if (btnTodayWeatherRefresh != null) {
+            btnTodayWeatherRefresh.setColorFilter(primary);
+        }
     }
 
     private void renderTodayTimelineCards(List<TodayCourseItem> courses, List<Agenda> agendas, boolean viewingToday) {

@@ -45,7 +45,9 @@ public class SettingsAiActivity extends AppCompatActivity {
     private MaterialToolbar toolbar;
     private RecyclerView rvAiModels;
     private TextView tvAiModelsEmpty;
+    private TextView tvTavilyConfigSummary;
     private MaterialButton btnAddAiModel;
+    private MaterialButton btnTavilyConfig;
     private final List<AiConfigStore.AiModelConfig> modelItems = new ArrayList<>();
     private AiModelAdapter adapter;
     private ItemTouchHelper itemTouchHelper;
@@ -65,11 +67,17 @@ public class SettingsAiActivity extends AppCompatActivity {
 
         rvAiModels = findViewById(R.id.rvAiModels);
         tvAiModelsEmpty = findViewById(R.id.tvAiModelsEmpty);
+        tvTavilyConfigSummary = findViewById(R.id.tvTavilyConfigSummary);
         btnAddAiModel = findViewById(R.id.btnAddAiModel);
+        btnTavilyConfig = findViewById(R.id.btnTavilyConfig);
 
         setupRecycler();
         btnAddAiModel.setOnClickListener(v -> showModelEditorSheet(null));
+        if (btnTavilyConfig != null) {
+            btnTavilyConfig.setOnClickListener(v -> showTavilyEditorSheet());
+        }
         loadModels();
+        updateTavilySummary();
     }
 
     @Override
@@ -77,6 +85,19 @@ public class SettingsAiActivity extends AppCompatActivity {
         super.onResume();
         applyPageVisualStyle();
         loadModels();
+        updateTavilySummary();
+    }
+
+    private void updateTavilySummary() {
+        if (tvTavilyConfigSummary == null) {
+            return;
+        }
+        if (!TavilyConfigStore.isConfigured(this)) {
+            tvTavilyConfigSummary.setText("未配置 Tavily API Key");
+            return;
+        }
+        String baseUrl = TavilyConfigStore.getBaseUrl(this);
+        tvTavilyConfigSummary.setText("已配置 Tavily API Key · " + baseUrl);
     }
 
     private void setupRecycler() {
@@ -275,6 +296,37 @@ public class SettingsAiActivity extends AppCompatActivity {
                     loadModels();
                 })
                 .show();
+    }
+
+    private void showTavilyEditorSheet() {
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        View content = LayoutInflater.from(this).inflate(R.layout.sheet_tavily_config_editor, null, false);
+        dialog.setContentView(content);
+        applyBottomSheetSurfaceStyle(dialog, UiStyleHelper.resolvePageBackgroundColor(this));
+
+        TextInputEditText etTavilyApiKey = content.findViewById(R.id.etTavilyApiKey);
+        TextInputEditText etTavilyBaseUrl = content.findViewById(R.id.etTavilyBaseUrl);
+        MaterialButton btnCancel = content.findViewById(R.id.btnCancelTavilyEdit);
+        MaterialButton btnSave = content.findViewById(R.id.btnSaveTavilyEdit);
+
+        etTavilyApiKey.setText(TavilyConfigStore.getApiKey(this));
+        etTavilyBaseUrl.setText(TavilyConfigStore.getBaseUrl(this));
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        btnSave.setOnClickListener(v -> {
+            String apiKey = safeText(etTavilyApiKey);
+            String baseUrl = safeText(etTavilyBaseUrl);
+            TavilyConfigStore.save(this, apiKey, baseUrl);
+            updateTavilySummary();
+            dialog.dismiss();
+            if (apiKey.isEmpty()) {
+                Toast.makeText(this, "Tavily 配置已清空", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Tavily 配置已保存", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        dialog.show();
     }
 
     private void applyBottomSheetSurfaceStyle(BottomSheetDialog dialog, int surfaceColor) {

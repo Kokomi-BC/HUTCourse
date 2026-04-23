@@ -201,6 +201,60 @@ public final class SkillCommandCenter {
             return new SingleExecution(result, "已按关键词查询课程");
         }
 
+        if ("navigation.place.list".equals(lower)) {
+            String result = NavigationSkillManager.listAllPlaces(context);
+            return new SingleExecution(result, "已读取地点列表");
+        }
+        if (lower.startsWith("navigation.place.search.hr ")) {
+            String keyword = cmd.substring("navigation.place.search.hr ".length()).trim();
+            String result = NavigationSkillManager.searchPlace(context, keyword, true);
+            return new SingleExecution(result, "已按关键词查询地点");
+        }
+        if (lower.startsWith("navigation.place.search ")) {
+            String keyword = cmd.substring("navigation.place.search ".length()).trim();
+            String result = NavigationSkillManager.searchPlace(context, keyword, false);
+            return new SingleExecution(result, "已按关键词查询地点");
+        }
+        if ("navigation.locate.me".equals(lower) || "navigation.me".equals(lower)) {
+            String result = NavigationSkillManager.locateUserInCampus(context);
+            return new SingleExecution(result, "已查询当前位置");
+        }
+        if ("navigation.coordinate.me".equals(lower) || "navigation.me.coordinate".equals(lower)) {
+            String result = NavigationSkillManager.getCurrentUserCoordinate(context);
+            return new SingleExecution(result, "已查询当前位置坐标");
+        }
+        if (lower.startsWith("navigation.route.estimate ")) {
+            String destination = cmd.substring("navigation.route.estimate ".length()).trim();
+            String result = NavigationSkillManager.estimateRoute(context, destination);
+            return new SingleExecution(result, result.startsWith("前往") ? "已估算路线" : result);
+        }
+        if ("navigation.route.estimate".equals(lower)) {
+            return new SingleExecution("路线计算失败：命令格式应为 navigation.route.estimate <地点>", "路线计算失败：命令格式错误");
+        }
+        if (lower.startsWith("navigation.route.amap ")) {
+            String destination = cmd.substring("navigation.route.amap ".length()).trim();
+            String result = NavigationSkillManager.buildAmapNavigationCard(context, destination);
+            if (result.startsWith("CARD_JSON:")) {
+                return new SingleExecution(result, "已生成导航卡片，请点击按钮开始导航");
+            }
+            return new SingleExecution(result, result.startsWith("导航失败") ? result : "导航处理失败");
+        }
+        if ("navigation.route.amap".equals(lower)) {
+            return new SingleExecution("导航失败：命令格式应为 navigation.route.amap <地点>", "导航失败：命令格式错误");
+        }
+
+        if (lower.startsWith("tavily.search ")) {
+            String query = cmd.substring("tavily.search ".length()).trim();
+            String result = TavilySearchSkillManager.search(context, query);
+            if (result.startsWith("配置缺失") || result.startsWith("搜索失败")) {
+                return new SingleExecution(result, result);
+            }
+            return new SingleExecution(result, "已完成联网搜索");
+        }
+        if ("tavily.search".equals(lower)) {
+            return new SingleExecution("搜索失败：命令格式应为 tavily.search <关键词>", "搜索失败：命令格式错误");
+        }
+
         if ("classroom.login.status".equals(lower) || "classroom.login".equals(lower)) {
             String result = "提示：classroom.login.status 已下线，请直接调用 classroom.empty.query 或 classroom.usage.today，未登录会在查询结果中返回";
             return new SingleExecution(result, "已忽略过时登录校验命令");
@@ -264,7 +318,7 @@ public final class SkillCommandCenter {
             return new SingleExecution(result, result.startsWith("删除成功") ? "已删除日程" : result);
         }
 
-        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | classroom.empty.query <json> | classroom.usage.today <公共xxx> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>";
+        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | navigation.place.list | navigation.place.search <关键词> | navigation.locate.me | navigation.coordinate.me | navigation.route.estimate <地点> | navigation.route.amap <地点> | tavily.search <关键词> | classroom.empty.query <json> | classroom.usage.today <公共xxx> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>";
         return new SingleExecution(unknown, "存在不支持的命令");
     }
 
@@ -604,7 +658,9 @@ public final class SkillCommandCenter {
         return lower.startsWith("skill.")
             || lower.startsWith("note.")
             || lower.startsWith("course.")
+            || lower.startsWith("navigation.")
             || lower.startsWith("classroom.")
-            || lower.startsWith("agenda.");
+            || lower.startsWith("agenda.")
+            || lower.startsWith("tavily.");
     }
 }

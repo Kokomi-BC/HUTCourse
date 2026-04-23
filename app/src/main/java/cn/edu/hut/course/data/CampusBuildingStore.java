@@ -52,6 +52,12 @@ public final class CampusBuildingStore {
     private static final float MAX_SUDDEN_JUMP_M = 90f;
     private static final float IGNORE_ACCURACY_OVER_M = 120f;
 
+    // Source data in 1.txt uses "longitude, latitude" order.
+    private static final double CAMPUS_MIN_LNG = 113.092863d;
+    private static final double CAMPUS_MAX_LNG = 113.108159d;
+    private static final double CAMPUS_MIN_LAT = 27.816629d;
+    private static final double CAMPUS_MAX_LAT = 27.828857d;
+
     private CampusBuildingStore() {
     }
 
@@ -418,6 +424,13 @@ public final class CampusBuildingStore {
     public static boolean hasLocationPermission(Context context) {
         return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                 || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    public static boolean isWithinCampusBounds(double lat, double lng) {
+        return lat >= CAMPUS_MIN_LAT
+                && lat <= CAMPUS_MAX_LAT
+                && lng >= CAMPUS_MIN_LNG
+                && lng <= CAMPUS_MAX_LNG;
     }
 
     private static String extractRoomNumber(String raw) {

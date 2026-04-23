@@ -91,7 +91,7 @@ public final class AgendaSQLiteStore {
                 return readAgenda(cursor);
             }
             return null;
-        } finally {
+        } finally {  
             if (cursor != null) {
                 cursor.close();
             }
