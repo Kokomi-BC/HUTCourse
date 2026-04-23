@@ -3307,6 +3307,7 @@ public class AiChatFragment extends Fragment {
                 .replace("\r\n", "\n")
                 .replace('\r', '\n')
                 .trim();
+        normalized = sanitizeSystemCardPayloadForModel(normalized);
         if (normalized.length() <= MAX_TOOL_RESULT_FOR_MODEL_CHARS) {
             return normalized;
         }
@@ -3315,6 +3316,43 @@ public class AiChatFragment extends Fragment {
                 + "\n...(工具返回较长，剩余内容已截断，共"
                 + normalized.length()
                 + "字符)";
+    }
+
+    @NonNull
+    private String sanitizeSystemCardPayloadForModel(@Nullable String commandResult) {
+        String normalized = safe(commandResult)
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .trim();
+        if (normalized.isEmpty() || !normalized.contains(SYSTEM_CARD_PREFIX)) {
+            return normalized;
+        }
+
+        String[] lines = normalized.split("\\n");
+        StringBuilder sb = new StringBuilder();
+        for (String rawLine : lines) {
+            String line = safe(rawLine);
+            int markerIndex = line.indexOf(SYSTEM_CARD_PREFIX);
+            if (markerIndex >= 0) {
+                String prefix = line.substring(0, markerIndex).trim();
+                if (prefix.isEmpty()) {
+                    line = "已生成系统卡片（参数已省略）";
+                } else if (prefix.endsWith("=>")) {
+                    line = prefix + " 已生成系统卡片（参数已省略）";
+                } else {
+                    line = prefix + " [已生成系统卡片，参数已省略]";
+                }
+            }
+            line = line.trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(line);
+        }
+        return sb.toString().trim();
     }
 
     private String buildFallbackReplyFromCommandBatch(@NonNull SkillCommandCenter.CommandBatchResult batch) {

@@ -250,25 +250,33 @@ public final class NavigationSkillManager {
             }
         }
 
-        try {
-            Uri uri = new Uri.Builder()
-                    .scheme("androidamap")
-                    .authority("navi")
-                    .appendQueryParameter("sourceApplication", AMAP_SOURCE_APP)
-                    .appendQueryParameter("poiname", displayName)
-                    .appendQueryParameter("lat", String.format(Locale.US, "%.8f", targetLat))
-                    .appendQueryParameter("lon", String.format(Locale.US, "%.8f", targetLng))
-                    .appendQueryParameter("dev", "0")
-                    .build();
+       try {
+    Uri uri = new Uri.Builder()
+            .scheme("androidamap")
+            .authority("route")
+            .appendQueryParameter("sourceApplication", AMAP_SOURCE_APP)
+            .appendQueryParameter("sid", "") // 起点ID（可选）
+            .appendQueryParameter("sname", "") // 起点名称（可选，空则默认为我的位置）
+            .appendQueryParameter("slat", "") // 起点纬度（可选，空则默认为我的位置）
+            .appendQueryParameter("slon", "") // 起点经度（可选，空则默认为我的位置）
+            .appendQueryParameter("did", "") // 终点ID
+            .appendQueryParameter("dname", displayName) // 终点名称
+            .appendQueryParameter("dlat", String.format(Locale.US, "%.8f", targetLat)) // 终点纬度
+            .appendQueryParameter("dlon", String.format(Locale.US, "%.8f", targetLng)) // 终点经度
+            .appendQueryParameter("dev", "1") // 坐标系：1=GPS，0=高德
+            // t=0:驾车, t=4:步行, t=5:公交
+            .appendQueryParameter("t", "4")
+            .build();
 
-            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-            intent.setPackage(AMAP_PACKAGE);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            appContext.startActivity(intent);
-            return "已打开高德地图，正在为你导航到" + displayName;
-        } catch (Exception e) {
-            return "打开高德地图失败，请稍后重试";
-        }
+    Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+    intent.setPackage(AMAP_PACKAGE);
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    appContext.startActivity(intent);
+    return "已打开高德地图，正在规划步行路线到 " + displayName;
+} catch (Exception e) {
+    e.printStackTrace(); // 建议打印错误日志以便调试
+    return "打开高德地图失败，请稍后重试";
+}
     }
 
     private static DestinationCandidate resolveDestinationCandidate(Context context,
