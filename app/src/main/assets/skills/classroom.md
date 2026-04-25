@@ -22,7 +22,7 @@ description: "Query empty public classrooms by time range and query today's usag
 - 空教室查询固定使用：
   - 借用模式：按时间借用（`jyms=1`）
   - 校区：河西校区（`xqbh=2`）
-  - 学年学期：自动读取教务页面当前可用学年学期
+  - 学年学期：自动读取教务页面可用学年学期
   - 节次范围：01-10（内部映射为 0102/0304/0506/0708/0910）
 - 空教室结果只保留：
   - 查询节次时段均为空的教室

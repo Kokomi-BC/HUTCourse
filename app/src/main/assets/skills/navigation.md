@@ -7,7 +7,7 @@ description: "Campus location skill: locate current position in/out campus, fuzz
 
 ## Purpose
 
-- 识别用户当前位置是否在校内。
+- 识别用户位置是否在校内。
 - 根据与建筑物的距离返回“在楼内/附近/两楼之间/最近建筑”。
 - 支持地点模糊匹配与导航。
 
@@ -16,8 +16,8 @@ description: "Campus location skill: locate current position in/out campus, fuzz
 - `navigation.place.list`: 列出全部可识别地点。
 - `navigation.place.search <关键词>`: 按关键词模糊搜索地点。
 - `navigation.place.search.hr <关键词>`: 高精度坐标输出（8位小数）。
-- `navigation.locate.me`: 判断当前位置并返回校内语义位置。
-- `navigation.coordinate.me`: 返回当前经纬度坐标。
+- `navigation.locate.me`: 判断位置并返回校内语义位置。
+- `navigation.coordinate.me`: 返回经纬度坐标。
 - `navigation.route.estimate <地点>`: 估算到目标地点的距离与步行时间。
 - `navigation.route.amap <地点>`: 生成导航卡片，用户点击后拉起高德地图导航（未安装时跳应用市场）。
 

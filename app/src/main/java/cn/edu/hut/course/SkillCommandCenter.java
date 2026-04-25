@@ -33,9 +33,19 @@ public final class SkillCommandCenter {
             return "无可用技能";
         }
 
+        List<SkillDoc> enabledDocs = new ArrayList<>();
+        for (SkillDoc doc : docs.values()) {
+            if (isSkillDocEnabled(context, doc.name)) {
+                enabledDocs.add(doc);
+            }
+        }
+        if (enabledDocs.isEmpty()) {
+            return "无可用技能";
+        }
+
         StringBuilder sb = new StringBuilder();
         sb.append("可用技能索引(仅frontmatter):\n");
-        for (SkillDoc doc : docs.values()) {
+        for (SkillDoc doc : enabledDocs) {
             sb.append("- name: ").append(doc.name)
                     .append(" | description: ").append(doc.description)
                     .append("\n");
@@ -52,6 +62,10 @@ public final class SkillCommandCenter {
     }
 
     public static CommandBatchResult executeCommandsWithFeedback(Context context, List<String> commands, String originalUserText) {
+        if (!AiConfigStore.isSkillEnabled(context)) {
+            String blocked = "技能功能未启用，请在大模型设置的模型设置中开启技能开关";
+            return new CommandBatchResult(blocked, "工具执行情况：\n" + blocked + "。");
+        }
         List<String> normalizedCommands = normalizeBatchCommands(commands);
         if (normalizedCommands.isEmpty()) {
             return new CommandBatchResult("无命令可执行", "无可执行操作");
@@ -147,8 +161,38 @@ public final class SkillCommandCenter {
         }
         if (lower.startsWith("skill.read ")) {
             String name = cmd.substring("skill.read ".length()).trim();
+            if (!isSkillDocEnabled(context, name)) {
+                String disabled = buildSkillDisabledMessage(name);
+                return new SingleExecution(disabled, disabled);
+            }
             return new SingleExecution(readSkillDetail(context, name), "已读取技能详情");
         }
+
+        if (lower.startsWith("note.") && !AiConfigStore.isNoteSkillEnabled(context)) {
+            String disabled = buildSkillDisabledMessage("note");
+            return new SingleExecution(disabled, disabled);
+        }
+        if (lower.startsWith("course.") && !AiConfigStore.isCourseSkillEnabled(context)) {
+            String disabled = buildSkillDisabledMessage("course");
+            return new SingleExecution(disabled, disabled);
+        }
+        if (lower.startsWith("navigation.") && !AiConfigStore.isNavigationSkillEnabled(context)) {
+            String disabled = buildSkillDisabledMessage("navigation");
+            return new SingleExecution(disabled, disabled);
+        }
+        if (lower.startsWith("classroom.") && !AiConfigStore.isClassroomSkillEnabled(context)) {
+            String disabled = buildSkillDisabledMessage("classroom");
+            return new SingleExecution(disabled, disabled);
+        }
+        if (lower.startsWith("agenda.") && !AiConfigStore.isAgendaSkillEnabled(context)) {
+            String disabled = buildSkillDisabledMessage("agenda");
+            return new SingleExecution(disabled, disabled);
+        }
+        if (lower.startsWith("tavily.") && !AiConfigStore.isWebSearchSkillEnabled(context)) {
+            String disabled = "联网搜索技能未启用";
+            return new SingleExecution("搜索失败：" + disabled, disabled);
+        }
+
         if ("note.read".equals(lower)) {
             return new SingleExecution(NoteSkillManager.readNotes(context), "读取了笔记");
         }
@@ -217,11 +261,11 @@ public final class SkillCommandCenter {
         }
         if ("navigation.locate.me".equals(lower) || "navigation.me".equals(lower)) {
             String result = NavigationSkillManager.locateUserInCampus(context);
-            return new SingleExecution(result, "已查询当前位置");
+            return new SingleExecution(result, "已查询位置");
         }
         if ("navigation.coordinate.me".equals(lower) || "navigation.me.coordinate".equals(lower)) {
             String result = NavigationSkillManager.getCurrentUserCoordinate(context);
-            return new SingleExecution(result, "已查询当前位置坐标");
+            return new SingleExecution(result, "已查询位置坐标");
         }
         if (lower.startsWith("navigation.route.estimate ")) {
             String destination = cmd.substring("navigation.route.estimate ".length()).trim();
@@ -318,7 +362,7 @@ public final class SkillCommandCenter {
             return new SingleExecution(result, result.startsWith("删除成功") ? "已删除日程" : result);
         }
 
-        String unknown = "未知命令，支持: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | navigation.place.list | navigation.place.search <关键词> | navigation.locate.me | navigation.coordinate.me | navigation.route.estimate <地点> | navigation.route.amap <地点> | tavily.search <关键词> | classroom.empty.query <json> | classroom.usage.today <公共xxx> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>";
+        String unknown = "未知命令，支持: " + buildSupportedCommandList(context);
         return new SingleExecution(unknown, "存在不支持的命令");
     }
 
@@ -371,12 +415,79 @@ public final class SkillCommandCenter {
         if (skillName == null || skillName.trim().isEmpty()) {
             return "读取失败：skill名为空";
         }
+        if (!isSkillDocEnabled(context, skillName)) {
+            return "读取失败：技能 " + skillName + " 未启用";
+        }
         Map<String, SkillDoc> docs = loadSkillDocs(context);
         SkillDoc doc = docs.get(skillName.trim().toLowerCase(Locale.ROOT));
         if (doc == null) {
             return "读取失败：未找到技能 " + skillName;
         }
         return doc.fullContent;
+    }
+
+    private static boolean isSkillDocEnabled(Context context, String skillName) {
+        return AiConfigStore.isSkillEnabledByName(context, skillName);
+    }
+
+    private static String buildSkillDisabledMessage(String skillName) {
+        String normalized = skillName == null ? "" : skillName.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            normalized = "该";
+        }
+        return normalized + " 技能未启用，请在大模型设置中开启后重试";
+    }
+
+    private static String buildSupportedCommandList(Context context) {
+        List<String> commands = new ArrayList<>();
+        commands.add("skill.list");
+        commands.add("skill.read <name>");
+
+        if (AiConfigStore.isNoteSkillEnabled(context)) {
+            commands.add("note.read");
+            commands.add("note.write <内容>");
+            commands.add("note.update <序号> <内容>");
+            commands.add("note.delete <序号或关键词>");
+            commands.add("note.clear");
+        }
+        if (AiConfigStore.isCourseSkillEnabled(context)) {
+            commands.add("course.today_remaining");
+            commands.add("course.date <yyyy-MM-dd>");
+            commands.add("course.search.name <课程名>");
+            commands.add("course.search <关键词>");
+        }
+        if (AiConfigStore.isNavigationSkillEnabled(context)) {
+            commands.add("navigation.place.list");
+            commands.add("navigation.place.search <关键词>");
+            commands.add("navigation.locate.me");
+            commands.add("navigation.coordinate.me");
+            commands.add("navigation.route.estimate <地点>");
+            commands.add("navigation.route.amap <地点>");
+        }
+        if (AiConfigStore.isWebSearchSkillEnabled(context)) {
+            commands.add("tavily.search <关键词>");
+        }
+        if (AiConfigStore.isClassroomSkillEnabled(context)) {
+            commands.add("classroom.empty.query <json>");
+            commands.add("classroom.usage.today <公共xxx>");
+        }
+        if (AiConfigStore.isAgendaSkillEnabled(context)) {
+            commands.add("agenda.read.today");
+            commands.add("agenda.read.date <yyyy-MM-dd>");
+            commands.add("agenda.search <关键词>");
+            commands.add("agenda.create <json>");
+            commands.add("agenda.update <id> <json>");
+            commands.add("agenda.delete <id>");
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < commands.size(); i++) {
+            if (i > 0) {
+                sb.append(" | ");
+            }
+            sb.append(commands.get(i));
+        }
+        return sb.toString();
     }
 
     private static Map<String, SkillDoc> loadSkillDocs(Context context) {

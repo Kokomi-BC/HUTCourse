@@ -84,14 +84,14 @@ public class SettingsDataActivity extends AppCompatActivity {
     private void refreshStatusSummary() {
         int count = getSavedCourseCount();
         if (tvExportTableSummary != null) {
-            tvExportTableSummary.setText(count > 0 ? "当前可导出" + count + "门课程" : "当前无课表可导出");
+            tvExportTableSummary.setText(count > 0 ? "可导出" + count + "门课程" : "无课表可导出");
         }
         if (tvImportTableSummary != null) {
             tvImportTableSummary.setText("从剪贴板读取课表数据");
         }
         boolean hasCookie = hasCookie();
         if (tvExportCookieSummary != null) {
-            tvExportCookieSummary.setText(hasCookie ? "当前有登录Cookie，可导出" : "当前无可用Cookie");
+            tvExportCookieSummary.setText(hasCookie ? "有登录Cookie，可导出" : "无可用Cookie");
         }
         if (tvImportCookieSummary != null) {
             tvImportCookieSummary.setText("从剪贴板导入Cookie");
@@ -117,7 +117,7 @@ public class SettingsDataActivity extends AppCompatActivity {
     private void exportTableToClipboard() {
         String json = CourseStorageManager.loadCoursesJson(this);
         if (json == null || json.trim().isEmpty() || "[]".equals(json.trim())) {
-            Toast.makeText(this, "当前无课表可导出", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "无课表可导出", Toast.LENGTH_SHORT).show();
             if (tvExportTableSummary != null) tvExportTableSummary.setText("导出失败：暂无课表数据");
             return;
         }

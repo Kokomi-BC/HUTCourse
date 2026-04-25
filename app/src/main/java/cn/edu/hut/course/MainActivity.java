@@ -413,9 +413,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
         setupBottomNavInsetsHandling();
+        setupAgendaAddEntryResultListeners();
 
         if (fabAddAgenda != null) {
-            fabAddAgenda.setOnClickListener(v -> showAgendaEditorSheet(null, resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek())));
+            fabAddAgenda.setOnClickListener(v -> {
+                Calendar preferred = resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek());
+                showAgendaAddEntrySelector(preferred, "today_fab");
+            });
         }
         if (btnTodayWeatherRefresh != null) {
             btnTodayWeatherRefresh.setOnClickListener(v -> refreshTodayWeather(true));
@@ -743,6 +747,86 @@ public class MainActivity extends AppCompatActivity {
 
     private void openAgendaOverviewActivity() {
         startActivity(new Intent(this, AgendaOverviewActivity.class));
+    }
+
+    private void setupAgendaAddEntryResultListeners() {
+        getSupportFragmentManager().setFragmentResultListener(
+                AgendaAddEntrySelectorDialogFragment.REQUEST_KEY,
+                this,
+                (requestKey, result) -> {
+                    String action = safeText(result.getString(AgendaAddEntrySelectorDialogFragment.RESULT_KEY_ACTION));
+                    Calendar preferred = readPreferredDate(result.getLong(
+                            AgendaAddEntrySelectorDialogFragment.RESULT_KEY_PREFERRED_DATE_MILLIS,
+                            -1L
+                    ));
+                    if (preferred == null) {
+                        preferred = resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek());
+                    }
+                    if (AgendaAddEntrySelectorDialogFragment.ACTION_MANUAL.equals(action)) {
+                        showAgendaEditorSheet(null, preferred);
+                        return;
+                    }
+                    if (AgendaAddEntrySelectorDialogFragment.ACTION_AI.equals(action)) {
+                        showAgendaAiComposeSheet(
+                                preferred,
+                                safeText(result.getString(AgendaAddEntrySelectorDialogFragment.RESULT_KEY_SOURCE))
+                        );
+                    }
+                }
+        );
+
+        getSupportFragmentManager().setFragmentResultListener(
+                AgendaAiComposeBottomSheetFragment.REQUEST_KEY,
+                this,
+                (requestKey, result) -> {
+                    if (!result.getBoolean(AgendaAiComposeBottomSheetFragment.RESULT_KEY_AGENDA_CHANGED, false)) {
+                        return;
+                    }
+                    Calendar preferred = readPreferredDate(
+                            result.getLong(AgendaAiComposeBottomSheetFragment.RESULT_KEY_PREFERRED_DATE_MILLIS, -1L)
+                    );
+                    if (preferred != null) {
+                        setSelectedTodayDate(preferred);
+                    }
+                    refreshAgendaDependentViews();
+                }
+        );
+    }
+
+    private void showAgendaAddEntrySelector(@Nullable Calendar preferredDate, @NonNull String sourceTag) {
+        androidx.fragment.app.FragmentManager fragmentManager = getSupportFragmentManager();
+        if (fragmentManager.isStateSaved()) {
+            return;
+        }
+        if (fragmentManager.findFragmentByTag(AgendaAddEntrySelectorDialogFragment.TAG) != null) {
+            return;
+        }
+        AgendaAddEntrySelectorDialogFragment
+                .newInstance(preferredDate, sourceTag)
+                .show(fragmentManager, AgendaAddEntrySelectorDialogFragment.TAG);
+    }
+
+    private void showAgendaAiComposeSheet(@Nullable Calendar preferredDate, @Nullable String sourceTag) {
+        androidx.fragment.app.FragmentManager fragmentManager = getSupportFragmentManager();
+        if (fragmentManager.isStateSaved()) {
+            return;
+        }
+        if (fragmentManager.findFragmentByTag(AgendaAiComposeBottomSheetFragment.TAG) != null) {
+            return;
+        }
+        AgendaAiComposeBottomSheetFragment
+                .newInstance(preferredDate, sourceTag)
+                .show(fragmentManager, AgendaAiComposeBottomSheetFragment.TAG);
+    }
+
+    @Nullable
+    private Calendar readPreferredDate(long dayMillis) {
+        if (dayMillis <= 0L) {
+            return null;
+        }
+        Calendar date = Calendar.getInstance();
+        date.setTimeInMillis(dayMillis);
+        return cloneAsDay(date);
     }
 
     private void switchToAgendaOverviewPage() {
@@ -5731,7 +5815,7 @@ private void extractAllTables(String passedCookie) {
         if (refreshed.available) {
             Toast.makeText(this, "已刷新位置距离", Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(this, "暂无法获取当前位置", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "暂无法获取位置", Toast.LENGTH_SHORT).show();
         }
     }
 

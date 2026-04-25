@@ -23,6 +23,21 @@ public final class AiConfigStore {
     private static final String KEY_API_KEY = "api_key";
     private static final String KEY_MODEL = "model";
     private static final String KEY_MODELS_JSON = "models_json";
+    private static final String KEY_SKILL_ENABLED = "skill_enabled";
+    private static final String KEY_NOTE_SKILL_ENABLED = "note_skill_enabled";
+    private static final String KEY_COURSE_SKILL_ENABLED = "course_skill_enabled";
+    private static final String KEY_NAVIGATION_SKILL_ENABLED = "navigation_skill_enabled";
+    private static final String KEY_CLASSROOM_SKILL_ENABLED = "classroom_skill_enabled";
+    private static final String KEY_AGENDA_SKILL_ENABLED = "agenda_skill_enabled";
+    private static final String KEY_WEB_SEARCH_SKILL_ENABLED = "web_search_skill_enabled";
+
+    public static final String SKILL_NOTE = "note";
+    public static final String SKILL_COURSE = "course";
+    public static final String SKILL_NAVIGATION = "navigation";
+    public static final String SKILL_CLASSROOM = "classroom";
+    public static final String SKILL_AGENDA = "agenda";
+    public static final String SKILL_SEARCH = "search";
+    public static final String SKILL_WEB_SEARCH = "web_search";
 
     public static final String PROVIDER_SDK = "sdk";
     public static final String PROVIDER_CURL = "curl";
@@ -384,5 +399,103 @@ public final class AiConfigStore {
         target.baseUrl = safe(baseUrl);
         target.apiKey = safe(apiKey);
         persistModels(context, Collections.singletonList(target));
+    }
+
+    public static boolean isSkillEnabled(Context context) {
+        return true;
+    }
+
+    public static void setSkillEnabled(Context context, boolean enabled) {
+        prefs(context)
+                .edit()
+                .remove(KEY_SKILL_ENABLED)
+                .apply();
+    }
+
+    public static boolean isWebSearchSkillEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_WEB_SEARCH_SKILL_ENABLED, false);
+    }
+
+    public static void setWebSearchSkillEnabled(Context context, boolean enabled) {
+        prefs(context)
+                .edit()
+                .putBoolean(KEY_WEB_SEARCH_SKILL_ENABLED, enabled)
+                .apply();
+    }
+
+    public static boolean isNoteSkillEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_NOTE_SKILL_ENABLED, true);
+    }
+
+    public static void setNoteSkillEnabled(Context context, boolean enabled) {
+        prefs(context)
+                .edit()
+                .putBoolean(KEY_NOTE_SKILL_ENABLED, enabled)
+                .apply();
+    }
+
+    public static boolean isCourseSkillEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_COURSE_SKILL_ENABLED, true);
+    }
+
+    public static void setCourseSkillEnabled(Context context, boolean enabled) {
+        prefs(context)
+                .edit()
+                .putBoolean(KEY_COURSE_SKILL_ENABLED, enabled)
+                .apply();
+    }
+
+    public static boolean isNavigationSkillEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_NAVIGATION_SKILL_ENABLED, true);
+    }
+
+    public static void setNavigationSkillEnabled(Context context, boolean enabled) {
+        prefs(context)
+                .edit()
+                .putBoolean(KEY_NAVIGATION_SKILL_ENABLED, enabled)
+                .apply();
+    }
+
+    public static boolean isClassroomSkillEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_CLASSROOM_SKILL_ENABLED, true);
+    }
+
+    public static void setClassroomSkillEnabled(Context context, boolean enabled) {
+        prefs(context)
+                .edit()
+                .putBoolean(KEY_CLASSROOM_SKILL_ENABLED, enabled)
+                .apply();
+    }
+
+    public static boolean isAgendaSkillEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_AGENDA_SKILL_ENABLED, true);
+    }
+
+    public static void setAgendaSkillEnabled(Context context, boolean enabled) {
+        prefs(context)
+                .edit()
+                .putBoolean(KEY_AGENDA_SKILL_ENABLED, enabled)
+                .apply();
+    }
+
+    public static boolean isSkillEnabledByName(Context context, String skillName) {
+        String normalized = safe(skillName).trim().toLowerCase();
+        switch (normalized) {
+            case SKILL_NOTE:
+                return isNoteSkillEnabled(context);
+            case SKILL_COURSE:
+                return isCourseSkillEnabled(context);
+            case SKILL_NAVIGATION:
+                return isNavigationSkillEnabled(context);
+            case SKILL_CLASSROOM:
+                return isClassroomSkillEnabled(context);
+            case SKILL_AGENDA:
+                return isAgendaSkillEnabled(context);
+            case SKILL_SEARCH:
+            case SKILL_WEB_SEARCH:
+                return isWebSearchSkillEnabled(context);
+            default:
+                return true;
+        }
     }
 }

@@ -108,7 +108,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
         findViewById(R.id.btnClearCurrent).setOnClickListener(v ->
             {
                 if (!shouldHandleActionClick()) return;
-                showConfirmActionDialog("清除当前课表", "仅清除本地课表，不退出登录，是否继续？", this::clearLocalScheduleOnly);
+                showConfirmActionDialog("清除课表", "仅清除本地课表，不退出登录，是否继续？", this::clearLocalScheduleOnly);
             });
 
         findViewById(R.id.btnLogout).setOnClickListener(v ->
@@ -147,7 +147,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
             }
         }
         if (tvLogoutSummary != null) {
-            tvLogoutSummary.setText(hasLocalLoginCookie() ? "当前状态：已登录" : "当前状态：未登录");
+            tvLogoutSummary.setText(hasLocalLoginCookie() ? "状态：已登录" : "状态：未登录");
         }
     }
 
@@ -544,7 +544,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
         SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
         long semesterStartDateMs = prefs.getLong("semester_start_date", 0);
         if (semesterStartDateMs == 0) {
-            tvStartDateSummary.setText("当前自动");
+            tvStartDateSummary.setText("自动");
         } else {
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
             tvStartDateSummary.setText(sdf.format(semesterStartDateMs));

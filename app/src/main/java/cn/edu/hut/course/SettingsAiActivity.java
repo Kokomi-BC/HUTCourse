@@ -45,12 +45,26 @@ public class SettingsAiActivity extends AppCompatActivity {
     private MaterialToolbar toolbar;
     private RecyclerView rvAiModels;
     private TextView tvAiModelsEmpty;
+    private TextView tvNoteSkillSummary;
+    private TextView tvCourseSkillSummary;
+    private TextView tvNavigationSkillSummary;
+    private TextView tvClassroomSkillSummary;
+    private TextView tvAgendaSkillSummary;
+    private TextView tvWebSearchSkillSummary;
     private TextView tvTavilyConfigSummary;
+    private MaterialSwitch switchNoteSkill;
+    private MaterialSwitch switchCourseSkill;
+    private MaterialSwitch switchNavigationSkill;
+    private MaterialSwitch switchClassroomSkill;
+    private MaterialSwitch switchAgendaSkill;
+    private MaterialSwitch switchWebSearchSkill;
     private MaterialButton btnAddAiModel;
     private MaterialButton btnTavilyConfig;
+    private View layoutTavilyConfig;
     private final List<AiConfigStore.AiModelConfig> modelItems = new ArrayList<>();
     private AiModelAdapter adapter;
     private ItemTouchHelper itemTouchHelper;
+    private boolean suppressSkillSwitchCallback = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,17 +81,31 @@ public class SettingsAiActivity extends AppCompatActivity {
 
         rvAiModels = findViewById(R.id.rvAiModels);
         tvAiModelsEmpty = findViewById(R.id.tvAiModelsEmpty);
+        tvNoteSkillSummary = findViewById(R.id.tvNoteSkillSummary);
+        tvCourseSkillSummary = findViewById(R.id.tvCourseSkillSummary);
+        tvNavigationSkillSummary = findViewById(R.id.tvNavigationSkillSummary);
+        tvClassroomSkillSummary = findViewById(R.id.tvClassroomSkillSummary);
+        tvAgendaSkillSummary = findViewById(R.id.tvAgendaSkillSummary);
+        tvWebSearchSkillSummary = findViewById(R.id.tvWebSearchSkillSummary);
         tvTavilyConfigSummary = findViewById(R.id.tvTavilyConfigSummary);
+        switchNoteSkill = findViewById(R.id.switchNoteSkill);
+        switchCourseSkill = findViewById(R.id.switchCourseSkill);
+        switchNavigationSkill = findViewById(R.id.switchNavigationSkill);
+        switchClassroomSkill = findViewById(R.id.switchClassroomSkill);
+        switchAgendaSkill = findViewById(R.id.switchAgendaSkill);
+        switchWebSearchSkill = findViewById(R.id.switchWebSearchSkill);
         btnAddAiModel = findViewById(R.id.btnAddAiModel);
         btnTavilyConfig = findViewById(R.id.btnTavilyConfig);
+        layoutTavilyConfig = findViewById(R.id.layoutTavilyConfig);
 
         setupRecycler();
+        setupSkillSettings();
         btnAddAiModel.setOnClickListener(v -> showModelEditorSheet(null));
         if (btnTavilyConfig != null) {
             btnTavilyConfig.setOnClickListener(v -> showTavilyEditorSheet());
         }
         loadModels();
-        updateTavilySummary();
+        syncSkillSettingsFromStore();
     }
 
     @Override
@@ -85,6 +113,141 @@ public class SettingsAiActivity extends AppCompatActivity {
         super.onResume();
         applyPageVisualStyle();
         loadModels();
+        syncSkillSettingsFromStore();
+    }
+
+    private void setupSkillSettings() {
+        if (switchWebSearchSkill != null) {
+            switchWebSearchSkill.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (suppressSkillSwitchCallback) {
+                    return;
+                }
+                AiConfigStore.setWebSearchSkillEnabled(this, isChecked);
+                updateSkillSectionState();
+            });
+        }
+        if (switchNoteSkill != null) {
+            switchNoteSkill.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (suppressSkillSwitchCallback) {
+                    return;
+                }
+                AiConfigStore.setNoteSkillEnabled(this, isChecked);
+                updateSkillSectionState();
+            });
+        }
+        if (switchCourseSkill != null) {
+            switchCourseSkill.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (suppressSkillSwitchCallback) {
+                    return;
+                }
+                AiConfigStore.setCourseSkillEnabled(this, isChecked);
+                updateSkillSectionState();
+            });
+        }
+        if (switchNavigationSkill != null) {
+            switchNavigationSkill.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (suppressSkillSwitchCallback) {
+                    return;
+                }
+                AiConfigStore.setNavigationSkillEnabled(this, isChecked);
+                updateSkillSectionState();
+            });
+        }
+        if (switchClassroomSkill != null) {
+            switchClassroomSkill.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (suppressSkillSwitchCallback) {
+                    return;
+                }
+                AiConfigStore.setClassroomSkillEnabled(this, isChecked);
+                updateSkillSectionState();
+            });
+        }
+        if (switchAgendaSkill != null) {
+            switchAgendaSkill.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (suppressSkillSwitchCallback) {
+                    return;
+                }
+                AiConfigStore.setAgendaSkillEnabled(this, isChecked);
+                updateSkillSectionState();
+            });
+        }
+    }
+
+    private void syncSkillSettingsFromStore() {
+        suppressSkillSwitchCallback = true;
+        boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(this);
+        boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(this);
+        boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(this);
+        boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(this);
+        boolean agendaSkillEnabled = AiConfigStore.isAgendaSkillEnabled(this);
+        boolean webSearchSkillEnabled = AiConfigStore.isWebSearchSkillEnabled(this);
+        if (switchNoteSkill != null) {
+            switchNoteSkill.setChecked(noteSkillEnabled);
+        }
+        if (switchCourseSkill != null) {
+            switchCourseSkill.setChecked(courseSkillEnabled);
+        }
+        if (switchNavigationSkill != null) {
+            switchNavigationSkill.setChecked(navigationSkillEnabled);
+        }
+        if (switchClassroomSkill != null) {
+            switchClassroomSkill.setChecked(classroomSkillEnabled);
+        }
+        if (switchAgendaSkill != null) {
+            switchAgendaSkill.setChecked(agendaSkillEnabled);
+        }
+        if (switchWebSearchSkill != null) {
+            switchWebSearchSkill.setChecked(webSearchSkillEnabled);
+        }
+        suppressSkillSwitchCallback = false;
+        updateSkillSectionState();
+    }
+
+    private void updateSkillSectionState() {
+        boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(this);
+        boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(this);
+        boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(this);
+        boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(this);
+        boolean agendaSkillEnabled = AiConfigStore.isAgendaSkillEnabled(this);
+        boolean webSearchSkillEnabled = AiConfigStore.isWebSearchSkillEnabled(this);
+
+        if (tvNoteSkillSummary != null) {
+            tvNoteSkillSummary.setText(noteSkillEnabled
+                    ? "可读取和记录长期记忆。"
+                    : "关闭状态：不会调用 note.* 命令。");
+        }
+        if (tvCourseSkillSummary != null) {
+            tvCourseSkillSummary.setText(courseSkillEnabled
+                    ? "可查询课表。"
+                    : "关闭状态：不会调用 course.* 命令。");
+        }
+        if (tvNavigationSkillSummary != null) {
+            tvNavigationSkillSummary.setText(navigationSkillEnabled
+                    ? "可定位与路线估算。"
+                    : "关闭状态：不会调用 navigation.* 命令。");
+        }
+        if (tvClassroomSkillSummary != null) {
+            tvClassroomSkillSummary.setText(classroomSkillEnabled
+                    ? "可查询空教室与教室使用。"
+                    : "关闭状态：不会调用 classroom.* 命令。");
+        }
+        if (tvAgendaSkillSummary != null) {
+            tvAgendaSkillSummary.setText(agendaSkillEnabled
+                    ? "可读写日程。"
+                    : "关闭状态：不会调用 agenda.* 命令。");
+        }
+
+        if (tvWebSearchSkillSummary != null) {
+            if (webSearchSkillEnabled) {
+                tvWebSearchSkillSummary.setText("可使用 tavily.search 联网检索，并可配置 Tavily API Key。");
+            } else {
+                tvWebSearchSkillSummary.setText("关闭状态，开启后可配置 Tavily API。");
+            }
+        }
+
+        if (layoutTavilyConfig != null) {
+            layoutTavilyConfig.setVisibility(webSearchSkillEnabled ? View.VISIBLE : View.GONE);
+        }
         updateTavilySummary();
     }
 
@@ -299,6 +462,10 @@ public class SettingsAiActivity extends AppCompatActivity {
     }
 
     private void showTavilyEditorSheet() {
+        if (!AiConfigStore.isWebSearchSkillEnabled(this)) {
+            Toast.makeText(this, "请先开启联网搜索技能", Toast.LENGTH_SHORT).show();
+            return;
+        }
         BottomSheetDialog dialog = new BottomSheetDialog(this);
         View content = LayoutInflater.from(this).inflate(R.layout.sheet_tavily_config_editor, null, false);
         dialog.setContentView(content);

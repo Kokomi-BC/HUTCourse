@@ -20,7 +20,7 @@ description: "Only record key items the user explicitly asks to remember (prefer
 
 ## Commands
 
-- `note.read`: 读取当前事项。
+- `note.read`: 读取事项。
 - `note.write <内容>`: 新增一条事项。
 - `note.update <序号> <内容>`: 按序号修改事项。
 - `note.delete <序号或关键词>`: 按序号或关键词删除事项。
@@ -28,7 +28,7 @@ description: "Only record key items the user explicitly asks to remember (prefer
 
 ## Chat Shortcuts
 
-- `/notes`: 读取当前事项。
+- `/notes`: 读取事项。
 - `/note <内容>`: 新增事项。
 - `/note-edit <序号> <内容>`: 修改事项。
 - `/note-del <序号或关键词>`: 删除事项。

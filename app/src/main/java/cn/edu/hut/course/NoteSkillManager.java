@@ -199,9 +199,9 @@ public final class NoteSkillManager {
         try {
             Files.write(file.toPath(), merged.getBytes(StandardCharsets.UTF_8));
             if (merged.isEmpty()) {
-                return successPrefix + "，当前暂无记录";
+                return successPrefix + "，暂无记录";
             }
-            return successPrefix + "，当前共" + merged.length() + "字";
+            return successPrefix + "，共" + merged.length() + "字";
         } catch (IOException e) {
             return "写入失败：" + e.getMessage();
         }

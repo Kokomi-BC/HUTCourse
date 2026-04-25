@@ -311,7 +311,7 @@ public class AiChatFragment extends Fragment {
         if (btnNewSession != null) {
             btnNewSession.setOnClickListener(v -> {
                 if (activeSession != null && isUntouchedSession(activeSession)) {
-                    Toast.makeText(requireContext(), "当前已处于新对话中", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(), "已处于新对话中", Toast.LENGTH_SHORT).show();
                 } else {
                     startNewSession(true);
                     ensureGreetingForActiveSession();
@@ -2555,26 +2555,26 @@ public class AiChatFragment extends Fragment {
         if (selectedModel == null) {
             addSystemMessage(buildApiConfigCardPayload(
                     "尚未配置AI模型",
-                    "请先前往 AI 接入添加模型并填写 API Key。"
+                    "请先前往 大模型设置 添加模型并填写 API Key。"
             ), true);
             return;
         }
         if (TextUtils.isEmpty(selectedModel.apiKey)) {
             addSystemMessage(buildApiConfigCardPayload(
-                    "当前模型缺少 API Key",
-                    "请先配置当前模型的 API Key，配置后即可继续提问。"
+                    "模型缺少 API Key",
+                    "请先配置模型的 API Key，配置后即可继续提问。"
             ), true);
             return;
         }
         if (TextUtils.isEmpty(selectedModel.modelName)) {
             addSystemMessage(buildApiConfigCardPayload(
-                    "当前模型缺少模型名",
+                    "模型缺少模型名",
                     "请先填写模型名/接入点 ID，配置完成后再试。"
             ), true);
             return;
         }
         if (hasImage && !selectedModel.multimodal) {
-            Toast.makeText(ctx(), "当前模型未启用多模态，请到模型设置中开启后重试", Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx(), "模型未启用多模态，请到模型设置中开启后重试", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -2652,6 +2652,13 @@ public class AiChatFragment extends Fragment {
         final String model = selectedModel.modelName;
         final String apiKey = selectedModel.apiKey;
         final String modelId = safe(selectedModel.id);
+        final boolean skillEnabled = AiConfigStore.isSkillEnabled(ctx());
+        final boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(ctx());
+        final boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(ctx());
+        final boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(ctx());
+        final boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(ctx());
+        final boolean agendaSkillEnabled = AiConfigStore.isAgendaSkillEnabled(ctx());
+        final boolean webSearchSkillEnabled = AiConfigStore.isWebSearchSkillEnabled(ctx());
 
         Thread worker = new Thread(() -> {
             String reply = "";
@@ -2677,7 +2684,14 @@ public class AiChatFragment extends Fragment {
                         requestTitleInFinalAnswer,
                         requestToken,
                         imagesForRequest,
-                        cacheHint
+                        cacheHint,
+                        skillEnabled,
+                        noteSkillEnabled,
+                        courseSkillEnabled,
+                        navigationSkillEnabled,
+                        classroomSkillEnabled,
+                        agendaSkillEnabled,
+                        webSearchSkillEnabled
                 );
                 ensureAiRequestActiveOrThrow(requestToken);
                 if (hasImage) {
@@ -2790,10 +2804,10 @@ public class AiChatFragment extends Fragment {
                 && result.getData() != null
                 && result.getData().getBooleanExtra("login_success", false);
         if (!loginSuccess) {
-            Toast.makeText(ctx(), "尚未完成教务系统登录，暂无法继续当前查询。", Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx(), "尚未完成教务系统登录，暂无法继续查询。", Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(ctx(), "教务系统登录成功，正在继续处理当前请求。", Toast.LENGTH_SHORT).show();
+        Toast.makeText(ctx(), "教务系统登录成功，正在继续处理请求。", Toast.LENGTH_SHORT).show();
         resumePendingAiAfterLogin();
     }
 
@@ -2845,20 +2859,20 @@ public class AiChatFragment extends Fragment {
         if (selectedModel == null) {
             addSystemMessage(buildApiConfigCardPayload(
                     "尚未配置AI模型",
-                    "请先前往 AI 接入添加模型并填写 API Key。"
+                    "请先前往 大模型设置 添加模型并填写 API Key。"
             ), true);
             return;
         }
         if (TextUtils.isEmpty(selectedModel.apiKey)) {
             addSystemMessage(buildApiConfigCardPayload(
-                    "当前模型缺少 API Key",
-                    "请先配置当前模型的 API Key，配置后即可继续提问。"
+                    "模型缺少 API Key",
+                    "请先配置模型的 API Key，配置后即可继续提问。"
             ), true);
             return;
         }
         if (TextUtils.isEmpty(selectedModel.modelName)) {
             addSystemMessage(buildApiConfigCardPayload(
-                    "当前模型缺少模型名",
+                    "模型缺少模型名",
                     "请先填写模型名/接入点 ID，配置完成后再试。"
             ), true);
             return;
@@ -2878,6 +2892,13 @@ public class AiChatFragment extends Fragment {
         final String model = selectedModel.modelName;
         final String apiKey = selectedModel.apiKey;
         final String modelId = safe(selectedModel.id);
+        final boolean skillEnabled = AiConfigStore.isSkillEnabled(ctx());
+        final boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(ctx());
+        final boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(ctx());
+        final boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(ctx());
+        final boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(ctx());
+        final boolean agendaSkillEnabled = AiConfigStore.isAgendaSkillEnabled(ctx());
+        final boolean webSearchSkillEnabled = AiConfigStore.isWebSearchSkillEnabled(ctx());
 
         Thread worker = new Thread(() -> {
             String reply = "";
@@ -2896,7 +2917,14 @@ public class AiChatFragment extends Fragment {
                         requestTitleInFinalAnswer,
                         requestToken,
                         (List<String>) null,
-                        cacheHint
+                        cacheHint,
+                        skillEnabled,
+                        noteSkillEnabled,
+                        courseSkillEnabled,
+                        navigationSkillEnabled,
+                        classroomSkillEnabled,
+                        agendaSkillEnabled,
+                        webSearchSkillEnabled
                 );
                 ensureAiRequestActiveOrThrow(requestToken);
             } catch (LoginRequiredException loginEx) {
@@ -2991,7 +3019,7 @@ public class AiChatFragment extends Fragment {
         }
         return "[历史对话上下文]\n"
                 + context
-                + "\n\n[当前用户问题]\n"
+                + "\n\n[用户问题]\n"
                 + raw;
     }
 
@@ -3122,9 +3150,26 @@ public class AiChatFragment extends Fragment {
                                              boolean requestTitleInFinalAnswer,
                                              long requestToken,
                                              @Nullable List<String> imagePaths,
-                                             @Nullable AiGateway.RequestCacheHint cacheHint) throws Exception {
-        String skillIndex = SkillCommandCenter.buildSkillIndexFromFrontmatter(ctx());
-        String systemPrompt = AiPromptCenter.buildSystemPrompt();
+                                             @Nullable AiGateway.RequestCacheHint cacheHint,
+                                             boolean skillEnabled,
+                             boolean noteSkillEnabled,
+                             boolean courseSkillEnabled,
+                             boolean navigationSkillEnabled,
+                             boolean classroomSkillEnabled,
+                             boolean agendaSkillEnabled,
+                                             boolean webSearchSkillEnabled) throws Exception {
+        String skillIndex = skillEnabled
+                ? SkillCommandCenter.buildSkillIndexFromFrontmatter(ctx())
+                : "技能功能已关闭";
+        String systemPrompt = AiPromptCenter.buildSystemPrompt(
+            skillEnabled,
+            noteSkillEnabled,
+            courseSkillEnabled,
+            navigationSkillEnabled,
+            classroomSkillEnabled,
+            agendaSkillEnabled,
+            webSearchSkillEnabled
+        );
         boolean includeCurrentTime = true;
         String firstTurnPrompt = AiPromptCenter.buildFirstTurnUserPrompt(
                 skillIndex,
@@ -3148,6 +3193,14 @@ public class AiChatFragment extends Fragment {
         ensureAiRequestActiveOrThrow(requestToken);
         if (imagePaths != null && !imagePaths.isEmpty() && ("模型返回为空".equals(assistantOutput) || assistantOutput.startsWith("模型返回为空（"))) {
             Log.w(TAG, "multimodal first round empty token=" + requestToken + ", output=" + clipForLog(assistantOutput));
+        }
+
+        if (!skillEnabled) {
+            List<String> commands = SkillCommandCenter.extractCommands(assistantOutput);
+            if (!commands.isEmpty()) {
+                return "技能功能已关闭，请在大模型设置的模型设置中开启技能后再试。";
+            }
+            return assistantOutput;
         }
 
         boolean toolFeedbackShown = false;
@@ -3627,7 +3680,7 @@ public class AiChatFragment extends Fragment {
             JSONObject obj = new JSONObject();
             obj.put("type", SYSTEM_CARD_TYPE_JWXT_LOGIN);
             obj.put("title", "教务系统登录状态已失效");
-            obj.put("description", "请先完成教务系统登录。登录成功后，系统将自动继续处理当前查询请求。");
+            obj.put("description", "请先完成教务系统登录。登录成功后，系统将自动继续处理查询请求。");
             obj.put("action", SYSTEM_CARD_ACTION_OPEN_JWXT_LOGIN);
             obj.put("actionText", "前往教务系统登录");
             obj.put("resumePrompt", safe(resumePrompt));
@@ -3812,7 +3865,7 @@ public class AiChatFragment extends Fragment {
             Toast.makeText(ctx(), result, Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(ctx(), "当前卡片动作暂不支持执行。", Toast.LENGTH_SHORT).show();
+        Toast.makeText(ctx(), "卡片动作暂不支持执行。", Toast.LENGTH_SHORT).show();
     }
 
     private boolean isToolFeedbackMessage(String text) {

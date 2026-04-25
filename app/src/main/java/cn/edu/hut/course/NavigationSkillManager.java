@@ -79,7 +79,7 @@ public final class NavigationSkillManager {
     public static String getCurrentUserCoordinate(Context context) {
         CampusBuildingStore.DeviceLocationInfo info = CampusBuildingStore.getCurrentDeviceLocation(context, true);
         if (info.available) {
-            return "用户当前位置坐标："
+            return "用户位置坐标："
                     + String.format(Locale.getDefault(), "%.8f", info.lat)
                     + ","
                     + String.format(Locale.getDefault(), "%.8f", info.lng);
@@ -87,7 +87,7 @@ public final class NavigationSkillManager {
         if (info.isNoPermission()) {
             return "用户未启用位置权限";
         }
-        return "暂未获取到当前定位";
+        return "暂未获取到定位";
     }
 
     public static String locateUserInCampus(Context context) {
@@ -97,16 +97,16 @@ public final class NavigationSkillManager {
 
         CampusBuildingStore.DeviceLocationInfo device = CampusBuildingStore.getCurrentDeviceLocation(context, true);
         if (!device.available) {
-            return "暂未获取到当前定位";
+            return "暂未获取到定位";
         }
 
         if (!CampusBuildingStore.isWithinCampusBounds(device.lat, device.lng)) {
-            return "你当前在校外";
+            return "你在校外";
         }
 
         List<CampusBuildingStore.BuildingSearchResult> allBuildings = CampusBuildingStore.searchBuildings(context, "");
         if (allBuildings.isEmpty()) {
-            return "你当前在校内";
+            return "你在校内";
         }
 
         List<BuildingDistance> distances = new ArrayList<>();
@@ -154,7 +154,7 @@ public final class NavigationSkillManager {
 
         CampusBuildingStore.DeviceLocationInfo user = CampusBuildingStore.getCurrentDeviceLocation(context, true);
         if (!user.available) {
-            return user.isNoPermission() ? "用户未启用位置权限" : "暂未获取到当前定位，无法计算路线";
+            return user.isNoPermission() ? "用户未启用位置权限" : "暂未获取到定位，无法计算路线";
         }
 
         DestinationCandidate target = resolveDestinationCandidate(context, destinationRaw, user);

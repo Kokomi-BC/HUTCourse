@@ -13,35 +13,133 @@ public final class AiPromptCenter {
     }
 
     public static String buildSystemPrompt() {
+        return buildSystemPrompt(true, true, true, true, true, true, true);
+    }
+
+    public static String buildSystemPrompt(boolean skillEnabled, boolean webSearchSkillEnabled) {
+        return buildSystemPrompt(skillEnabled, true, true, true, true, true, webSearchSkillEnabled);
+    }
+
+    public static String buildSystemPrompt(boolean skillEnabled,
+                                           boolean noteSkillEnabled,
+                                           boolean courseSkillEnabled,
+                                           boolean navigationSkillEnabled,
+                                           boolean classroomSkillEnabled,
+                                           boolean agendaSkillEnabled,
+                                           boolean webSearchSkillEnabled) {
         StringBuilder system = new StringBuilder();
         system.append("你是湖南工业大学课表AI助手。\n");
-        system.append("第一阶段仅使用技能frontmatter索引判断可用工具，不得假设你已知技能全文。\n");
-        system.append("如需工具，输出一行或多行命令，格式必须为: CMD: <command>。\n");
-        system.append("可用命令: skill.list | skill.read <name> | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词> | navigation.place.list | navigation.place.search <关键词> | navigation.locate.me | navigation.coordinate.me | navigation.route.estimate <地点> | navigation.route.amap <地点> | tavily.search <关键词> | classroom.empty.query <json> | classroom.usage.today <公共xxx> | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>。\n");
-        system.append("agenda.create/agenda.update 的 JSON 字段建议使用: title, description, location, date, start/end（也兼容 startTime/endTime）, priority, repeat, monthlyStrategy；时间格式统一为 HH:mm；priority/repeat/location 可省略，默认 low/none/空地点。\n");
-        system.append("涉及空教室查询时直接调用 classroom.empty.query 或 classroom.usage.today；若命令返回未登录/登录失效，不要再做登录校验命令，直接引导用户点击登录卡片继续。\n");
-        system.append("classroom.empty.query 的 JSON 建议字段: day(1-7/周几/today)、timeRange(HH:mm-HH:mm) 或 start/end(HH:mm) 或 slotStart/slotEnd(1-10)，date(yyyy-MM-dd，可选)。\n");
-        system.append("classroom.usage.today 仅能查询今天；若用户询问明天/后天/指定日期，必须改用 classroom.empty.query。\n");
-        system.append("location 可留空；若为校内地点会自动标准化（楼栋+房间），否则按自定义地点保存。\n");
-        system.append("用户询问\"我在哪/我在学校哪里\"时优先调用 navigation.locate.me；用户询问\"怎么走/怎么到某地\"时优先调用 navigation.route.amap，若仅需文字距离再调用 navigation.route.estimate。\n");
-        system.append("当用户问题依赖实时互联网信息（如新闻/网页资料/外部事实）时，可调用 tavily.search。\n");
-        system.append("最多连续调用工具30轮；达到上限后停止工具调用，直接给出当前可得结论。\n");
-        system.append("除非用户明确要求删除/清空，否则不要调用 agenda.delete、note.delete、note.clear。\n");
-        system.append("当信息足够时输出最终答复，不要输出CMD。\n");
-        system.append("若本轮要继续调用工具，只输出CMD行，不要输出TITLE。\n");
-        system.append("是否需要TITLE由用户提示中的[标题策略]决定。\n");
-        system.append("时间语义规则: 用户提到明天/明日/次日时，优先使用 course.date <下一自然日>，不要用 course.today_remaining。\n");
-        system.append("当时间在 00:00-05:59，'今天'仍指当前自然日，'明天/明日'必须是下一自然日。\n");
-        system.append("最终答复末尾补一句与当前问题强相关的简短反问，推动下一步（例如：要不要我顺便帮你生成明晚自习规划？）。\n");
+        if (!skillEnabled) {
+            system.append("技能功能已关闭：禁止输出任何 CMD 行，禁止调用工具，请直接输出最终答复。\n");
+            system.append("若问题依赖外部数据，请明确说明无法调用工具，不要编造。\n");
+        } else {
+            boolean hasCallableSkill = noteSkillEnabled
+                    || courseSkillEnabled
+                    || navigationSkillEnabled
+                    || classroomSkillEnabled
+                    || agendaSkillEnabled
+                    || webSearchSkillEnabled;
+            if (!hasCallableSkill) {
+                system.append("各技能开关均关闭：禁止输出任何 CMD 行，请直接输出最终答复。\n");
+                system.append("若问题依赖外部数据，请明确说明无法调用工具，不要编造。\n");
+            } else {
+            system.append("第一阶段仅使用技能frontmatter索引判断可用工具，不得假设你已知技能全文。\n");
+            system.append("如需工具，输出一行或多行命令，格式必须为: CMD: <command>。\n");
+            system.append("可用命令: ").append(buildCommandCatalog(
+                    noteSkillEnabled,
+                    courseSkillEnabled,
+                    navigationSkillEnabled,
+                    classroomSkillEnabled,
+                    agendaSkillEnabled,
+                    webSearchSkillEnabled
+            )).append("。\n");
+            system.append("仅允许使用“可用命令”中出现的命令，未列出的命令一律视为禁用。\n");
+
+            if (!noteSkillEnabled) {
+                system.append("note 技能未启用，禁止调用 note.*。\n");
+            }
+
+            if (agendaSkillEnabled) {
+                system.append("agenda.create/agenda.update 的 JSON 字段建议使用: title, description, location, date, start/end（也兼容 startTime/endTime）, priority, repeat, monthlyStrategy；时间格式统一为 HH:mm；priority/repeat/location 可省略，默认 low/none/空地点。\n");
+                system.append("location 可留空；若为校内地点会自动标准化（楼栋+房间），否则按自定义地点保存。\n");
+            } else {
+                system.append("agenda 技能未启用，禁止调用 agenda.*。\n");
+            }
+
+            if (classroomSkillEnabled) {
+                system.append("涉及空教室查询时直接调用 classroom.empty.query 或 classroom.usage.today；若命令返回未登录/登录失效，不要再做登录校验命令，直接引导用户点击登录卡片继续。\n");
+                system.append("classroom.empty.query 的 JSON 建议字段: day(1-7/周几/today)、timeRange(HH:mm-HH:mm) 或 start/end(HH:mm) 或 slotStart/slotEnd(1-10)，date(yyyy-MM-dd，可选)。\n");
+                system.append("classroom.usage.today 仅能查询今天；若用户询问明天/后天/指定日期，必须改用 classroom.empty.query。\n");
+            } else {
+                system.append("classroom 技能未启用，禁止调用 classroom.*。\n");
+            }
+
+            if (navigationSkillEnabled) {
+                system.append("用户询问\"我在哪/我在学校哪里\"时优先调用 navigation.locate.me；用户询问\"怎么走/怎么到某地\"时优先调用 navigation.route.amap，若仅需文字距离再调用 navigation.route.estimate。\n");
+            } else {
+                system.append("navigation 技能未启用，禁止调用 navigation.*。\n");
+            }
+
+            if (!courseSkillEnabled) {
+                system.append("course 技能未启用，禁止调用 course.*。\n");
+            }
+
+            if (webSearchSkillEnabled) {
+                system.append("联网搜索技能已启用，按技能索引中的 search 说明调用 tavily.search。\n");
+            } else {
+                system.append("联网搜索技能未启用，禁止调用 tavily.search。\n");
+            }
+
+            system.append("最多连续调用工具30轮；达到上限后停止工具调用，直接给出可得结论。\n");
+            system.append("除非用户明确要求删除/清空，否则不要调用 agenda.delete、note.delete、note.clear。\n");
+            system.append("当信息足够时输出最终答复，不要输出CMD。\n");
+            system.append("若本轮要继续调用工具，只输出CMD行，不要输出TITLE。\n");
+            system.append("是否需要TITLE由用户提示中的[标题策略]决定。\n");
+            }
+        }
+        if (courseSkillEnabled) {
+            system.append("时间语义规则: 用户提到明天/明日/次日时，优先使用 course.date <下一自然日>，不要用 course.today_remaining。\n");
+        }
+        system.append("当时间在 00:00-05:59，'今天'仍指自然日，'明天/明日'必须是下一自然日。\n");
+        system.append("最终答复末尾补一句与问题强相关的简短反问，推动下一步（例如：要不要我顺便帮你生成明晚自习规划？）。\n");
         system.append("最终答复不要出现工具调用过程口播（如'已查询...'、'已调用...'），只输出对用户有用的结论。\n");
         return system.toString();
+    }
+
+    private static String buildCommandCatalog(boolean noteSkillEnabled,
+                                              boolean courseSkillEnabled,
+                                              boolean navigationSkillEnabled,
+                                              boolean classroomSkillEnabled,
+                                              boolean agendaSkillEnabled,
+                                              boolean webSearchSkillEnabled) {
+        StringBuilder commands = new StringBuilder();
+        commands.append("skill.list | skill.read <name>");
+        if (noteSkillEnabled) {
+            commands.append(" | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear");
+        }
+        if (courseSkillEnabled) {
+            commands.append(" | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词>");
+        }
+        if (navigationSkillEnabled) {
+            commands.append(" | navigation.place.list | navigation.place.search <关键词> | navigation.locate.me | navigation.coordinate.me | navigation.route.estimate <地点> | navigation.route.amap <地点>");
+        }
+        if (webSearchSkillEnabled) {
+            commands.append(" | tavily.search <关键词>");
+        }
+        if (classroomSkillEnabled) {
+            commands.append(" | classroom.empty.query <json> | classroom.usage.today <公共xxx>");
+        }
+        if (agendaSkillEnabled) {
+            commands.append(" | agenda.read.today | agenda.read.date <yyyy-MM-dd> | agenda.search <关键词> | agenda.create <json> | agenda.update <id> <json> | agenda.delete <id>");
+        }
+        return commands.toString();
     }
 
     public static String buildFirstTurnUserPrompt(String skillIndex, String userText,
                                                   boolean includeCurrentTime, boolean requestTitleInFinalAnswer) {
         StringBuilder userPrompt = new StringBuilder();
         if (includeCurrentTime) {
-            userPrompt.append("[当前24小时制时间]\n")
+            userPrompt.append("[24小时制时间]\n")
                     .append(LocalDateTime.now().format(TIME_FORMATTER))
                     .append("\n\n");
         }
@@ -74,7 +172,7 @@ public final class AiPromptCenter {
         }
         nextPrompt.append("最多可连续调用工具30轮；若已接近上限，优先收敛并直接回答。\n");
         nextPrompt.append("注意: 最终正文不要复述工具执行过程（如已查询/已调用），只保留结果与解释。\n");
-        nextPrompt.append("注意: 最终正文不要提及或猜测座位数；并在结尾补一句与当前问题相关的简短反问。\n");
+        nextPrompt.append("注意: 最终正文不要提及或猜测座位数；并在结尾补一句与问题相关的简短反问。\n");
 
         return nextPrompt.toString();
     }

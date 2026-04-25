@@ -79,12 +79,14 @@ public class AgendaOverviewActivity extends AppCompatActivity {
         ImageButton btnBack = findViewById(R.id.btnAgendaOverviewBack);
         ImageButton btnAdd = findViewById(R.id.btnAgendaOverviewAdd);
 
+        setupAgendaAddEntryResultListeners();
+
         if (btnBack != null) {
             btnBack.setOnClickListener(v -> finish());
         }
         if (btnAdd != null) {
             btnAdd.setOnClickListener(v -> {
-                showAgendaEditorDialog(null, Calendar.getInstance());
+                showAgendaAddEntrySelector(Calendar.getInstance(), "agenda_overview_top_add");
             });
         }
 
@@ -95,6 +97,79 @@ public class AgendaOverviewActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         renderAgendaOverviewPage();
+    }
+
+    private void setupAgendaAddEntryResultListeners() {
+        getSupportFragmentManager().setFragmentResultListener(
+                AgendaAddEntrySelectorDialogFragment.REQUEST_KEY,
+                this,
+                (requestKey, result) -> {
+                    String action = safeText(result.getString(AgendaAddEntrySelectorDialogFragment.RESULT_KEY_ACTION));
+                    Calendar preferred = readPreferredDate(result.getLong(
+                            AgendaAddEntrySelectorDialogFragment.RESULT_KEY_PREFERRED_DATE_MILLIS,
+                            -1L
+                    ));
+                    if (preferred == null) {
+                        preferred = Calendar.getInstance();
+                    }
+                    if (AgendaAddEntrySelectorDialogFragment.ACTION_MANUAL.equals(action)) {
+                        showAgendaEditorDialog(null, preferred);
+                        return;
+                    }
+                    if (AgendaAddEntrySelectorDialogFragment.ACTION_AI.equals(action)) {
+                        showAgendaAiComposeSheet(
+                                preferred,
+                                safeText(result.getString(AgendaAddEntrySelectorDialogFragment.RESULT_KEY_SOURCE))
+                        );
+                    }
+                }
+        );
+
+        getSupportFragmentManager().setFragmentResultListener(
+                AgendaAiComposeBottomSheetFragment.REQUEST_KEY,
+                this,
+                (requestKey, result) -> {
+                    if (result.getBoolean(AgendaAiComposeBottomSheetFragment.RESULT_KEY_AGENDA_CHANGED, false)) {
+                        renderAgendaOverviewPage();
+                    }
+                }
+        );
+    }
+
+    private void showAgendaAddEntrySelector(@Nullable Calendar preferredDate, @NonNull String sourceTag) {
+        androidx.fragment.app.FragmentManager fragmentManager = getSupportFragmentManager();
+        if (fragmentManager.isStateSaved()) {
+            return;
+        }
+        if (fragmentManager.findFragmentByTag(AgendaAddEntrySelectorDialogFragment.TAG) != null) {
+            return;
+        }
+        AgendaAddEntrySelectorDialogFragment
+                .newInstance(preferredDate, sourceTag)
+                .show(fragmentManager, AgendaAddEntrySelectorDialogFragment.TAG);
+    }
+
+    private void showAgendaAiComposeSheet(@Nullable Calendar preferredDate, @Nullable String sourceTag) {
+        androidx.fragment.app.FragmentManager fragmentManager = getSupportFragmentManager();
+        if (fragmentManager.isStateSaved()) {
+            return;
+        }
+        if (fragmentManager.findFragmentByTag(AgendaAiComposeBottomSheetFragment.TAG) != null) {
+            return;
+        }
+        AgendaAiComposeBottomSheetFragment
+                .newInstance(preferredDate, sourceTag)
+                .show(fragmentManager, AgendaAiComposeBottomSheetFragment.TAG);
+    }
+
+    @Nullable
+    private Calendar readPreferredDate(long dayMillis) {
+        if (dayMillis <= 0L) {
+            return null;
+        }
+        Calendar date = Calendar.getInstance();
+        date.setTimeInMillis(dayMillis);
+        return cloneAsDay(date);
     }
 
     private void applyPageStyle(@Nullable View root,
