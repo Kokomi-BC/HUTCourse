@@ -538,19 +538,23 @@ public class AgendaOverviewActivity extends AppCompatActivity {
         leftCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView startTime = new TextView(this);
-        startTime.setText(formatMinute(agenda.startMinute));
+        int normalizedStartMinute = Math.max(0, Math.min(24 * 60, agenda.startMinute));
+        int normalizedEndMinute = Math.max(normalizedStartMinute, Math.min(24 * 60, agenda.endMinute));
+        startTime.setText(formatMinute(normalizedStartMinute));
         startTime.setTextColor(onSurfaceVariant);
         startTime.setTextSize(12f);
         startTime.setTypeface(null, Typeface.BOLD);
         leftCol.addView(startTime);
 
-        TextView endTime = new TextView(this);
-        endTime.setText(formatMinute(agenda.endMinute));
-        endTime.setTextColor(onSurfaceVariant);
-        endTime.setTextSize(12f);
-        endTime.setTypeface(null, Typeface.BOLD);
-        endTime.setPadding(0, dp(2), 0, 0);
-        leftCol.addView(endTime);
+        if (normalizedEndMinute > normalizedStartMinute) {
+            TextView endTime = new TextView(this);
+            endTime.setText(formatMinute(normalizedEndMinute));
+            endTime.setTextColor(onSurfaceVariant);
+            endTime.setTextSize(12f);
+            endTime.setTypeface(null, Typeface.BOLD);
+            endTime.setPadding(0, dp(2), 0, 0);
+            leftCol.addView(endTime);
+        }
         row.addView(leftCol);
 
         View divider = new View(this);

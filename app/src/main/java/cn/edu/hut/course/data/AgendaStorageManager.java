@@ -196,7 +196,7 @@ public final class AgendaStorageManager {
         if (agenda.endMinute > 24 * 60) {
             agenda.endMinute = 24 * 60;
         }
-        if (agenda.endMinute <= agenda.startMinute) {
+        if (agenda.endMinute < agenda.startMinute) {
             agenda.endMinute = Math.min(24 * 60, agenda.startMinute + 30);
         }
 

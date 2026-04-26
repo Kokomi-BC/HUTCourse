@@ -172,7 +172,9 @@ public final class AgendaSkillManager {
             agenda.startMinute = parsedRange[0];
             agenda.endMinute = parsedRange[1];
         } else {
-            if (createMode || hasAnyKey(json, "start", "startTime", "begin", "beginTime", "from")) {
+            boolean hasStartTime = hasAnyKey(json, "start", "startTime", "begin", "beginTime", "from");
+            boolean hasEndTime = hasAnyKey(json, "end", "endTime", "finish", "finishTime", "to");
+            if (createMode || hasStartTime) {
                 String startRaw = safe(firstString(json, "", "start", "startTime", "begin", "beginTime", "from")).trim();
                 if (startRaw.isEmpty()) {
                     return "start 不能为空";
@@ -183,16 +185,17 @@ public final class AgendaSkillManager {
                 }
                 agenda.startMinute = parsed;
             }
-            if (createMode || hasAnyKey(json, "end", "endTime", "finish", "finishTime", "to")) {
+            if (createMode || hasEndTime) {
                 String endRaw = safe(firstString(json, "", "end", "endTime", "finish", "finishTime", "to")).trim();
                 if (endRaw.isEmpty()) {
-                    return "end 不能为空";
+                    agenda.endMinute = agenda.startMinute;
+                } else {
+                    int parsed = parseMinute(endRaw);
+                    if (parsed < 0) {
+                        return "end 格式错误，需为 HH:mm";
+                    }
+                    agenda.endMinute = parsed;
                 }
-                int parsed = parseMinute(endRaw);
-                if (parsed < 0) {
-                    return "end 格式错误，需为 HH:mm";
-                }
-                agenda.endMinute = parsed;
             }
         }
 
@@ -238,9 +241,9 @@ public final class AgendaSkillManager {
         }
 
         if (agenda.startMinute < 0 || agenda.startMinute >= 24 * 60
-                || agenda.endMinute <= 0 || agenda.endMinute > 24 * 60
-                || agenda.endMinute <= agenda.startMinute) {
-            return "时间段非法，要求 00:00 <= start < end <= 24:00";
+                || agenda.endMinute < 0 || agenda.endMinute > 24 * 60
+                || agenda.endMinute < agenda.startMinute) {
+            return "时间段非法，要求 00:00 <= start <= end <= 24:00";
         }
 
         if (agenda.priority < Agenda.PRIORITY_LOW || agenda.priority > Agenda.PRIORITY_HIGH) {
@@ -284,12 +287,20 @@ public final class AgendaSkillManager {
         if (range.isEmpty()) {
             return null;
         }
-        String[] parts = range.split("\\s*(?:-|~|～|—|–|到|至)\\s*");
+        String[] parts = range.split("\\s*(?:-|~|～|—|–|到|至)\\s*", -1);
+        if (parts.length == 1) {
+            int single = parseMinute(parts[0].trim());
+            if (single < 0) {
+                return null;
+            }
+            return new int[]{single, single};
+        }
         if (parts.length != 2) {
             return null;
         }
         int start = parseMinute(parts[0].trim());
-        int end = parseMinute(parts[1].trim());
+        String endText = parts[1].trim();
+        int end = endText.isEmpty() ? start : parseMinute(endText);
         if (start < 0 || end < 0) {
             return null;
         }
@@ -459,9 +470,7 @@ public final class AgendaSkillManager {
     private static String buildAgendaLine(Agenda agenda, boolean includeDescription) {
         StringBuilder sb = new StringBuilder();
         sb.append("[id=").append(agenda.id).append("] ")
-                .append(formatMinute(agenda.startMinute))
-                .append("-")
-                .append(formatMinute(agenda.endMinute))
+                .append(formatAgendaTimeRange(agenda.startMinute, agenda.endMinute))
                 .append(" | ")
                 .append(priorityText(agenda.priority))
                 .append(" | ")
@@ -480,6 +489,14 @@ public final class AgendaSkillManager {
             sb.append(" | 日期 ").append(safe(agenda.date));
         }
         return sb.toString();
+    }
+
+    private static String formatAgendaTimeRange(int startMinute, int endMinute) {
+        String startText = formatMinute(startMinute);
+        if (endMinute <= startMinute) {
+            return startText;
+        }
+        return startText + "-" + formatMinute(endMinute);
     }
 
     private static String formatMinute(int minute) {

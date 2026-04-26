@@ -61,6 +61,7 @@
                 android:paddingBottom="20dp">
 
                 <ImageView
+                    android:id="@+id/ivAgendaAddAiIcon"
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:contentDescription="AI添加日程"
@@ -117,6 +118,7 @@
                 android:paddingBottom="20dp">
 
                 <ImageView
+                    android:id="@+id/ivAgendaAddManualIcon"
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:contentDescription="手动添加"

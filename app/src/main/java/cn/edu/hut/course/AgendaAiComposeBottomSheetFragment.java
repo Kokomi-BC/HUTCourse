@@ -1,6 +1,7 @@
 package cn.edu.hut.course;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -123,6 +124,7 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
 
         applyAgendaComposerCardStyle(composerCard);
         styleAgendaPromptInput(etPrompt);
+        styleComposeButtons(btnClear, btnSend);
 
         if (rootView != null) {
             basePaddingTop = rootView.getPaddingTop();
@@ -454,13 +456,29 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         if (card == null) {
             return;
         }
+        int accent = UiStyleHelper.resolveAccentColor(requireContext());
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(requireContext());
-        int surface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolveGlassCardColor(requireContext()));
+        int surface = ColorUtils.blendARGB(UiStyleHelper.resolveGlassCardColor(requireContext()), accent, 0.08f);
         card.setCardBackgroundColor(surface);
         card.setRadius(dp(24));
         card.setCardElevation(0f);
         card.setStrokeWidth(dp(1));
-        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(accent, 120));
+        card.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 78)));
+    }
+
+    private void styleComposeButtons(@Nullable MaterialButton clearButton, @Nullable MaterialButton sendButton) {
+        int accent = UiStyleHelper.resolveAccentColor(requireContext());
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(requireContext());
+        if (clearButton != null) {
+            clearButton.setTextColor(accent);
+            clearButton.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 76)));
+        }
+        if (sendButton != null) {
+            sendButton.setBackgroundTintList(ColorStateList.valueOf(accent));
+            sendButton.setTextColor(Color.WHITE);
+            sendButton.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 42)));
+        }
     }
 
     private void styleAgendaPromptInput(@Nullable EditText input) {
@@ -474,10 +492,10 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         input.setTextSize(17f);
         input.setBackgroundColor(Color.TRANSPARENT);
         input.setPadding(dp(4), dp(11), dp(4), dp(11));
-        input.setMinHeight(dp(132));
+        input.setMinHeight(dp(56));
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         input.setSingleLine(false);
-        input.setMinLines(4);
+        input.setMinLines(6);
         input.setMaxLines(Integer.MAX_VALUE);
         input.setGravity(Gravity.TOP | Gravity.START);
         input.setHorizontallyScrolling(false);
@@ -550,7 +568,9 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         GradientDrawable background = new GradientDrawable();
         float radius = dp(28);
         background.setShape(GradientDrawable.RECTANGLE);
-        int sheetSurface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolvePageBackgroundColor(requireContext()));
+        int accent = UiStyleHelper.resolveAccentColor(requireContext());
+        int pageColor = UiStyleHelper.resolvePageBackgroundColor(requireContext());
+        int sheetSurface = ColorUtils.blendARGB(pageColor, accent, 0.08f);
         background.setColor(sheetSurface);
         background.setCornerRadii(new float[]{radius, radius, radius, radius, 0f, 0f, 0f, 0f});
         sheetContainer.setBackground(background);

@@ -1,5 +1,8 @@
 package cn.edu.hut.course;
 
+import android.content.res.ColorStateList;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -106,6 +109,7 @@ public class SettingsAiActivity extends AppCompatActivity {
         }
         loadModels();
         syncSkillSettingsFromStore();
+        applySettingsAccentStyle();
     }
 
     @Override
@@ -114,6 +118,7 @@ public class SettingsAiActivity extends AppCompatActivity {
         applyPageVisualStyle();
         loadModels();
         syncSkillSettingsFromStore();
+        applySettingsAccentStyle();
     }
 
     private void setupSkillSettings() {
@@ -305,8 +310,43 @@ public class SettingsAiActivity extends AppCompatActivity {
             }
 
             @Override
+            public void onSelectedChanged(@Nullable RecyclerView.ViewHolder viewHolder, int actionState) {
+                super.onSelectedChanged(viewHolder, actionState);
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && viewHolder != null) {
+                    viewHolder.itemView.setElevation(0f);
+                    viewHolder.itemView.setTranslationZ(0f);
+                    if (viewHolder.itemView instanceof MaterialCardView) {
+                        ((MaterialCardView) viewHolder.itemView).setCardElevation(0f);
+                    }
+                }
+            }
+
+            @Override
+            public void onChildDraw(@NonNull Canvas c,
+                                    @NonNull RecyclerView recyclerView,
+                                    @NonNull RecyclerView.ViewHolder viewHolder,
+                                    float dX,
+                                    float dY,
+                                    int actionState,
+                                    boolean isCurrentlyActive) {
+                super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive);
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                    viewHolder.itemView.setElevation(0f);
+                    viewHolder.itemView.setTranslationZ(0f);
+                    if (viewHolder.itemView instanceof MaterialCardView) {
+                        ((MaterialCardView) viewHolder.itemView).setCardElevation(0f);
+                    }
+                }
+            }
+
+            @Override
             public void clearView(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder) {
                 super.clearView(recyclerView, viewHolder);
+                viewHolder.itemView.setElevation(0f);
+                viewHolder.itemView.setTranslationZ(0f);
+                if (viewHolder.itemView instanceof MaterialCardView) {
+                    ((MaterialCardView) viewHolder.itemView).setCardElevation(0f);
+                }
                 if (modelItems.size() > 1) {
                     persistCurrentOrder();
                 }
@@ -336,6 +376,84 @@ public class SettingsAiActivity extends AppCompatActivity {
     private void updateEmptyState() {
         boolean empty = modelItems.isEmpty();
         tvAiModelsEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+    }
+
+    private void applySettingsAccentStyle() {
+        int accent = UiStyleHelper.resolveAccentColor(this);
+        styleSkillCard(findViewById(R.id.cardSkillNote), accent, 0.08f);
+        styleSkillCard(findViewById(R.id.cardSkillCourse), accent, 0.08f);
+        styleSkillCard(findViewById(R.id.cardSkillNavigation), accent, 0.08f);
+        styleSkillCard(findViewById(R.id.cardSkillClassroom), accent, 0.08f);
+        styleSkillCard(findViewById(R.id.cardSkillAgenda), accent, 0.08f);
+        styleSkillCard(findViewById(R.id.cardWebSearchSkill), accent, 0.1f);
+
+        styleSkillSwitch(switchNoteSkill, accent);
+        styleSkillSwitch(switchCourseSkill, accent);
+        styleSkillSwitch(switchNavigationSkill, accent);
+        styleSkillSwitch(switchClassroomSkill, accent);
+        styleSkillSwitch(switchAgendaSkill, accent);
+        styleSkillSwitch(switchWebSearchSkill, accent);
+
+        styleActionButton(btnAddAiModel, accent, true);
+        styleActionButton(btnTavilyConfig, accent, false);
+    }
+
+    private void styleSkillCard(@Nullable MaterialCardView card, int accent, float blendRatio) {
+        if (card == null) {
+            return;
+        }
+        int surface = UiStyleHelper.resolveGlassCardColor(this);
+        int cardColor = ColorUtils.blendARGB(surface, accent, blendRatio);
+        card.setCardBackgroundColor(cardColor);
+        card.setStrokeWidth(1);
+        card.setStrokeColor(ColorUtils.setAlphaComponent(accent, 116));
+        card.setCardElevation(0f);
+        card.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 72)));
+    }
+
+    private void styleSkillSwitch(@Nullable MaterialSwitch skillSwitch, int accent) {
+        if (skillSwitch == null) {
+            return;
+        }
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int[][] states = new int[][]{
+                new int[]{android.R.attr.state_checked},
+                new int[]{-android.R.attr.state_checked}
+        };
+        int[] thumbColors = new int[]{
+                accent,
+                ColorUtils.setAlphaComponent(onSurface, 165)
+        };
+        int[] trackColors = new int[]{
+                ColorUtils.setAlphaComponent(accent, 122),
+                ColorUtils.setAlphaComponent(onSurface, 58)
+        };
+        skillSwitch.setThumbTintList(new ColorStateList(states, thumbColors));
+        skillSwitch.setTrackTintList(new ColorStateList(states, trackColors));
+        skillSwitch.setTextColor(onSurface);
+    }
+
+    private void styleActionButton(@Nullable MaterialButton button, int accent, boolean primary) {
+        if (button == null) {
+            return;
+        }
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        if (primary) {
+            button.setBackgroundTintList(ColorStateList.valueOf(accent));
+            button.setTextColor(ColorStateList.valueOf(Color.WHITE));
+            button.setIconTint(ColorStateList.valueOf(Color.WHITE));
+            button.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 46)));
+            button.setStrokeWidth(0);
+            return;
+        }
+        int surface = UiStyleHelper.resolveGlassCardColor(this);
+        int subtle = ColorUtils.blendARGB(surface, accent, 0.16f);
+        button.setBackgroundTintList(ColorStateList.valueOf(subtle));
+        button.setTextColor(ColorStateList.valueOf(onSurface));
+        button.setIconTint(ColorStateList.valueOf(onSurface));
+        button.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 78)));
+        button.setStrokeWidth(dp(1));
+        button.setStrokeColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 126)));
     }
 
     private void showModelEditorSheet(@Nullable AiConfigStore.AiModelConfig source) {
@@ -570,17 +688,21 @@ public class SettingsAiActivity extends AppCompatActivity {
             holder.tvModelCapability.setText(item.multimodal ? "多模态模型" : "文本模型");
 
             int accent = UiStyleHelper.resolveAccentColor(SettingsAiActivity.this);
+                int onSurface = UiStyleHelper.resolveOnSurfaceColor(SettingsAiActivity.this);
             int capabilityColor = item.multimodal
                     ? ColorUtils.blendARGB(accent, android.graphics.Color.WHITE, 0.15f)
                     : ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceVariantColor(SettingsAiActivity.this), 220);
             holder.tvModelCapability.setTextColor(capabilityColor);
+                holder.tvModelOrder.setTextColor(ColorUtils.blendARGB(onSurface, accent, 0.72f));
 
             holder.ivDragHandle.setVisibility(modelItems.size() > 1 ? View.VISIBLE : View.GONE);
             holder.btnModelMore.setVisibility(View.VISIBLE);
 
-            UiStyleHelper.styleGlassCard(holder.cardAiModel, SettingsAiActivity.this);
-            holder.cardAiModel.setStrokeColor(android.graphics.Color.TRANSPARENT);
-            holder.cardAiModel.setStrokeWidth(0);
+                int modelCardColor = ColorUtils.blendARGB(UiStyleHelper.resolveGlassCardColor(SettingsAiActivity.this), accent, 0.08f);
+                holder.cardAiModel.setCardBackgroundColor(modelCardColor);
+                holder.cardAiModel.setCardElevation(0f);
+                holder.cardAiModel.setStrokeWidth(1);
+                holder.cardAiModel.setStrokeColor(ColorUtils.setAlphaComponent(accent, 108));
 
             holder.cardAiModel.setOnClickListener(v -> showModelEditorSheet(item));
             holder.btnModelMore.setOnClickListener(v -> showModelMoreMenu(v, item));

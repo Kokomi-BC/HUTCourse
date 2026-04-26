@@ -1293,11 +1293,48 @@ public class MainActivity extends AppCompatActivity {
 
         for (int row = startRow + 1; row <= startRow + desiredRowSpan - 1; row++) {
             List<ScheduleCellEntry> occupied = getSortedScheduleCellEntries(cellEntries, row, col);
-            if (!occupied.isEmpty()) {
-                return Math.max(1, row - startRow);
+            if (occupied.isEmpty()) {
+                continue;
             }
+            if (isOccupiedBySameAgendaOnly(agendaEntry, occupied)) {
+                continue;
+            }
+            return Math.max(1, row - startRow);
         }
         return desiredRowSpan;
+    }
+
+    private boolean isOccupiedBySameAgendaOnly(ScheduleCellEntry agendaEntry,
+                                               List<ScheduleCellEntry> occupiedEntries) {
+        if (agendaEntry == null || agendaEntry.type != ScheduleCellEntry.TYPE_AGENDA
+                || occupiedEntries == null || occupiedEntries.isEmpty()) {
+            return false;
+        }
+        for (ScheduleCellEntry one : occupiedEntries) {
+            if (one == null || one.type != ScheduleCellEntry.TYPE_AGENDA) {
+                return false;
+            }
+            if (!isSameAgendaIdentity(agendaEntry.agenda, one.agenda)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isSameAgendaIdentity(Agenda first, Agenda second) {
+        if (first == second) {
+            return true;
+        }
+        if (first == null || second == null) {
+            return false;
+        }
+        if (first.id > 0 && second.id > 0) {
+            return first.id == second.id;
+        }
+        return safeText(first.title).equals(safeText(second.title))
+                && safeText(first.date).equals(safeText(second.date))
+                && first.startMinute == second.startMinute
+                && first.endMinute == second.endMinute;
     }
 
     private List<ScheduleCellEntry> getSortedScheduleCellEntries(Map<Integer, List<ScheduleCellEntry>> cellEntries,
@@ -1481,42 +1518,24 @@ public class MainActivity extends AppCompatActivity {
         int timetableEndMinute = SLOT_END_SECONDS[SLOT_END_SECONDS.length - 1] / 60;
 
         int agendaStartMinute = Math.max(0, Math.min(24 * 60, agenda.startMinute));
-        int agendaEndMinute = Math.max(agendaStartMinute + 1, Math.min(24 * 60, agenda.endMinute));
+        int agendaEndMinute = Math.max(agendaStartMinute, Math.min(24 * 60, agenda.endMinute));
+        int renderEndMinute = Math.max(agendaStartMinute + 1, agendaEndMinute);
 
         int visibleStartMinute = Math.max(agendaStartMinute, timetableStartMinute);
-        int visibleEndMinute = Math.min(agendaEndMinute, timetableEndMinute);
+        int visibleEndMinute = Math.min(renderEndMinute, timetableEndMinute);
         if (visibleEndMinute <= visibleStartMinute) {
             return;
         }
 
-        int slotIndex = resolveAgendaAnchorSlotIndex(visibleStartMinute, visibleEndMinute);
-        addScheduleCellEntry(cellEntries, slotIndex + 1, dayOfWeek,
-                ScheduleCellEntry.forAgenda(agenda, slotIndex, visibleStartMinute, visibleEndMinute));
-    }
-
-    private int resolveAgendaAnchorSlotIndex(int visibleStartMinute, int visibleEndMinute) {
-        int clampedStartMinute = Math.max(0, Math.min(24 * 60, visibleStartMinute));
-        int clampedEndMinute = Math.max(clampedStartMinute + 1, Math.min(24 * 60, visibleEndMinute));
-
-        for (int i = 0; i < SLOT_START_SECONDS.length; i++) {
-            int slotStartMinute = SLOT_START_SECONDS[i] / 60;
-            int slotEndMinute = SLOT_END_SECONDS[i] / 60;
-            if (clampedStartMinute < slotEndMinute && clampedEndMinute > slotStartMinute) {
-                return i;
+        for (int slotIndex = 0; slotIndex < SLOT_START_SECONDS.length; slotIndex++) {
+            int slotStartMinute = SLOT_START_SECONDS[slotIndex] / 60;
+            int slotEndMinute = SLOT_END_SECONDS[slotIndex] / 60;
+            if (visibleEndMinute <= slotStartMinute || visibleStartMinute >= slotEndMinute) {
+                continue;
             }
+            addScheduleCellEntry(cellEntries, slotIndex + 1, dayOfWeek,
+                    ScheduleCellEntry.forAgenda(agenda, slotIndex, visibleStartMinute, visibleEndMinute));
         }
-
-        int nearestSlot = 0;
-        int nearestDistance = Integer.MAX_VALUE;
-        for (int i = 0; i < SLOT_START_SECONDS.length; i++) {
-            int slotStartMinute = SLOT_START_SECONDS[i] / 60;
-            int distance = Math.abs(clampedStartMinute - slotStartMinute);
-            if (distance < nearestDistance) {
-                nearestDistance = distance;
-                nearestSlot = i;
-            }
-        }
-        return nearestSlot;
     }
 
     private View createScheduleGridCellView(List<ScheduleCellEntry> rawEntries,
@@ -1781,13 +1800,13 @@ public class MainActivity extends AppCompatActivity {
             title = "未命名日程";
         }
         int fullStartMinute = agenda == null ? 0 : Math.max(0, agenda.startMinute);
-        int fullEndMinute = agenda == null ? 30 : Math.max(fullStartMinute + 1, Math.min(24 * 60, agenda.endMinute));
+        int fullEndMinute = agenda == null ? fullStartMinute : Math.max(fullStartMinute, Math.min(24 * 60, agenda.endMinute));
         int firstVisibleMinute = Math.max(fullStartMinute, SLOT_START_SECONDS[0] / 60);
         boolean isContinuationSegment = entry.startMinute > firstVisibleMinute;
         if (isContinuationSegment) {
             tv.setText(title);
         } else {
-            tv.setText(title + "\n" + formatMinute(fullStartMinute) + "-" + formatMinute(fullEndMinute));
+            tv.setText(title + "\n" + formatAgendaTimeRange(fullStartMinute, fullEndMinute));
         }
         tv.setTextColor(pickReadableTextColor(agendaBg));
 
@@ -1833,6 +1852,15 @@ public class MainActivity extends AppCompatActivity {
         int startMinute = SLOT_START_SECONDS[startSlotIndex] / 60;
         int endMinute = SLOT_END_SECONDS[endSlotIndex] / 60;
         return formatMinute(startMinute) + "-" + formatMinute(endMinute);
+    }
+
+    private String formatAgendaTimeRange(int startMinute, int endMinute) {
+        int normalizedStart = Math.max(0, Math.min(24 * 60, startMinute));
+        int normalizedEnd = Math.max(normalizedStart, Math.min(24 * 60, endMinute));
+        if (normalizedEnd <= normalizedStart) {
+            return formatMinute(normalizedStart);
+        }
+        return formatMinute(normalizedStart) + "-" + formatMinute(normalizedEnd);
     }
 
     private void drawGrid() {
@@ -2749,19 +2777,23 @@ public class MainActivity extends AppCompatActivity {
         leftCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView startTime = new TextView(this);
-        startTime.setText(formatMinute(agenda.startMinute));
+        int normalizedStartMinute = Math.max(0, Math.min(24 * 60, agenda.startMinute));
+        int normalizedEndMinute = Math.max(normalizedStartMinute, Math.min(24 * 60, agenda.endMinute));
+        startTime.setText(formatMinute(normalizedStartMinute));
         startTime.setTextColor(onSurfaceVariant);
         startTime.setTextSize(12f);
         startTime.setTypeface(null, Typeface.BOLD);
         leftCol.addView(startTime);
 
-        TextView endTime = new TextView(this);
-        endTime.setText(formatMinute(agenda.endMinute));
-        endTime.setTextColor(onSurfaceVariant);
-        endTime.setTextSize(12f);
-        endTime.setTypeface(null, Typeface.BOLD);
-        endTime.setPadding(0, dp(2), 0, 0);
-        leftCol.addView(endTime);
+        if (normalizedEndMinute > normalizedStartMinute) {
+            TextView endTime = new TextView(this);
+            endTime.setText(formatMinute(normalizedEndMinute));
+            endTime.setTextColor(onSurfaceVariant);
+            endTime.setTextSize(12f);
+            endTime.setTypeface(null, Typeface.BOLD);
+            endTime.setPadding(0, dp(2), 0, 0);
+            leftCol.addView(endTime);
+        }
         row.addView(leftCol);
 
         View divider = new View(this);

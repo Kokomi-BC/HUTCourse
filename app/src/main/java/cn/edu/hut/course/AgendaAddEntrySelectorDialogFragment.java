@@ -10,6 +10,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -54,9 +55,13 @@ public class AgendaAddEntrySelectorDialogFragment extends BottomSheetDialogFragm
 
         MaterialCardView aiCard = content.findViewById(R.id.cardAgendaAddAi);
         MaterialCardView manualCard = content.findViewById(R.id.cardAgendaAddManual);
+        ImageView aiIcon = content.findViewById(R.id.ivAgendaAddAiIcon);
+        ImageView manualIcon = content.findViewById(R.id.ivAgendaAddManualIcon);
 
-        applyCardStyle(aiCard, false);
+        applyCardStyle(aiCard, true);
         applyCardStyle(manualCard, false);
+        applyChoiceIconStyle(aiIcon);
+        applyChoiceIconStyle(manualIcon);
 
         aiCard.setOnClickListener(v -> dispatchChoice(ACTION_AI));
         manualCard.setOnClickListener(v -> dispatchChoice(ACTION_MANUAL));
@@ -95,7 +100,9 @@ public class AgendaAddEntrySelectorDialogFragment extends BottomSheetDialogFragm
         GradientDrawable background = new GradientDrawable();
         float radius = dp(28);
         background.setShape(GradientDrawable.RECTANGLE);
-        int sheetSurface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolvePageBackgroundColor(requireContext()));
+        int accent = UiStyleHelper.resolveAccentColor(requireContext());
+        int pageColor = UiStyleHelper.resolvePageBackgroundColor(requireContext());
+        int sheetSurface = ColorUtils.blendARGB(pageColor, accent, 0.08f);
         background.setColor(sheetSurface);
         background.setCornerRadii(new float[]{radius, radius, radius, radius, 0f, 0f, 0f, 0f});
         sheet.setBackground(background);
@@ -112,7 +119,7 @@ public class AgendaAddEntrySelectorDialogFragment extends BottomSheetDialogFragm
         }
         int accent = UiStyleHelper.resolveAccentColor(requireContext());
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(requireContext());
-        int surface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolveGlassCardColor(requireContext()));
+        int surface = UiStyleHelper.resolveGlassCardColor(requireContext());
 
         int strokeColor = emphasize
                 ? ColorUtils.setAlphaComponent(accent, 150)
@@ -127,6 +134,13 @@ public class AgendaAddEntrySelectorDialogFragment extends BottomSheetDialogFragm
         card.setStrokeWidth(dp(1));
         card.setStrokeColor(strokeColor);
         card.setRippleColor(ColorStateList.valueOf(rippleColor));
+    }
+
+    private void applyChoiceIconStyle(@Nullable ImageView icon) {
+        if (icon == null) {
+            return;
+        }
+        icon.setImageTintList(ColorStateList.valueOf(UiStyleHelper.resolveAccentColor(requireContext())));
     }
 
     private void dispatchChoice(@NonNull String action) {
