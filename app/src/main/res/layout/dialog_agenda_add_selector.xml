@@ -3,11 +3,12 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:minHeight="320dp"
     android:orientation="vertical"
-    android:paddingStart="18dp"
-    android:paddingTop="18dp"
-    android:paddingEnd="18dp"
-    android:paddingBottom="16dp">
+    android:paddingStart="20dp"
+    android:paddingTop="22dp"
+    android:paddingEnd="20dp"
+    android:paddingBottom="22dp">
 
     <TextView
         android:layout_width="match_parent"
@@ -15,22 +16,22 @@
         android:includeFontPadding="false"
         android:text="添加日程"
         android:textColor="?attr/colorOnSurface"
-        android:textSize="20sp"
+        android:textSize="22sp"
         android:textStyle="bold" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="8dp"
         android:includeFontPadding="false"
         android:text="请选择一种添加方式"
         android:textColor="?attr/colorOnSurfaceVariant"
-        android:textSize="13sp" />
+        android:textSize="14sp" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="18dp"
         android:orientation="horizontal"
         android:weightSum="2">
 
@@ -51,32 +52,34 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
+                android:minHeight="168dp"
+                android:gravity="center"
                 android:orientation="vertical"
                 android:paddingStart="14dp"
-                android:paddingTop="14dp"
+                android:paddingTop="20dp"
                 android:paddingEnd="14dp"
-                android:paddingBottom="14dp">
+                android:paddingBottom="20dp">
 
                 <ImageView
                     android:layout_width="24dp"
                     android:layout_height="24dp"
-                    android:contentDescription="AI 帮我写"
+                    android:contentDescription="AI添加日程"
                     android:src="@drawable/ic_ai_chat"
                     android:tint="?attr/colorPrimary" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
+                    android:gravity="center"
                     android:includeFontPadding="false"
-                    android:text="AI 帮我写"
+                    android:text="AI添加日程"
                     android:textColor="?attr/colorOnSurface"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:gravity="center"
@@ -105,12 +108,13 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
+                android:minHeight="168dp"
+                android:gravity="center"
                 android:orientation="vertical"
                 android:paddingStart="14dp"
-                android:paddingTop="14dp"
+                android:paddingTop="20dp"
                 android:paddingEnd="14dp"
-                android:paddingBottom="14dp">
+                android:paddingBottom="20dp">
 
                 <ImageView
                     android:layout_width="24dp"
@@ -120,9 +124,10 @@
                     android:tint="?attr/colorPrimary" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
+                    android:gravity="center"
                     android:includeFontPadding="false"
                     android:text="手动添加"
                     android:textColor="?attr/colorOnSurface"
@@ -130,7 +135,7 @@
                     android:textStyle="bold" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:gravity="center"

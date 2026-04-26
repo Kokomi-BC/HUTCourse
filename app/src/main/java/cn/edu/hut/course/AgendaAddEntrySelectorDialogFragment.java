@@ -1,25 +1,29 @@
 package cn.edu.hut.course;
 
 import android.app.Dialog;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.core.graphics.ColorUtils;
-import androidx.fragment.app.DialogFragment;
 
 import com.google.android.material.card.MaterialCardView;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.color.MaterialColors;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
 import java.util.Calendar;
 
-public class AgendaAddEntrySelectorDialogFragment extends DialogFragment {
+public class AgendaAddEntrySelectorDialogFragment extends BottomSheetDialogFragment {
 
     public static final String TAG = "AgendaAddEntrySelectorDialog";
     public static final String REQUEST_KEY = "agenda_add_entry_selector_request";
@@ -51,17 +55,15 @@ public class AgendaAddEntrySelectorDialogFragment extends DialogFragment {
         MaterialCardView aiCard = content.findViewById(R.id.cardAgendaAddAi);
         MaterialCardView manualCard = content.findViewById(R.id.cardAgendaAddManual);
 
-        applyCardStyle(aiCard, true);
+        applyCardStyle(aiCard, false);
         applyCardStyle(manualCard, false);
 
         aiCard.setOnClickListener(v -> dispatchChoice(ACTION_AI));
         manualCard.setOnClickListener(v -> dispatchChoice(ACTION_MANUAL));
 
-        Dialog dialog = new MaterialAlertDialogBuilder(
-            new ContextThemeWrapper(requireContext(), com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert)
-        )
-                .setView(content)
-                .create();
+        BottomSheetDialog dialog = new BottomSheetDialog(requireContext());
+        dialog.setContentView(content);
+        dialog.setDismissWithAnimation(true);
         dialog.setCanceledOnTouchOutside(true);
         return dialog;
     }
@@ -69,12 +71,39 @@ public class AgendaAddEntrySelectorDialogFragment extends DialogFragment {
     @Override
     public void onStart() {
         super.onStart();
-        Dialog dialog = getDialog();
-        if (dialog == null || dialog.getWindow() == null) {
+        if (!(getDialog() instanceof BottomSheetDialog)) {
             return;
         }
-        int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.92f);
-        dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        BottomSheetDialog dialog = (BottomSheetDialog) getDialog();
+        FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet == null) {
+            return;
+        }
+
+        ViewGroup.LayoutParams sheetLp = sheet.getLayoutParams();
+        if (sheetLp != null && sheetLp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+            sheetLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            sheet.setLayoutParams(sheetLp);
+        }
+
+        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        behavior.setDraggable(true);
+        behavior.setFitToContents(true);
+        behavior.setSkipCollapsed(true);
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+
+        GradientDrawable background = new GradientDrawable();
+        float radius = dp(28);
+        background.setShape(GradientDrawable.RECTANGLE);
+        int sheetSurface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolvePageBackgroundColor(requireContext()));
+        background.setColor(sheetSurface);
+        background.setCornerRadii(new float[]{radius, radius, radius, radius, 0f, 0f, 0f, 0f});
+        sheet.setBackground(background);
+
+        View parent = (View) sheet.getParent();
+        if (parent != null) {
+            parent.setBackgroundColor(Color.TRANSPARENT);
+        }
     }
 
     private void applyCardStyle(@Nullable MaterialCardView card, boolean emphasize) {
@@ -83,7 +112,7 @@ public class AgendaAddEntrySelectorDialogFragment extends DialogFragment {
         }
         int accent = UiStyleHelper.resolveAccentColor(requireContext());
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(requireContext());
-        int surface = UiStyleHelper.resolveGlassCardColor(requireContext());
+        int surface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolveGlassCardColor(requireContext()));
 
         int strokeColor = emphasize
                 ? ColorUtils.setAlphaComponent(accent, 150)

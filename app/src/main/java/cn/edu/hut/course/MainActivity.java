@@ -57,7 +57,6 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.datepicker.MaterialDatePicker;
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.textfield.MaterialAutoCompleteTextView;
 import com.google.android.material.timepicker.MaterialTimePicker;
 import com.google.android.material.timepicker.TimeFormat;
@@ -135,16 +134,16 @@ public class MainActivity extends AppCompatActivity {
     private com.google.android.material.card.MaterialCardView cardTodayWeather;
     private TextView tvMainTitle, tvEmptyHint, tvNextCourseNotice, tvAgendaOverviewSummary, tvScheduleTitleDivider, tvScheduleAgendaEntry;
     private TextView tvTodayWeek, tvTodayDate, tvTodayWeekTotal, tvTodayWeekDone, tvNowTime;
-    private TextView tvTodayWeatherUpdate;
+    private TextView tvTodayWeatherInline, tvTodayWeatherUpdate, tvTodayWeatherToggle;
     private TextView tvProfileName, tvProfileStudentId, tvProfileClass, tvProfileCollege;
     private ImageButton btnCloseNextCourseNotice, btnAgendaOverviewBack, btnAgendaOverviewAdd, btnTodayWeatherRefresh;
-    private FloatingActionButton fabAddAgenda;
     private BottomNavigationView bottomNav;
     private View bottomNavHost;
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
     private View pageSchedule, pageToday, pageAi, pageProfile, pageAgenda, titleContainer, rootMain;
-    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer, layoutTodayWeatherList;
+    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer;
+    private GridLayout layoutTodayWeatherList;
 
     private final List<Course> allCourses = new ArrayList<>();
     private int currentWeek = 1;
@@ -156,11 +155,14 @@ public class MainActivity extends AppCompatActivity {
     private int weekOverviewPreviewWeek = -1;
     private int weekOverviewPreviewDay = -1;
     private boolean todayWeatherRefreshing = false;
+    private boolean todayWeatherCollapsed = true;
     private boolean todayEndedTimelineCollapsed = true;
     private boolean agendaOngoingCollapsed = false;
     private boolean agendaUpcomingCollapsed = false;
     private boolean agendaEndedCollapsed = true;
     private int selectedNavItemId = R.id.nav_schedule;
+    @Nullable
+    private TianyuanWeatherManager.WeatherSnapshot latestTodayWeatherSnapshot;
     private int lastRealtimeWeek = -1;
     private int lastRealtimeDay = -1;
     private int lastRealtimeSlot = -2;
@@ -220,6 +222,9 @@ public class MainActivity extends AppCompatActivity {
         if (tvTodayDate != null) {
             tvTodayDate.setTextColor(colorOnSurfaceVariant);
         }
+        if (tvTodayWeatherInline != null) {
+            tvTodayWeatherInline.setTextColor(colorOnSurfaceVariant);
+        }
         if (tvTodayWeekTotal != null) {
             tvTodayWeekTotal.setTextColor(colorOnSurfaceVariant);
         }
@@ -228,6 +233,9 @@ public class MainActivity extends AppCompatActivity {
         }
         if (tvTodayWeatherUpdate != null) {
             tvTodayWeatherUpdate.setTextColor(colorOnSurfaceVariant);
+        }
+        if (tvTodayWeatherToggle != null) {
+            tvTodayWeatherToggle.setTextColor(colorPrimary);
         }
         if (btnTodayWeatherRefresh != null) {
             btnTodayWeatherRefresh.setColorFilter(colorOnSurface);
@@ -269,19 +277,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        if (fabAddAgenda != null) {
-            fabAddAgenda.setBackgroundTintList(ColorStateList.valueOf(colorPrimary));
-            fabAddAgenda.setImageTintList(ColorStateList.valueOf(pickReadableTextColor(colorPrimary)));
-            fabAddAgenda.setImageResource(R.drawable.ic_add_bold_28);
-            fabAddAgenda.setCustomSize(dp(54));
-            fabAddAgenda.setTranslationX(0f);
-            fabAddAgenda.setTranslationY(0f);
-            fabAddAgenda.setUseCompatPadding(false);
-            fabAddAgenda.setCompatElevation(0f);
-            fabAddAgenda.setElevation(0f);
-            fabAddAgenda.setTranslationZ(0f);
-            fabAddAgenda.setStateListAnimator(null);
-        }
     }
 
     private void setupBottomNavInsetsHandling() {
@@ -383,9 +378,11 @@ public class MainActivity extends AppCompatActivity {
         tvTodayWeek = findViewById(R.id.tvTodayWeek);
         tvNowTime = findViewById(R.id.tvNowTime);
         tvTodayDate = findViewById(R.id.tvTodayDate);
+        tvTodayWeatherInline = findViewById(R.id.tvTodayWeatherInline);
         tvTodayWeekTotal = findViewById(R.id.tvTodayWeekTotal);
         tvTodayWeekDone = findViewById(R.id.tvTodayWeekDone);
         tvTodayWeatherUpdate = findViewById(R.id.tvTodayWeatherUpdate);
+        tvTodayWeatherToggle = findViewById(R.id.tvTodayWeatherToggle);
         todayCoursesContainer = findViewById(R.id.todayCoursesContainer);
         layoutTodayWeekStrip = findViewById(R.id.layoutTodayWeekStrip);
         layoutTodayWeatherList = findViewById(R.id.layoutTodayWeatherList);
@@ -402,27 +399,22 @@ public class MainActivity extends AppCompatActivity {
         cardNextCourseNotice = findViewById(R.id.cardNextCourseNotice);
         tvNextCourseNotice = findViewById(R.id.tvNextCourseNotice);
         btnCloseNextCourseNotice = findViewById(R.id.btnCloseNextCourseNotice);
-        fabAddAgenda = findViewById(R.id.fabAddAgenda);
         tvProfileName = findViewById(R.id.tvProfileName);
         tvProfileStudentId = findViewById(R.id.tvProfileStudentId);
         tvProfileClass = findViewById(R.id.tvProfileClass);
         tvProfileCollege = findViewById(R.id.tvProfileCollege);
 
-        if (fabAddAgenda != null) {
-            disableParentClipping(fabAddAgenda);
-        }
-
         setupBottomNavInsetsHandling();
         setupAgendaAddEntryResultListeners();
 
-        if (fabAddAgenda != null) {
-            fabAddAgenda.setOnClickListener(v -> {
-                Calendar preferred = resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek());
-                showAgendaAddEntrySelector(preferred, "today_fab");
-            });
-        }
         if (btnTodayWeatherRefresh != null) {
             btnTodayWeatherRefresh.setOnClickListener(v -> refreshTodayWeather(true));
+        }
+        if (tvTodayWeatherToggle != null) {
+            tvTodayWeatherToggle.setOnClickListener(v -> {
+                todayWeatherCollapsed = !todayWeatherCollapsed;
+                renderTodayWeather(latestTodayWeatherSnapshot);
+            });
         }
         if (tvScheduleAgendaEntry != null) {
             tvScheduleAgendaEntry.setOnClickListener(v -> openAgendaOverviewActivity());
@@ -730,7 +722,6 @@ public class MainActivity extends AppCompatActivity {
         if (pageAgenda != null) pageAgenda.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
-        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.VISIBLE);
         updateTitle();
         refreshTodayPage();
     }
@@ -741,7 +732,6 @@ public class MainActivity extends AppCompatActivity {
         if (pageAgenda != null) pageAgenda.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
-        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         updateTitle();
     }
 
@@ -835,7 +825,6 @@ public class MainActivity extends AppCompatActivity {
         if (pageAgenda != null) pageAgenda.setVisibility(View.VISIBLE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
-        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         updateTitle();
         renderAgendaOverviewPage();
     }
@@ -846,7 +835,6 @@ public class MainActivity extends AppCompatActivity {
         if (pageAgenda != null) pageAgenda.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.VISIBLE);
         if (pageProfile != null) pageProfile.setVisibility(View.GONE);
-        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         updateTitle();
     }
 
@@ -856,7 +844,6 @@ public class MainActivity extends AppCompatActivity {
         if (pageAgenda != null) pageAgenda.setVisibility(View.GONE);
         if (pageAi != null) pageAi.setVisibility(View.GONE);
         if (pageProfile != null) pageProfile.setVisibility(View.VISIBLE);
-        if (fabAddAgenda != null) fabAddAgenda.setVisibility(View.GONE);
         renderProfileFromLocal();
         updateTitle();
         styleProfileCards();
@@ -1873,6 +1860,9 @@ public class MainActivity extends AppCompatActivity {
         if (tvTodayDate != null) {
             tvTodayDate.setText(String.format(Locale.getDefault(), "%d月%d日", displayDate.get(Calendar.MONTH) + 1, displayDate.get(Calendar.DAY_OF_MONTH)));
         }
+        if (tvTodayWeatherInline != null && (latestTodayWeatherSnapshot == null || !latestTodayWeatherSnapshot.success)) {
+            tvTodayWeatherInline.setText("");
+        }
         updateTodayHeaderClock();
 
         List<TodayCourseItem> courses = buildDateCourseItems(actualWeek, previewDay);
@@ -2049,6 +2039,7 @@ public class MainActivity extends AppCompatActivity {
                 btnTodayWeatherRefresh.setEnabled(true);
                 btnTodayWeatherRefresh.setAlpha(1f);
             }
+            latestTodayWeatherSnapshot = snapshot;
             renderTodayWeather(snapshot);
         });
     }
@@ -2059,6 +2050,14 @@ public class MainActivity extends AppCompatActivity {
         }
 
         layoutTodayWeatherList.removeAllViews();
+        layoutTodayWeatherList.setColumnCount(3);
+        if (tvTodayWeatherToggle != null) {
+            tvTodayWeatherToggle.setVisibility(View.GONE);
+            tvTodayWeatherToggle.setText("");
+        }
+        if (tvTodayWeatherInline != null) {
+            tvTodayWeatherInline.setText("");
+        }
         if (snapshot == null || !snapshot.success || snapshot.forecasts == null || snapshot.forecasts.isEmpty()) {
             String msg = snapshot == null ? "天气加载失败" : (TextUtils.isEmpty(snapshot.message) ? "天气加载失败" : snapshot.message);
             tvTodayWeatherUpdate.setText(msg);
@@ -2066,6 +2065,13 @@ public class MainActivity extends AppCompatActivity {
             empty.setText("暂未获取到株洲天元区近三天天气");
             empty.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
             empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+            GridLayout.Spec row = GridLayout.spec(0);
+            GridLayout.Spec col = GridLayout.spec(0, 3);
+            GridLayout.LayoutParams lp = new GridLayout.LayoutParams(row, col);
+            lp.width = 0;
+            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            lp.setMargins(0, 0, 0, 0);
+            empty.setLayoutParams(lp);
             layoutTodayWeatherList.addView(empty);
             return;
         }
@@ -2078,67 +2084,61 @@ public class MainActivity extends AppCompatActivity {
             updateLabel = updateLabel + "（" + snapshot.message + "）";
         }
         tvTodayWeatherUpdate.setText(updateLabel);
+        if (tvTodayWeatherInline != null) {
+            tvTodayWeatherInline.setText(safeText(snapshot.forecasts.get(0).weather));
+        }
 
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
         int primary = getTimetableThemeColor();
-        for (int i = 0; i < snapshot.forecasts.size(); i++) {
+        int totalCount = snapshot.forecasts.size();
+        int visibleCount = todayWeatherCollapsed ? Math.min(3, totalCount) : totalCount;
+
+        if (tvTodayWeatherToggle != null && totalCount > 3) {
+            tvTodayWeatherToggle.setVisibility(View.VISIBLE);
+            tvTodayWeatherToggle.setText(todayWeatherCollapsed ? "展开" : "收起");
+        }
+
+        for (int i = 0; i < visibleCount; i++) {
             TianyuanWeatherManager.DayForecast one = snapshot.forecasts.get(i);
-            MaterialCardView row = new MaterialCardView(this);
-            row.setCardElevation(0f);
-            row.setRadius(dp(16));
-            row.setStrokeWidth(dp(1));
-            row.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
-            row.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+            MaterialCardView cell = new MaterialCardView(this);
+            cell.setCardElevation(0f);
+            cell.setRadius(dp(14));
+            cell.setStrokeWidth(dp(1));
+            cell.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+            cell.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
 
             LinearLayout content = new LinearLayout(this);
             content.setOrientation(LinearLayout.VERTICAL);
-            content.setPadding(dp(12), dp(10), dp(12), dp(10));
+            content.setGravity(Gravity.CENTER);
+            content.setPadding(dp(8), dp(10), dp(8), dp(10));
 
-            TextView title = new TextView(this);
-            title.setText(TextUtils.isEmpty(one.dayLabel) ? "预报" + (i + 1) : one.dayLabel);
-            title.setTextColor(onSurface);
-            title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
-            title.setTypeface(Typeface.DEFAULT_BOLD);
+            TextView weatherText = new TextView(this);
+            weatherText.setText(TextUtils.isEmpty(one.weather) ? "未知" : one.weather);
+            weatherText.setTextColor(onSurface);
+            weatherText.setTypeface(Typeface.DEFAULT_BOLD);
+            weatherText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+            weatherText.setGravity(Gravity.CENTER);
 
-            TextView summary = new TextView(this);
-            StringBuilder summaryBuilder = new StringBuilder();
-            if (!TextUtils.isEmpty(one.weather)) {
-                summaryBuilder.append(one.weather);
-            }
-            if (!TextUtils.isEmpty(one.temperature)) {
-                if (summaryBuilder.length() > 0) {
-                    summaryBuilder.append(" · ");
-                }
-                summaryBuilder.append(one.temperature);
-            }
-            if (!TextUtils.isEmpty(one.wind)) {
-                if (summaryBuilder.length() > 0) {
-                    summaryBuilder.append(" · ");
-                }
-                summaryBuilder.append(one.wind);
-            }
-            if (summaryBuilder.length() == 0) {
-                summaryBuilder.append("暂无天气详情");
-            }
-            summary.setText(summaryBuilder.toString());
-            summary.setTextColor(onSurfaceVariant);
-            summary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-            summary.setPadding(0, dp(4), 0, 0);
+            TextView tempText = new TextView(this);
+            tempText.setText(TextUtils.isEmpty(one.temperature) ? "--" : one.temperature);
+            tempText.setTextColor(onSurfaceVariant);
+            tempText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+            tempText.setPadding(0, dp(4), 0, 0);
+            tempText.setGravity(Gravity.CENTER);
 
-            content.addView(title);
-            content.addView(summary);
-            row.addView(content);
+            content.addView(weatherText);
+            content.addView(tempText);
+            cell.addView(content);
 
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-            );
-            if (i > 0) {
-                lp.topMargin = dp(8);
-            }
-            row.setLayoutParams(lp);
-            layoutTodayWeatherList.addView(row);
+            int rowIndex = i / 3;
+            int colIndex = i % 3;
+            GridLayout.LayoutParams lp = new GridLayout.LayoutParams(GridLayout.spec(rowIndex), GridLayout.spec(colIndex, 1f));
+            lp.width = 0;
+            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            lp.setMargins(colIndex == 0 ? 0 : dp(6), rowIndex == 0 ? 0 : dp(8), colIndex == 2 ? 0 : dp(6), 0);
+            cell.setLayoutParams(lp);
+            layoutTodayWeatherList.addView(cell);
         }
 
         if (btnTodayWeatherRefresh != null) {
@@ -2180,6 +2180,7 @@ public class MainActivity extends AppCompatActivity {
             text.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
             emptyCard.addView(text);
             todayCoursesContainer.addView(emptyCard);
+            todayCoursesContainer.addView(createTodayAddAgendaCard());
             return;
         }
 
@@ -2187,6 +2188,7 @@ public class MainActivity extends AppCompatActivity {
             for (TodayTimelineItem item : timelineItems) {
                 todayCoursesContainer.addView(createTodayTimelineCard(item));
             }
+            todayCoursesContainer.addView(createTodayAddAgendaCard());
             return;
         }
 
@@ -2271,6 +2273,8 @@ public class MainActivity extends AppCompatActivity {
             todayCoursesContainer.addView(endedHeader);
             todayCoursesContainer.addView(endedContainer);
         }
+
+        todayCoursesContainer.addView(createTodayAddAgendaCard());
     }
 
     private void renderAgendaOverviewPage() {
@@ -2572,6 +2576,56 @@ public class MainActivity extends AppCompatActivity {
         return item.type == TodayTimelineItem.TYPE_COURSE
                 ? createCourseTimelineCard(item.courseItem)
                 : createAgendaTimelineCard(item.agenda);
+    }
+
+    private MaterialCardView createTodayAddAgendaCard() {
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int accent = getTimetableThemeColor();
+
+        MaterialCardView card = new MaterialCardView(this);
+        card.setRadius(dp(24));
+        card.setCardElevation(0f);
+        card.setStrokeWidth(1);
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+        card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 62)));
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardLp.setMargins(0, 0, 0, dp(12));
+        card.setLayoutParams(cardLp);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setGravity(Gravity.CENTER);
+        row.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_add_bold_28);
+        icon.setImageTintList(ColorStateList.valueOf(accent));
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(22), dp(22));
+        row.addView(icon, iconLp);
+
+        TextView title = new TextView(this);
+        title.setText("新增日程");
+        title.setTextColor(onSurface);
+        title.setTextSize(17f);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        title.setIncludeFontPadding(false);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.setMargins(0, dp(8), 0, 0);
+        row.addView(title, titleLp);
+
+        card.addView(row);
+        card.setOnClickListener(v -> {
+            Calendar preferred = selectedTodayDate == null
+                    ? resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek())
+                    : cloneAsDay(selectedTodayDate);
+            showAgendaAddEntrySelector(preferred, "today_list_card");
+        });
+        return card;
     }
 
     private MaterialCardView createCourseTimelineCard(TodayCourseItem item) {

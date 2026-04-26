@@ -6,19 +6,26 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
 import android.text.TextUtils;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.graphics.ColorUtils;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -27,7 +34,8 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.color.MaterialColors;
 
 import java.util.Calendar;
 import java.util.List;
@@ -54,23 +62,33 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
     private static final String STATE_FEEDBACK = "state_feedback";
     private static final int MAX_TOOL_COMMAND_ROUNDS = 20;
     private static final int MAX_TOOL_MODEL_FEEDBACK_CHARS = 2200;
+    private static final int FULLSCREEN_PROMPT_CHAR_THRESHOLD = 120;
+    private static final int FULLSCREEN_PROMPT_LINE_THRESHOLD = 7;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicInteger activeToken = new AtomicInteger(0);
 
-    private TextInputEditText etPrompt;
+    private EditText etPrompt;
     private TextView tvStatus;
     private TextView tvFeedback;
     private MaterialButton btnClear;
     private MaterialButton btnSend;
     private View rootView;
+    private ScrollView feedbackContainer;
+    @Nullable
+    private TextWatcher promptWatcher;
+    @Nullable
+    private FrameLayout sheetContainer;
+    @Nullable
+    private BottomSheetBehavior<FrameLayout> sheetBehavior;
+    private boolean sheetFullscreen = false;
 
     private boolean requestRunning = false;
     private int basePaddingTop = 0;
     private int basePaddingBottom = 0;
-    private String statusText = "等待输入";
-    private String feedbackText = "输入后点击发送，AI 将调用日程工具自动创建。";
+    private String statusText = "";
+    private String feedbackText = "";
 
     @NonNull
     public static AgendaAiComposeBottomSheetFragment newInstance(@Nullable Calendar preferredDate,
@@ -100,6 +118,11 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         tvFeedback = view.findViewById(R.id.tvAgendaAiFeedbackContent);
         btnClear = view.findViewById(R.id.btnAgendaAiClear);
         btnSend = view.findViewById(R.id.btnAgendaAiSend);
+        feedbackContainer = view.findViewById(R.id.scrollAgendaAiFeedback);
+        MaterialCardView composerCard = view.findViewById(R.id.cardAgendaAiComposer);
+
+        applyAgendaComposerCardStyle(composerCard);
+        styleAgendaPromptInput(etPrompt);
 
         if (rootView != null) {
             basePaddingTop = rootView.getPaddingTop();
@@ -109,7 +132,25 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         restoreState(savedInstanceState);
         applyInsetsHandling();
         bindActions();
-        requestPromptFocus();
+        bindPromptWatcher();
+    }
+
+    @Override
+    public void onDestroyView() {
+        if (etPrompt != null && promptWatcher != null) {
+            etPrompt.removeTextChangedListener(promptWatcher);
+        }
+        promptWatcher = null;
+        sheetContainer = null;
+        sheetBehavior = null;
+        rootView = null;
+        etPrompt = null;
+        tvStatus = null;
+        tvFeedback = null;
+        btnClear = null;
+        btnSend = null;
+        feedbackContainer = null;
+        super.onDestroyView();
     }
 
     @Override
@@ -143,13 +184,41 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
             }
         }
         if (statusText.trim().isEmpty()) {
-            statusText = "等待输入";
+            statusText = "";
         }
         if (feedbackText.trim().isEmpty()) {
-            feedbackText = "输入后点击发送，AI 将调用日程工具自动创建。";
+            feedbackText = "";
         }
         updatePanel(statusText, feedbackText);
         setRunning(false);
+    }
+
+    private void bindPromptWatcher() {
+        if (etPrompt == null) {
+            return;
+        }
+        if (promptWatcher != null) {
+            etPrompt.removeTextChangedListener(promptWatcher);
+        }
+        promptWatcher = new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (etPrompt == null) {
+                    return;
+                }
+                etPrompt.post(AgendaAiComposeBottomSheetFragment.this::syncSheetModeByPrompt);
+            }
+        };
+        etPrompt.addTextChangedListener(promptWatcher);
+        etPrompt.post(this::syncSheetModeByPrompt);
     }
 
     private void bindActions() {
@@ -355,10 +424,18 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         statusText = status;
         feedbackText = feedback;
         if (tvStatus != null) {
-            tvStatus.setText(status);
+            String displayStatus = safeText(status).trim();
+            tvStatus.setText(displayStatus);
+            tvStatus.setVisibility(displayStatus.isEmpty() ? View.GONE : View.VISIBLE);
         }
         if (tvFeedback != null) {
-            tvFeedback.setText(feedback);
+            String displayFeedback = safeText(feedback).trim();
+            tvFeedback.setText(displayFeedback);
+            tvFeedback.setVisibility(displayFeedback.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+        if (feedbackContainer != null) {
+            String displayFeedback = safeText(feedback).trim();
+            feedbackContainer.setVisibility(displayFeedback.isEmpty() ? View.GONE : View.VISIBLE);
         }
     }
 
@@ -373,40 +450,112 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         }
     }
 
+    private void applyAgendaComposerCardStyle(@Nullable MaterialCardView card) {
+        if (card == null) {
+            return;
+        }
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(requireContext());
+        int surface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolveGlassCardColor(requireContext()));
+        card.setCardBackgroundColor(surface);
+        card.setRadius(dp(24));
+        card.setCardElevation(0f);
+        card.setStrokeWidth(dp(1));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+    }
+
+    private void styleAgendaPromptInput(@Nullable EditText input) {
+        if (input == null) {
+            return;
+        }
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(requireContext());
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(requireContext());
+        input.setTextColor(onSurface);
+        input.setHintTextColor(ColorUtils.setAlphaComponent(onSurfaceVariant, 180));
+        input.setTextSize(17f);
+        input.setBackgroundColor(Color.TRANSPARENT);
+        input.setPadding(dp(4), dp(11), dp(4), dp(11));
+        input.setMinHeight(dp(132));
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        input.setSingleLine(false);
+        input.setMinLines(4);
+        input.setMaxLines(Integer.MAX_VALUE);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setHorizontallyScrolling(false);
+        // 由外层 BottomSheet 处理滚动，避免输入区域在键盘动画中被压缩成单行。
+        input.setVerticalScrollBarEnabled(false);
+        input.setOverScrollMode(View.OVER_SCROLL_NEVER);
+    }
+
+    private void syncSheetModeByPrompt() {
+        applySheetMode(shouldUseFullscreenMode());
+    }
+
+    private boolean shouldUseFullscreenMode() {
+        if (etPrompt == null) {
+            return false;
+        }
+        CharSequence text = etPrompt.getText();
+        int length = safeText(text == null ? "" : text.toString()).trim().length();
+        int lines = Math.max(1, etPrompt.getLineCount());
+        return length >= FULLSCREEN_PROMPT_CHAR_THRESHOLD || lines >= FULLSCREEN_PROMPT_LINE_THRESHOLD;
+    }
+
+    private void applySheetMode(boolean fullscreen) {
+        if (sheetContainer == null || sheetBehavior == null) {
+            return;
+        }
+        if (sheetFullscreen == fullscreen && sheetContainer.getLayoutParams() != null) {
+            int currentHeight = sheetContainer.getLayoutParams().height;
+            int targetHeight = fullscreen ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+            if (currentHeight == targetHeight) {
+                return;
+            }
+        }
+
+        ViewGroup.LayoutParams sheetLp = sheetContainer.getLayoutParams();
+        if (sheetLp != null) {
+            sheetLp.height = fullscreen ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+            sheetContainer.setLayoutParams(sheetLp);
+        }
+
+        sheetBehavior.setFitToContents(!fullscreen);
+        sheetBehavior.setSkipCollapsed(true);
+        if (sheetBehavior.getState() != BottomSheetBehavior.STATE_EXPANDED) {
+            sheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        }
+        sheetFullscreen = fullscreen;
+    }
+
     private void configureSheetAppearance() {
         if (!(getDialog() instanceof BottomSheetDialog)) {
             return;
         }
         BottomSheetDialog dialog = (BottomSheetDialog) getDialog();
+        dialog.setDismissWithAnimation(true);
         if (dialog.getWindow() != null) {
             dialog.getWindow().setSoftInputMode(
                     WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                            | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                            | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
             );
         }
 
-        FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
-        if (sheet == null) {
+        sheetContainer = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheetContainer == null) {
             return;
         }
 
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
-        behavior.setFitToContents(false);
-        behavior.setHalfExpandedRatio(0.62f);
-        behavior.setSkipCollapsed(false);
-        behavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
-
-        int peekHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.62f);
-        behavior.setPeekHeight(peekHeight, false);
+        sheetBehavior = BottomSheetBehavior.from(sheetContainer);
+        applySheetMode(shouldUseFullscreenMode());
 
         GradientDrawable background = new GradientDrawable();
         float radius = dp(28);
         background.setShape(GradientDrawable.RECTANGLE);
-        background.setColor(UiStyleHelper.resolvePageBackgroundColor(requireContext()));
+        int sheetSurface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolvePageBackgroundColor(requireContext()));
+        background.setColor(sheetSurface);
         background.setCornerRadii(new float[]{radius, radius, radius, radius, 0f, 0f, 0f, 0f});
-        sheet.setBackground(background);
+        sheetContainer.setBackground(background);
 
-        View parent = (View) sheet.getParent();
+        View parent = (View) sheetContainer.getParent();
         if (parent != null) {
             parent.setBackgroundColor(Color.TRANSPARENT);
         }
@@ -418,37 +567,18 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         }
         ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, insets) -> {
             Insets nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
-            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            boolean imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
+            Insets gesture = insets.getInsets(WindowInsetsCompat.Type.systemGestures());
 
-            int imeLift = imeVisible ? Math.max(0, ime.bottom - nav.bottom) : 0;
-            int targetBottom = basePaddingBottom + nav.bottom + imeLift;
+            int baseBottomInset = Math.max(nav.bottom, gesture.bottom);
+            int targetBottom = basePaddingBottom + baseBottomInset;
 
             if (v.getPaddingBottom() != targetBottom || v.getPaddingTop() != basePaddingTop) {
                 v.setPadding(v.getPaddingLeft(), basePaddingTop, v.getPaddingRight(), targetBottom);
             }
-
-            if (imeVisible) {
-                expandForIme();
-            }
+            syncSheetModeByPrompt();
             return insets;
         });
         ViewCompat.requestApplyInsets(rootView);
-    }
-
-    private void expandForIme() {
-        if (!(getDialog() instanceof BottomSheetDialog)) {
-            return;
-        }
-        BottomSheetDialog dialog = (BottomSheetDialog) getDialog();
-        FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
-        if (sheet == null) {
-            return;
-        }
-        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
-        if (behavior.getState() != BottomSheetBehavior.STATE_EXPANDED) {
-            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        }
     }
 
     private void requestPromptFocus() {
