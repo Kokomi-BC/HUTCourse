@@ -781,6 +781,17 @@ public class MainActivity extends AppCompatActivity {
                     refreshAgendaDependentViews();
                 }
         );
+
+        getSupportFragmentManager().setFragmentResultListener(
+                AiChatFragment.REQUEST_KEY_AGENDA_CHANGED,
+                this,
+                (requestKey, result) -> {
+                    if (!result.getBoolean(AiChatFragment.RESULT_KEY_AGENDA_CHANGED, false)) {
+                        return;
+                    }
+                    refreshAgendaDependentViews();
+                }
+        );
     }
 
     private void showAgendaAddEntrySelector(@Nullable Calendar preferredDate, @NonNull String sourceTag) {

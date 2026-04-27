@@ -156,7 +156,6 @@ public final class AiGateway {
             conn.setRequestProperty("Authorization", "Bearer " + apiKey);
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("Connection", "close");
             if (!conversationId.isEmpty()) {
                 conn.setRequestProperty("X-Conversation-Id", conversationId);
                 conn.setRequestProperty("X-Session-Id", conversationId);

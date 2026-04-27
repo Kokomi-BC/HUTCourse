@@ -115,6 +115,11 @@ public class AiChatFragment extends Fragment {
     private static final int MAX_MODEL_CONTEXT_CHARS = 3200;
     private static final int MAX_MODEL_CONTEXT_ITEM_CHARS = 280;
     private static final int MAX_TOOL_RESULT_FOR_MODEL_CHARS = 2200;
+    private static final int STREAM_RENDER_DELAY_MS = 14;
+    private static final int STREAM_RENDER_TARGET_MS_SHORT = 320;
+    private static final int STREAM_RENDER_TARGET_MS_MEDIUM = 680;
+    private static final int STREAM_RENDER_TARGET_MS_LONG = 1100;
+    private static final int STREAM_RENDER_FAST_PATH_THRESHOLD = 900;
     private static final Pattern TITLE_PATTERN = Pattern.compile("^(?:TITLE|标题)\\s*[:：]\\s*(.+)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern COMMAND_RESULT_LINE_PATTERN = Pattern.compile("^\\d+\\.\\s+.+?=>\\s*(.*)$");
     private static final String SYSTEM_CARD_PREFIX = "CARD_JSON:";
@@ -123,6 +128,8 @@ public class AiChatFragment extends Fragment {
     private static final String SYSTEM_CARD_ACTION_OPEN_JWXT_LOGIN = "open_jwxt_login";
     private static final String SYSTEM_CARD_ACTION_OPEN_AI_SETTINGS = "open_ai_settings";
     private static final String SYSTEM_CARD_ACTION_OPEN_AMAP_NAVIGATION = "open_amap_navigation";
+    public static final String REQUEST_KEY_AGENDA_CHANGED = "ai_chat_agenda_changed";
+    public static final String RESULT_KEY_AGENDA_CHANGED = "result_ai_chat_agenda_changed";
 
     private DrawerLayout drawerAiChat;
     private LinearLayout chatContainer;
@@ -3206,6 +3213,7 @@ public class AiChatFragment extends Fragment {
         boolean toolFeedbackShown = false;
         final Set<String> toolFeedbackItems = new LinkedHashSet<>();
         final int[] toolFeedbackHistoryIndex = new int[]{-1};
+        boolean agendaMutationNotified = false;
 
         for (int round = 1; round <= MAX_TOOL_COMMAND_ROUNDS; round++) {
             ensureAiRequestActiveOrThrow(requestToken);
@@ -3217,6 +3225,10 @@ public class AiChatFragment extends Fragment {
             SkillCommandCenter.CommandBatchResult batch = SkillCommandCenter.executeCommandsWithFeedback(ctx(), commands, originalUserText);
             String commandResult = batch.modelFeedback;
             String roundMessage = batch.userFeedback;
+            if (!agendaMutationNotified && hasAgendaMutation(commands, commandResult)) {
+                agendaMutationNotified = true;
+                notifyAgendaMutationChanged();
+            }
             String systemCardPayload = extractSystemCardPayloadFromCommandResult(commandResult);
             List<String> roundFeedbackItems = extractToolFeedbackItems(roundMessage);
             if (!roundFeedbackItems.isEmpty()) {
@@ -3293,6 +3305,49 @@ public class AiChatFragment extends Fragment {
         return assistantOutput + "\n\n(已达到最大命令轮次" + MAX_TOOL_COMMAND_ROUNDS + "次，若需继续请重试)";
     }
 
+    private boolean hasAgendaMutation(@NonNull List<String> commands, @Nullable String modelFeedback) {
+        boolean hasAgendaWriteCommand = false;
+        for (String command : commands) {
+            String lower = safe(command).toLowerCase(Locale.ROOT);
+            if (lower.startsWith("agenda.create")
+                    || lower.startsWith("agenda.update")
+                    || lower.startsWith("agenda.delete")) {
+                hasAgendaWriteCommand = true;
+                break;
+            }
+        }
+        if (!hasAgendaWriteCommand) {
+            return false;
+        }
+
+        String feedback = safe(modelFeedback).toLowerCase(Locale.ROOT);
+        if (feedback.contains("创建成功") || feedback.contains("更新成功") || feedback.contains("删除成功")) {
+            return true;
+        }
+        if (feedback.contains("已创建日程") || feedback.contains("已更新日程") || feedback.contains("已删除日程")) {
+            return true;
+        }
+        return !feedback.contains("失败");
+    }
+
+    private void notifyAgendaMutationChanged() {
+        if (!isAdded()) {
+            return;
+        }
+        Activity host = getActivity();
+        if (host == null) {
+            return;
+        }
+        host.runOnUiThread(() -> {
+            if (!isAdded()) {
+                return;
+            }
+            Bundle result = new Bundle();
+            result.putBoolean(RESULT_KEY_AGENDA_CHANGED, true);
+            getParentFragmentManager().setFragmentResult(REQUEST_KEY_AGENDA_CHANGED, result);
+        });
+    }
+
     private String requestModelReplyWithRetry(String provider,
                                               String baseUrl,
                                               String apiKey,
@@ -3303,15 +3358,33 @@ public class AiChatFragment extends Fragment {
                                               @Nullable AiGateway.RequestCacheHint baseCacheHint,
                                               int roundTag) throws Exception {
         AiGateway.RequestCacheHint roundCacheHint = buildRoundCacheHint(baseCacheHint, model, userPrompt, roundTag);
+        long firstStartMs = SystemClock.elapsedRealtime();
         try {
-            return AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, roundCacheHint);
+            String reply = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, roundCacheHint);
+            long costMs = SystemClock.elapsedRealtime() - firstStartMs;
+            Log.i(TAG, "model call done round=" + roundTag
+                    + ", promptLen=" + safe(userPrompt).length()
+                    + ", durationMs=" + costMs);
+            return reply;
         } catch (Exception firstEx) {
+            long firstCostMs = SystemClock.elapsedRealtime() - firstStartMs;
             if (!isLikelyTimeoutException(firstEx)) {
+                Log.w(TAG, "model call failed round=" + roundTag
+                        + ", promptLen=" + safe(userPrompt).length()
+                        + ", durationMs=" + firstCostMs
+                        + ", reason=" + clipForLog(firstEx.getMessage()));
                 throw firstEx;
             }
             Log.w(TAG, "model call timeout, retry once without cache hint, round=" + roundTag
+                    + ", firstDurationMs=" + firstCostMs
                     + ", reason=" + clipForLog(firstEx.getMessage()), firstEx);
-            return AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, null);
+            long retryStartMs = SystemClock.elapsedRealtime();
+            String reply = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, null);
+            long retryCostMs = SystemClock.elapsedRealtime() - retryStartMs;
+            Log.i(TAG, "model retry done round=" + roundTag
+                    + ", promptLen=" + safe(userPrompt).length()
+                    + ", durationMs=" + retryCostMs);
+            return reply;
         }
     }
 
@@ -4212,7 +4285,36 @@ public class AiChatFragment extends Fragment {
 
         final int[] cursor = {0};
         final int total = normalized.length();
-        final int step = 3;
+
+        if (total >= STREAM_RENDER_FAST_PATH_THRESHOLD) {
+            if (!isAiRequestActive(requestToken)) {
+                if (streamingBubble != null) {
+                    chatContainer.removeView(streamingBubble);
+                    streamingBubble = null;
+                }
+                return;
+            }
+            if (streamingBubble != null) {
+                markwon.setMarkdown(streamingBubble, normalized);
+                scrollChatToBottom();
+            }
+            streamingBubble = null;
+            if (onDone != null) {
+                onDone.onDone(targetView);
+            }
+            return;
+        }
+
+        final int targetDurationMs;
+        if (total <= 140) {
+            targetDurationMs = STREAM_RENDER_TARGET_MS_SHORT;
+        } else if (total <= 420) {
+            targetDurationMs = STREAM_RENDER_TARGET_MS_MEDIUM;
+        } else {
+            targetDurationMs = STREAM_RENDER_TARGET_MS_LONG;
+        }
+        final int maxTicks = Math.max(1, targetDurationMs / STREAM_RENDER_DELAY_MS);
+        final int step = Math.max(6, (int) Math.ceil((double) total / (double) maxTicks));
 
         Runnable ticker = new Runnable() {
             @Override
@@ -4233,7 +4335,7 @@ public class AiChatFragment extends Fragment {
                 }
                 if (cursor[0] < total) {
                     activeStreamTicker = this;
-                    streamHandler.postDelayed(this, 18L);
+                    streamHandler.postDelayed(this, STREAM_RENDER_DELAY_MS);
                 } else {
                     activeStreamTicker = null;
                     streamingBubble = null;

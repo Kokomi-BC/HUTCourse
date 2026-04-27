@@ -53,6 +53,7 @@ public final class AiPromptCenter {
                     agendaSkillEnabled,
                     webSearchSkillEnabled
             )).append("。\n");
+                system.append("不要把 skill.list 或 skill.read 当作每轮默认步骤；仅当技能索引不足以决策时再调用，多数场景应直接回答或直接调用目标业务命令。\n");
             system.append("仅允许使用“可用命令”中出现的命令，未列出的命令一律视为禁用。\n");
 
             if (!noteSkillEnabled) {
