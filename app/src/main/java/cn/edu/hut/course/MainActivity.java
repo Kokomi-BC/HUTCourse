@@ -1256,7 +1256,12 @@ public class MainActivity extends AppCompatActivity {
                         rowSpan = merged.rowSpan;
                     } else {
                         rowSpan = computeAgendaRenderRowSpan(cellEntries, row, col, onlyEntry);
+                        if (rowSpan > 1) {
+                            entries = collectScheduleEntriesInSpan(cellEntries, row, col, rowSpan);
+                        }
                     }
+                } else {
+                    rowSpan = computeMultiEntryRenderRowSpan(cellEntries, row, col, entries);
                 }
 
                 View cellView = createScheduleGridCellView(entries, week, col, themeColor, glassBg, showGridLines, dp2, darkMode, row, rowSpan, timetableFontScale);
@@ -1296,7 +1301,7 @@ public class MainActivity extends AppCompatActivity {
             if (occupied.isEmpty()) {
                 continue;
             }
-            if (isOccupiedBySameAgendaOnly(agendaEntry, occupied)) {
+            if (containsSameAgendaIdentity(agendaEntry, occupied)) {
                 continue;
             }
             return Math.max(1, row - startRow);
@@ -1304,21 +1309,108 @@ public class MainActivity extends AppCompatActivity {
         return desiredRowSpan;
     }
 
-    private boolean isOccupiedBySameAgendaOnly(ScheduleCellEntry agendaEntry,
-                                               List<ScheduleCellEntry> occupiedEntries) {
+    private boolean containsSameAgendaIdentity(@Nullable ScheduleCellEntry agendaEntry,
+                                               @Nullable List<ScheduleCellEntry> occupiedEntries) {
         if (agendaEntry == null || agendaEntry.type != ScheduleCellEntry.TYPE_AGENDA
                 || occupiedEntries == null || occupiedEntries.isEmpty()) {
             return false;
         }
         for (ScheduleCellEntry one : occupiedEntries) {
             if (one == null || one.type != ScheduleCellEntry.TYPE_AGENDA) {
-                return false;
+                continue;
             }
-            if (!isSameAgendaIdentity(agendaEntry.agenda, one.agenda)) {
-                return false;
+            if (isSameAgendaIdentity(agendaEntry.agenda, one.agenda)) {
+                return true;
             }
         }
+        return false;
+    }
+
+    private List<ScheduleCellEntry> collectScheduleEntriesInSpan(Map<Integer, List<ScheduleCellEntry>> cellEntries,
+                                                                 int startRow,
+                                                                 int col,
+                                                                 int rowSpan) {
+        List<ScheduleCellEntry> collected = new ArrayList<>();
+        int endRow = Math.min(5, startRow + Math.max(1, rowSpan) - 1);
+        for (int row = startRow; row <= endRow; row++) {
+            List<ScheduleCellEntry> rowEntries = getSortedScheduleCellEntries(cellEntries, row, col);
+            for (ScheduleCellEntry candidate : rowEntries) {
+                if (candidate == null) {
+                    continue;
+                }
+                if (findMatchingScheduleEntryIndex(collected, candidate) >= 0) {
+                    continue;
+                }
+                collected.add(candidate);
+            }
+        }
+        collected.sort((a, b) -> {
+            int byType = Integer.compare(a.type, b.type);
+            if (byType != 0) {
+                return byType;
+            }
+            return Integer.compare(a.startMinute, b.startMinute);
+        });
+        return collected;
+    }
+
+    private int computeMultiEntryRenderRowSpan(Map<Integer, List<ScheduleCellEntry>> cellEntries,
+                                               int startRow,
+                                               int col,
+                                               @NonNull List<ScheduleCellEntry> baseEntries) {
+        if (baseEntries.isEmpty()) {
+            return 1;
+        }
+        int rowSpan = 1;
+        for (int nextRow = startRow + 1; nextRow <= 5; nextRow++) {
+            List<ScheduleCellEntry> nextEntries = getSortedScheduleCellEntries(cellEntries, nextRow, col);
+            if (nextEntries.isEmpty()) {
+                break;
+            }
+            if (!areScheduleEntriesCoveredByBase(baseEntries, nextEntries)) {
+                break;
+            }
+            rowSpan++;
+        }
+        return Math.max(1, rowSpan);
+    }
+
+    private boolean areScheduleEntriesCoveredByBase(@NonNull List<ScheduleCellEntry> baseEntries,
+                                                    @NonNull List<ScheduleCellEntry> targetEntries) {
+        List<ScheduleCellEntry> remaining = new ArrayList<>(baseEntries);
+        for (ScheduleCellEntry target : targetEntries) {
+            int hit = findMatchingScheduleEntryIndex(remaining, target);
+            if (hit < 0) {
+                return false;
+            }
+            remaining.remove(hit);
+        }
         return true;
+    }
+
+    private int findMatchingScheduleEntryIndex(@NonNull List<ScheduleCellEntry> candidates,
+                                               @Nullable ScheduleCellEntry target) {
+        if (target == null) {
+            return -1;
+        }
+        for (int i = 0; i < candidates.size(); i++) {
+            ScheduleCellEntry candidate = candidates.get(i);
+            if (isSameScheduleEntryIdentity(candidate, target)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isSameScheduleEntryIdentity(@Nullable ScheduleCellEntry first,
+                                                @Nullable ScheduleCellEntry second) {
+        if (first == null || second == null || first.type != second.type) {
+            return false;
+        }
+        if (first.type == ScheduleCellEntry.TYPE_AGENDA) {
+            return isSameAgendaIdentity(first.agenda, second.agenda);
+        }
+        return isSameCourseMergeTarget(first.course, second.course);
     }
 
     private boolean isSameAgendaIdentity(Agenda first, Agenda second) {
@@ -1578,6 +1670,19 @@ public class MainActivity extends AppCompatActivity {
             return createScheduleEntryView(entries.get(0), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan, timetableFontScale);
         }
 
+        if (!hasOverlappingScheduleEntries(entries)) {
+            FrameLayout layered = new FrameLayout(this);
+            for (int i = 0; i < entries.size(); i++) {
+                View entryView = createScheduleEntryView(entries.get(i), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan, timetableFontScale);
+                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                );
+                layered.addView(entryView, lp);
+            }
+            return layered;
+        }
+
         FrameLayout wrapper = new FrameLayout(this);
         LinearLayout splitRow = new LinearLayout(this);
         splitRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -1589,7 +1694,7 @@ public class MainActivity extends AppCompatActivity {
 
         int visibleCount = Math.min(2, entries.size());
         for (int i = 0; i < visibleCount; i++) {
-            View entryView = createScheduleEntryView(entries.get(i), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, 1, timetableFontScale);
+            View entryView = createScheduleEntryView(entries.get(i), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan, timetableFontScale);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
             if (i > 0) {
                 lp.setMargins(dp(3), 0, 0, 0);
@@ -1619,6 +1724,32 @@ public class MainActivity extends AppCompatActivity {
         return wrapper;
     }
 
+    private boolean hasOverlappingScheduleEntries(@NonNull List<ScheduleCellEntry> entries) {
+        for (int i = 0; i < entries.size(); i++) {
+            ScheduleCellEntry first = entries.get(i);
+            if (first == null) {
+                continue;
+            }
+            for (int j = i + 1; j < entries.size(); j++) {
+                ScheduleCellEntry second = entries.get(j);
+                if (second == null) {
+                    continue;
+                }
+                if (isScheduleEntryTimeOverlapping(first, second)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isScheduleEntryTimeOverlapping(@NonNull ScheduleCellEntry first,
+                                                   @NonNull ScheduleCellEntry second) {
+        int start = Math.max(first.startMinute, second.startMinute);
+        int end = Math.min(first.endMinute, second.endMinute);
+        return end > start;
+    }
+
     private View createScheduleEntryView(ScheduleCellEntry entry,
                                          int week,
                                          int dayOfWeek,
@@ -1632,7 +1763,7 @@ public class MainActivity extends AppCompatActivity {
                                          int cellRowSpan,
                                          float timetableFontScale) {
         MaterialCardView card = createScheduleEntryCard(entry, week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, timetableFontScale);
-        if (entry.type != ScheduleCellEntry.TYPE_AGENDA) {
+        if (cellRowSpan <= 1) {
             return card;
         }
 
@@ -1644,6 +1775,9 @@ public class MainActivity extends AppCompatActivity {
 
         int segmentStartMinute = Math.max(spanStartMinute, entry.startMinute);
         int segmentEndMinute = Math.min(spanEndMinute, Math.max(segmentStartMinute + 1, entry.endMinute));
+        if (segmentStartMinute <= spanStartMinute && segmentEndMinute >= spanEndMinute) {
+            return card;
+        }
         float topRatio = (segmentStartMinute - spanStartMinute) / (float) spanDurationMinute;
         float heightRatio = (segmentEndMinute - segmentStartMinute) / (float) spanDurationMinute;
 
@@ -1651,7 +1785,7 @@ public class MainActivity extends AppCompatActivity {
         int gapHeight = dp(8);
         int cellHeight = baseHeight * Math.max(1, cellRowSpan) + gapHeight * Math.max(0, cellRowSpan - 1);
         int top = Math.max(0, Math.round(cellHeight * topRatio));
-        int height = Math.max(dp(28), Math.round(cellHeight * heightRatio));
+        int height = Math.max(dp(22), Math.round(cellHeight * heightRatio));
         if (top + height > cellHeight) {
             height = Math.max(dp(20), cellHeight - top);
         }

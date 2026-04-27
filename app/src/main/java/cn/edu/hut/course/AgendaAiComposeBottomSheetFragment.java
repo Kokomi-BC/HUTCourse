@@ -1,9 +1,15 @@
 package cn.edu.hut.course;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.ImageDecoder;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,10 +26,14 @@ import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.graphics.ColorUtils;
@@ -38,9 +48,14 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -61,16 +76,22 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
     private static final String STATE_DRAFT = "state_draft";
     private static final String STATE_STATUS = "state_status";
     private static final String STATE_FEEDBACK = "state_feedback";
+    private static final String STATE_IMAGE_PATH = "state_image_path";
     private static final int MAX_TOOL_COMMAND_ROUNDS = 20;
     private static final int MAX_TOOL_MODEL_FEEDBACK_CHARS = 2200;
     private static final int FULLSCREEN_PROMPT_CHAR_THRESHOLD = 120;
     private static final int FULLSCREEN_PROMPT_LINE_THRESHOLD = 7;
+    private static final int MAX_IMAGE_SIDE_PX = 960;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicInteger activeToken = new AtomicInteger(0);
 
     private EditText etPrompt;
+    private ImageButton btnAddImage;
+    private ImageButton btnRemoveImage;
+    private ImageView ivPendingImage;
+    private View pendingImageContainer;
     private TextView tvStatus;
     private TextView tvFeedback;
     private MaterialButton btnClear;
@@ -83,6 +104,8 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
     private FrameLayout sheetContainer;
     @Nullable
     private BottomSheetBehavior<FrameLayout> sheetBehavior;
+    @Nullable
+    private ActivityResultLauncher<String> imagePickerLauncher;
     private boolean sheetFullscreen = false;
 
     private boolean requestRunning = false;
@@ -90,6 +113,7 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
     private int basePaddingBottom = 0;
     private String statusText = "";
     private String feedbackText = "";
+    private String pendingImagePath = "";
 
     @NonNull
     public static AgendaAiComposeBottomSheetFragment newInstance(@Nullable Calendar preferredDate,
@@ -111,10 +135,20 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
     }
 
     @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        imagePickerLauncher = registerForActivityResult(new ActivityResultContracts.GetContent(), this::handleImagePicked);
+    }
+
+    @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         rootView = view.findViewById(R.id.rootAgendaAiComposeSheet);
         etPrompt = view.findViewById(R.id.etAgendaAiPrompt);
+        btnAddImage = view.findViewById(R.id.btnAgendaAiAddImage);
+        btnRemoveImage = view.findViewById(R.id.btnAgendaAiRemoveImage);
+        ivPendingImage = view.findViewById(R.id.ivAgendaAiPendingImage);
+        pendingImageContainer = view.findViewById(R.id.layoutAgendaAiPendingImage);
         tvStatus = view.findViewById(R.id.tvAgendaAiStatus);
         tvFeedback = view.findViewById(R.id.tvAgendaAiFeedbackContent);
         btnClear = view.findViewById(R.id.btnAgendaAiClear);
@@ -147,6 +181,10 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         sheetBehavior = null;
         rootView = null;
         etPrompt = null;
+        btnAddImage = null;
+        btnRemoveImage = null;
+        ivPendingImage = null;
+        pendingImageContainer = null;
         tvStatus = null;
         tvFeedback = null;
         btnClear = null;
@@ -167,22 +205,31 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         outState.putString(STATE_DRAFT, safeText(etPrompt == null || etPrompt.getText() == null ? "" : etPrompt.getText().toString()));
         outState.putString(STATE_STATUS, statusText);
         outState.putString(STATE_FEEDBACK, feedbackText);
+        outState.putString(STATE_IMAGE_PATH, pendingImagePath);
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         worker.shutdownNow();
+        imagePickerLauncher = null;
     }
 
     private void restoreState(@Nullable Bundle savedInstanceState) {
         if (savedInstanceState != null) {
             statusText = safeText(savedInstanceState.getString(STATE_STATUS));
             feedbackText = safeText(savedInstanceState.getString(STATE_FEEDBACK));
+            pendingImagePath = safeText(savedInstanceState.getString(STATE_IMAGE_PATH)).trim();
             String draft = safeText(savedInstanceState.getString(STATE_DRAFT));
             if (etPrompt != null) {
                 etPrompt.setText(draft);
                 etPrompt.setSelection(draft.length());
+            }
+        }
+        if (!pendingImagePath.isEmpty()) {
+            File imageFile = new File(pendingImagePath);
+            if (!imageFile.exists()) {
+                pendingImagePath = "";
             }
         }
         if (statusText.trim().isEmpty()) {
@@ -192,6 +239,8 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
             feedbackText = "";
         }
         updatePanel(statusText, feedbackText);
+        refreshPendingImagePreview();
+        refreshAddImageButtonStyle();
         setRunning(false);
     }
 
@@ -231,6 +280,34 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
                     etPrompt.requestFocus();
                 }
             });
+        }
+        if (btnAddImage != null) {
+            btnAddImage.setOnClickListener(v -> {
+                if (requestRunning) {
+                    return;
+                }
+                if (imagePickerLauncher != null) {
+                    imagePickerLauncher.launch("image/*");
+                }
+            });
+            btnAddImage.setOnLongClickListener(v -> {
+                if (!hasPendingImage()) {
+                    return false;
+                }
+                clearPendingImage();
+                Context context = getContext();
+                if (context != null) {
+                    Toast.makeText(context, "已清除图片", Toast.LENGTH_SHORT).show();
+                }
+                return true;
+            });
+            refreshAddImageButtonStyle();
+        }
+        if (btnRemoveImage != null) {
+            btnRemoveImage.setOnClickListener(v -> clearPendingImage());
+        }
+        if (ivPendingImage != null) {
+            ivPendingImage.setOnClickListener(v -> openImagePreview(pendingImagePath));
         }
         if (btnSend != null) {
             btnSend.setOnClickListener(v -> submitPrompt());
@@ -274,15 +351,25 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
             updatePanel("发送失败", "日程技能已关闭，无法自动创建日程。请在大模型设置的技能设置中开启后重试。");
             return;
         }
+        if (hasPendingImage() && !model.multimodal) {
+            updatePanel("发送失败", "已添加图片，但当前模型不是多模态模型。请切换多模态模型，或长按左侧 + 清除图片后重试。");
+            return;
+        }
 
         int token = activeToken.incrementAndGet();
         long preferredDateMillis = readPreferredDateMillis();
         String sourceTag = readSourceTag();
+        String selectedImagePath = pendingImagePath;
 
         setRunning(true);
-        updatePanel("正在分析请求...", "正在调用 AI 与日程工具，请稍候。\n\n输入内容：\n" + prompt);
+        StringBuilder loadingBuilder = new StringBuilder();
+        loadingBuilder.append("正在调用 AI 与日程工具，请稍候。\n\n输入内容：\n").append(prompt);
+        if (!safeText(selectedImagePath).trim().isEmpty()) {
+            loadingBuilder.append("\n\n已附加图片（多模态）");
+        }
+        updatePanel("正在分析请求...", loadingBuilder.toString());
 
-        worker.execute(() -> runAiFlow(token, appContext, model, prompt, preferredDateMillis, sourceTag));
+        worker.execute(() -> runAiFlow(token, appContext, model, prompt, preferredDateMillis, sourceTag, selectedImagePath));
     }
 
     private void runAiFlow(int token,
@@ -290,7 +377,8 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
                            @NonNull AiConfigStore.AiModelConfig model,
                            @NonNull String rawPrompt,
                            long preferredDateMillis,
-                           @NonNull String sourceTag) {
+                           @NonNull String sourceTag,
+                           @Nullable String selectedImagePath) {
         try {
             boolean skillEnabled = AiConfigStore.isSkillEnabled(context);
             boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(context);
@@ -299,6 +387,11 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
             boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(context);
             boolean agendaSkillEnabled = AiConfigStore.isAgendaSkillEnabled(context);
             boolean webSearchSkillEnabled = AiConfigStore.isWebSearchSkillEnabled(context);
+            List<String> imagePaths = new ArrayList<>();
+            String imagePath = safeText(selectedImagePath).trim();
+            if (!imagePath.isEmpty()) {
+                imagePaths.add(imagePath);
+            }
             String promptWithDate = buildPromptWithPreferredDate(rawPrompt, preferredDateMillis);
             String systemPrompt = AiPromptCenter.buildSystemPrompt(
                     skillEnabled,
@@ -313,14 +406,7 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
             String firstPrompt = AiPromptCenter.buildFirstTurnUserPrompt(skillIndex, promptWithDate, true, false);
 
             postProgress(token, "正在请求模型...", "模型正在理解你的日程描述。");
-            String assistantOutput = AiGateway.chat(
-                    model.provider,
-                    model.baseUrl,
-                    model.apiKey,
-                    model.modelName,
-                    systemPrompt,
-                    firstPrompt
-            );
+                String assistantOutput = requestModel(model, systemPrompt, firstPrompt, imagePaths);
 
             StringBuilder toolFeedbackBuilder = new StringBuilder();
             boolean agendaChanged = false;
@@ -357,14 +443,7 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
                         compactToolFeedback(batch.modelFeedback),
                         false
                 );
-                assistantOutput = AiGateway.chat(
-                        model.provider,
-                        model.baseUrl,
-                        model.apiKey,
-                        model.modelName,
-                        systemPrompt,
-                        nextPrompt
-                );
+                assistantOutput = requestModel(model, systemPrompt, nextPrompt, imagePaths);
             }
 
             String visibleReply = stripLeadingToolFeedbackLines(assistantOutput);
@@ -380,6 +459,32 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
             }
             postFailed(token, "执行失败", "执行失败：" + reason);
         }
+    }
+
+    @NonNull
+    private String requestModel(@NonNull AiConfigStore.AiModelConfig model,
+                                @NonNull String systemPrompt,
+                                @NonNull String userPrompt,
+                                @NonNull List<String> imagePaths) throws Exception {
+        if (imagePaths.isEmpty()) {
+            return AiGateway.chat(
+                    model.provider,
+                    model.baseUrl,
+                    model.apiKey,
+                    model.modelName,
+                    systemPrompt,
+                    userPrompt
+            );
+        }
+        return AiGateway.chat(
+                model.provider,
+                model.baseUrl,
+                model.apiKey,
+                model.modelName,
+                systemPrompt,
+                userPrompt,
+                imagePaths
+        );
     }
 
     private void postProgress(int token, @NonNull String status, @NonNull String feedback) {
@@ -420,6 +525,168 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
             setRunning(false);
             updatePanel(status, feedback);
         });
+    }
+
+    private void handleImagePicked(@Nullable Uri uri) {
+        if (uri == null || !isAdded()) {
+            return;
+        }
+        Context context = getContext();
+        if (context == null) {
+            return;
+        }
+        try {
+            String copiedPath = copyPickedImageToLocal(uri);
+            if (!pendingImagePath.isEmpty() && !safeText(pendingImagePath).equals(copiedPath)) {
+                deleteImageQuietly(pendingImagePath);
+            }
+            pendingImagePath = copiedPath;
+            refreshPendingImagePreview();
+            refreshAddImageButtonStyle();
+            Toast.makeText(context, "已添加图片（将按多模态发送）", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(context, "图片处理失败：" + safeText(e.getMessage()), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @NonNull
+    private String copyPickedImageToLocal(@NonNull Uri uri) throws Exception {
+        Context context = requireContext();
+        Bitmap bitmap;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ImageDecoder.Source source = ImageDecoder.createSource(context.getContentResolver(), uri);
+            bitmap = ImageDecoder.decodeBitmap(source);
+        } else {
+            try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+                bitmap = in == null ? null : BitmapFactory.decodeStream(in);
+            }
+        }
+        if (bitmap == null) {
+            throw new IllegalStateException("无法读取图片");
+        }
+
+        Bitmap toSave = scaleBitmapIfNeeded(bitmap, MAX_IMAGE_SIDE_PX);
+        File dir = new File(context.getFilesDir(), "agenda_ai_images");
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IllegalStateException("无法创建图片目录");
+        }
+        File target = new File(dir, "agenda_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().replace("-", "") + ".jpg");
+        try (FileOutputStream out = new FileOutputStream(target)) {
+            if (!toSave.compress(Bitmap.CompressFormat.JPEG, 72, out)) {
+                throw new IllegalStateException("图片写入失败");
+            }
+        }
+
+        if (toSave != bitmap) {
+            bitmap.recycle();
+            toSave.recycle();
+        } else {
+            bitmap.recycle();
+        }
+        return target.getAbsolutePath();
+    }
+
+    @NonNull
+    private Bitmap scaleBitmapIfNeeded(@NonNull Bitmap source, int maxSide) {
+        int width = source.getWidth();
+        int height = source.getHeight();
+        if (width <= maxSide && height <= maxSide) {
+            return source;
+        }
+        float scale = Math.min((float) maxSide / (float) width, (float) maxSide / (float) height);
+        int targetW = Math.max(1, Math.round(width * scale));
+        int targetH = Math.max(1, Math.round(height * scale));
+        return Bitmap.createScaledBitmap(source, targetW, targetH, true);
+    }
+
+    private void clearPendingImage() {
+        deleteImageQuietly(pendingImagePath);
+        pendingImagePath = "";
+        refreshPendingImagePreview();
+        refreshAddImageButtonStyle();
+    }
+
+    private void refreshPendingImagePreview() {
+        if (pendingImageContainer == null || ivPendingImage == null) {
+            return;
+        }
+        String path = safeText(pendingImagePath).trim();
+        if (path.isEmpty()) {
+            pendingImageContainer.setVisibility(View.GONE);
+            ivPendingImage.setImageDrawable(null);
+            return;
+        }
+        File file = new File(path);
+        if (!file.exists()) {
+            pendingImagePath = "";
+            pendingImageContainer.setVisibility(View.GONE);
+            ivPendingImage.setImageDrawable(null);
+            return;
+        }
+        pendingImageContainer.setVisibility(View.VISIBLE);
+        ivPendingImage.setImageURI(Uri.fromFile(file));
+    }
+
+    private void openImagePreview(@Nullable String imagePath) {
+        if (!isAdded()) {
+            return;
+        }
+        String path = safeText(imagePath).trim();
+        if (path.isEmpty()) {
+            return;
+        }
+        File imageFile = new File(path);
+        if (!imageFile.exists()) {
+            Context context = getContext();
+            if (context != null) {
+                Toast.makeText(context, "图片不存在", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        Intent intent = new Intent(requireContext(), AiImagePreviewActivity.class);
+        intent.putExtra(AiImagePreviewActivity.EXTRA_IMAGE_PATH, imageFile.getAbsolutePath());
+        startActivity(intent);
+    }
+
+    private void deleteImageQuietly(@Nullable String imagePath) {
+        String path = safeText(imagePath).trim();
+        if (path.isEmpty()) {
+            return;
+        }
+        File file = new File(path);
+        if (file.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            file.delete();
+        }
+    }
+
+    private boolean hasPendingImage() {
+        return !safeText(pendingImagePath).trim().isEmpty();
+    }
+
+    private void refreshAddImageButtonStyle() {
+        if (btnAddImage == null || !isAdded()) {
+            return;
+        }
+        boolean hasImage = hasPendingImage();
+        int accent = UiStyleHelper.resolveAccentColor(requireContext());
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(requireContext());
+        int iconColor = hasImage ? accent : ColorUtils.setAlphaComponent(onSurfaceVariant, 210);
+        int fillColor = hasImage
+                ? ColorUtils.setAlphaComponent(accent, 36)
+                : ColorUtils.setAlphaComponent(onSurfaceVariant, 24);
+        int strokeColor = hasImage
+                ? ColorUtils.setAlphaComponent(accent, 150)
+                : ColorUtils.setAlphaComponent(onSurfaceVariant, 72);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(fillColor);
+        bg.setStroke(dp(1), strokeColor);
+
+        btnAddImage.setImageTintList(ColorStateList.valueOf(iconColor));
+        btnAddImage.setBackground(bg);
+        btnAddImage.setContentDescription(hasImage ? "已添加图片（长按清除）" : "添加图片（长按清除）");
     }
 
     private void updatePanel(@NonNull String status, @NonNull String feedback) {

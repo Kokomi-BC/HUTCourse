@@ -74,12 +74,43 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="0dp"
                 android:gravity="top"
-                android:orientation="horizontal">
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:id="@+id/layoutAgendaAiPendingImage"
+                    android:layout_width="120dp"
+                    android:layout_height="120dp"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/ivAgendaAiPendingImage"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:adjustViewBounds="true"
+                        android:background="@drawable/bg_ai_chat_pending_image"
+                        android:contentDescription="已选择图片"
+                        android:padding="2dp"
+                        android:scaleType="centerCrop" />
+
+                    <ImageButton
+                        android:id="@+id/btnAgendaAiRemoveImage"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:layout_gravity="top|end"
+                        android:background="@android:color/transparent"
+                        android:contentDescription="清除已选图片"
+                        android:padding="3dp"
+                        android:src="@drawable/ic_close"
+                        android:tint="@android:color/white" />
+                </FrameLayout>
 
                 <EditText
                     android:id="@+id/etAgendaAiPrompt"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
                     android:background="@android:color/transparent"
                     android:fadeScrollbars="false"
                     android:gravity="start|top"
@@ -104,6 +135,19 @@
                 android:layout_marginTop="12dp"
                 android:gravity="end"
                 android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/btnAgendaAiAddImage"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginEnd="6dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="添加图片（长按清除）"
+                    android:padding="6dp"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_add_bold_28"
+                    android:tint="?attr/colorOnSurfaceVariant" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnAgendaAiClear"

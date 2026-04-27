@@ -380,12 +380,6 @@ public class SettingsAiActivity extends AppCompatActivity {
 
     private void applySettingsAccentStyle() {
         int accent = UiStyleHelper.resolveAccentColor(this);
-        styleSkillCard(findViewById(R.id.cardSkillNote), accent, 0.08f);
-        styleSkillCard(findViewById(R.id.cardSkillCourse), accent, 0.08f);
-        styleSkillCard(findViewById(R.id.cardSkillNavigation), accent, 0.08f);
-        styleSkillCard(findViewById(R.id.cardSkillClassroom), accent, 0.08f);
-        styleSkillCard(findViewById(R.id.cardSkillAgenda), accent, 0.08f);
-        styleSkillCard(findViewById(R.id.cardWebSearchSkill), accent, 0.1f);
 
         styleSkillSwitch(switchNoteSkill, accent);
         styleSkillSwitch(switchCourseSkill, accent);
@@ -396,19 +390,6 @@ public class SettingsAiActivity extends AppCompatActivity {
 
         styleActionButton(btnAddAiModel, accent, true);
         styleActionButton(btnTavilyConfig, accent, false);
-    }
-
-    private void styleSkillCard(@Nullable MaterialCardView card, int accent, float blendRatio) {
-        if (card == null) {
-            return;
-        }
-        int surface = UiStyleHelper.resolveGlassCardColor(this);
-        int cardColor = ColorUtils.blendARGB(surface, accent, blendRatio);
-        card.setCardBackgroundColor(cardColor);
-        card.setStrokeWidth(1);
-        card.setStrokeColor(ColorUtils.setAlphaComponent(accent, 116));
-        card.setCardElevation(0f);
-        card.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 72)));
     }
 
     private void styleSkillSwitch(@Nullable MaterialSwitch skillSwitch, int accent) {
@@ -697,12 +678,6 @@ public class SettingsAiActivity extends AppCompatActivity {
 
             holder.ivDragHandle.setVisibility(modelItems.size() > 1 ? View.VISIBLE : View.GONE);
             holder.btnModelMore.setVisibility(View.VISIBLE);
-
-                int modelCardColor = ColorUtils.blendARGB(UiStyleHelper.resolveGlassCardColor(SettingsAiActivity.this), accent, 0.08f);
-                holder.cardAiModel.setCardBackgroundColor(modelCardColor);
-                holder.cardAiModel.setCardElevation(0f);
-                holder.cardAiModel.setStrokeWidth(1);
-                holder.cardAiModel.setStrokeColor(ColorUtils.setAlphaComponent(accent, 108));
 
             holder.cardAiModel.setOnClickListener(v -> showModelEditorSheet(item));
             holder.btnModelMore.setOnClickListener(v -> showModelMoreMenu(v, item));
