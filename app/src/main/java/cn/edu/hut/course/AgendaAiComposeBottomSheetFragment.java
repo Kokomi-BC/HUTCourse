@@ -22,6 +22,7 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
@@ -79,8 +80,8 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
     private static final String STATE_IMAGE_PATH = "state_image_path";
     private static final int MAX_TOOL_COMMAND_ROUNDS = 20;
     private static final int MAX_TOOL_MODEL_FEEDBACK_CHARS = 2200;
-    private static final int FULLSCREEN_PROMPT_CHAR_THRESHOLD = 120;
-    private static final int FULLSCREEN_PROMPT_LINE_THRESHOLD = 7;
+    private static final int FULLSCREEN_PROMPT_CHAR_THRESHOLD = 80;
+    private static final int FULLSCREEN_PROMPT_LINE_THRESHOLD = 5;
     private static final int MAX_IMAGE_SIDE_PX = 960;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -97,6 +98,7 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
     private MaterialButton btnClear;
     private MaterialButton btnSend;
     private View rootView;
+    private MaterialCardView cardConversation;
     private ScrollView feedbackContainer;
     @Nullable
     private TextWatcher promptWatcher;
@@ -153,9 +155,11 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         tvFeedback = view.findViewById(R.id.tvAgendaAiFeedbackContent);
         btnClear = view.findViewById(R.id.btnAgendaAiClear);
         btnSend = view.findViewById(R.id.btnAgendaAiSend);
+        cardConversation = view.findViewById(R.id.cardAgendaAiConversation);
         feedbackContainer = view.findViewById(R.id.scrollAgendaAiFeedback);
         MaterialCardView composerCard = view.findViewById(R.id.cardAgendaAiComposer);
 
+        styleConversationCard(cardConversation);
         applyAgendaComposerCardStyle(composerCard);
         styleAgendaPromptInput(etPrompt);
         styleComposeButtons(btnClear, btnSend);
@@ -189,6 +193,7 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         tvFeedback = null;
         btnClear = null;
         btnSend = null;
+        cardConversation = null;
         feedbackContainer = null;
         super.onDestroyView();
     }
@@ -692,20 +697,69 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
     private void updatePanel(@NonNull String status, @NonNull String feedback) {
         statusText = status;
         feedbackText = feedback;
+        String displayStatus = safeText(status).trim();
+        String displayFeedback = safeText(feedback).trim();
+
         if (tvStatus != null) {
-            String displayStatus = safeText(status).trim();
             tvStatus.setText(displayStatus);
             tvStatus.setVisibility(displayStatus.isEmpty() ? View.GONE : View.VISIBLE);
         }
         if (tvFeedback != null) {
-            String displayFeedback = safeText(feedback).trim();
             tvFeedback.setText(displayFeedback);
             tvFeedback.setVisibility(displayFeedback.isEmpty() ? View.GONE : View.VISIBLE);
         }
         if (feedbackContainer != null) {
-            String displayFeedback = safeText(feedback).trim();
             feedbackContainer.setVisibility(displayFeedback.isEmpty() ? View.GONE : View.VISIBLE);
         }
+        updateConversationVisibility(!displayStatus.isEmpty() || !displayFeedback.isEmpty());
+    }
+
+    private void updateConversationVisibility(boolean visible) {
+        if (cardConversation == null) {
+            return;
+        }
+        if (visible) {
+            if (cardConversation.getVisibility() != View.VISIBLE) {
+                cardConversation.setVisibility(View.VISIBLE);
+                cardConversation.setAlpha(0f);
+                cardConversation.setTranslationY(dp(16));
+                cardConversation.animate()
+                        .alpha(1f)
+                        .translationY(0f)
+                        .setDuration(260L)
+                        .start();
+            }
+            return;
+        }
+        if (cardConversation.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        cardConversation.animate()
+                .alpha(0f)
+                .translationY(dp(10))
+                .setDuration(160L)
+                .withEndAction(() -> {
+                    if (cardConversation == null) {
+                        return;
+                    }
+                    cardConversation.setVisibility(View.GONE);
+                    cardConversation.setAlpha(1f);
+                    cardConversation.setTranslationY(0f);
+                })
+                .start();
+    }
+
+    private void styleConversationCard(@Nullable MaterialCardView card) {
+        if (card == null) {
+            return;
+        }
+        int accent = UiStyleHelper.resolveAccentColor(requireContext());
+        int surface = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorSurface, UiStyleHelper.resolveGlassCardColor(requireContext()));
+        card.setCardBackgroundColor(ColorUtils.blendARGB(surface, accent, 0.06f));
+        card.setCardElevation(0f);
+        card.setRadius(dp(20));
+        card.setStrokeWidth(dp(1));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(accent, 120));
     }
 
     private void setRunning(boolean running) {
@@ -760,15 +814,28 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         input.setBackgroundColor(Color.TRANSPARENT);
         input.setPadding(dp(4), dp(11), dp(4), dp(11));
         input.setMinHeight(dp(56));
+        input.setMaxHeight(dp(220));
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         input.setSingleLine(false);
-        input.setMinLines(6);
-        input.setMaxLines(Integer.MAX_VALUE);
+        input.setMinLines(3);
+        input.setMaxLines(12);
         input.setGravity(Gravity.TOP | Gravity.START);
         input.setHorizontallyScrolling(false);
-        // 由外层 BottomSheet 处理滚动，避免输入区域在键盘动画中被压缩成单行。
-        input.setVerticalScrollBarEnabled(false);
-        input.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        input.setVerticalScrollBarEnabled(true);
+        input.setScrollbarFadingEnabled(false);
+        input.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        input.setOnTouchListener((v, event) -> {
+            ViewParent parent = v.getParent();
+            if (parent != null && event != null) {
+                int action = event.getActionMasked();
+                if (action == android.view.MotionEvent.ACTION_DOWN || action == android.view.MotionEvent.ACTION_MOVE) {
+                    parent.requestDisallowInterceptTouchEvent(true);
+                } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                    parent.requestDisallowInterceptTouchEvent(false);
+                }
+            }
+            return false;
+        });
     }
 
     private void syncSheetModeByPrompt() {

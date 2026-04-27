@@ -160,7 +160,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean agendaOngoingCollapsed = false;
     private boolean agendaUpcomingCollapsed = false;
     private boolean agendaEndedCollapsed = true;
-    private int selectedNavItemId = R.id.nav_schedule;
+    private int selectedNavItemId = R.id.nav_today;
     @Nullable
     private TianyuanWeatherManager.WeatherSnapshot latestTodayWeatherSnapshot;
     private int lastRealtimeWeek = -1;
