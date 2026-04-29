@@ -1,4 +1,4 @@
-# 智航校园 · HUTCourse AI Companion
+# HUTCourse AI Companion
 
 ## 一、项目核心内容
 
