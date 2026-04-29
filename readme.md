@@ -1,4 +1,4 @@
-# HUTCourse AI Companion
+# HUTCourse 湖南工大课程助理
 
 ## 一、项目核心内容
 
