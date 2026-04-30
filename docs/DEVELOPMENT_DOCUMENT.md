@@ -2,7 +2,7 @@
 
 ## 1. 文档信息
 
-- 项目名称：HUTCourse（智航校园 · HUTCourse AI Companion）
+- 项目名称：HUTCourse
 - 文档类型：开发文档（提交材料）
 - 版本：v1.0
 - 文档日期：2026-04-27
@@ -93,7 +93,7 @@ flowchart TD
     CC --> SK2[AgendaSkillManager]
     CC --> SK3[NavigationSkillManager]
     CC --> SK4[ClassroomSkillManager]
-    CC --> SK5[MemorySkillManager]
+    CC --> SK5[NoteSkillManager]
     CC --> SK6[TavilySearchSkillManager]
 
     SK1 --> DATA
@@ -320,7 +320,7 @@ sequenceDiagram
 
 ## 8.3 文件存储
 
-1. `files/skills/memory_user.md`：用户长期记忆。
+1. `files/skills/note_user.md`：用户长期记忆。
 2. `files/ai_chat_images/`：聊天上传图片压缩副本。
 
 ---
@@ -411,4 +411,3 @@ Debug APK 生成目录：
 2. 应用说明书（使用文档）。
 3. 关键页面截图（课表页、AI 页、日程页、设置页）。
 4. 功能演示视频（建议 3-5 分钟）。
-
