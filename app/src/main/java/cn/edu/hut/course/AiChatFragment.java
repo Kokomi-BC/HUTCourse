@@ -3497,7 +3497,7 @@ public class AiChatFragment extends Fragment {
     }
 
     private String extractReadableCommandResult(@Nullable String modelFeedback) {
-        String normalized = safe(modelFeedback)
+        String normalized = sanitizeSystemCardPayloadForModel(safe(modelFeedback))
                 .replace("\r\n", "\n")
                 .replace('\r', '\n')
                 .trim();

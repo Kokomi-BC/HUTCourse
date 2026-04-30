@@ -28,7 +28,7 @@ public final class AiPromptCenter {
                                            boolean agendaSkillEnabled,
                                            boolean webSearchSkillEnabled) {
         StringBuilder system = new StringBuilder();
-        system.append("你是湖南工业大学课表AI助手。\n");
+        system.append("你是湖南工业大学智能助理。\n");
         if (!skillEnabled) {
             system.append("技能功能已关闭：禁止输出任何 CMD 行，禁止调用工具，请直接输出最终答复。\n");
             system.append("若问题依赖外部数据，请明确说明无法调用工具，不要编造。\n");
@@ -102,6 +102,7 @@ public final class AiPromptCenter {
             system.append("时间语义规则: 用户提到明天/明日/次日时，优先使用 course.date <下一自然日>，不要用 course.today_remaining。\n");
         }
         system.append("当时间在 00:00-05:59，'今天'仍指自然日，'明天/明日'必须是下一自然日。\n");
+        system.append("最终答复必须经过你的自然语言组织，禁止直接展示、暴露或大段复制工具返回的原始数据内容（如 JSON 结构、原始列表等）。\n");
         system.append("最终答复末尾补一句与问题强相关的简短反问，推动下一步（例如：要不要我顺便帮你生成明晚自习规划？）。\n");
         system.append("最终答复不要出现工具调用过程口播（如'已查询...'、'已调用...'），只输出对用户有用的结论。\n");
         return system.toString();
@@ -172,9 +173,8 @@ public final class AiPromptCenter {
             nextPrompt.append("如果仍需要更多工具，继续输出CMD行；否则直接输出最终正文，不要输出TITLE行。\n");
         }
         nextPrompt.append("最多可连续调用工具30轮；若已接近上限，优先收敛并直接回答。\n");
-        nextPrompt.append("注意: 最终正文不要复述工具执行过程（如已查询/已调用），只保留结果与解释。\n");
-        nextPrompt.append("注意: 最终正文不要提及或猜测座位数；并在结尾补一句与问题相关的简短反问。\n");
-
+        nextPrompt.append("注意: 最终回复禁止直接暴露出工具返回的原始返回数据或JSON结构，一定要用自然语言重新组织。\n");
+        nextPrompt.append("在结尾补一句与问题相关的简短反问。\n");
         return nextPrompt.toString();
     }
 }
