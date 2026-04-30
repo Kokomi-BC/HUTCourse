@@ -386,7 +386,7 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
                            @Nullable String selectedImagePath) {
         try {
             boolean skillEnabled = AiConfigStore.isSkillEnabled(context);
-            boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(context);
+            boolean memorySkillEnabled = AiConfigStore.isMemorySkillEnabled(context);
             boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(context);
             boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(context);
             boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(context);
@@ -400,7 +400,7 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
             String promptWithDate = buildPromptWithPreferredDate(rawPrompt, preferredDateMillis);
             String systemPrompt = AiPromptCenter.buildSystemPrompt(
                     skillEnabled,
-                    noteSkillEnabled,
+                    memorySkillEnabled,
                     courseSkillEnabled,
                     navigationSkillEnabled,
                     classroomSkillEnabled,
@@ -1116,3 +1116,4 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         return text == null ? "" : text;
     }
 }
+

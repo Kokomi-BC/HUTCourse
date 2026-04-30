@@ -168,8 +168,8 @@ public final class SkillCommandCenter {
             return new SingleExecution(readSkillDetail(context, name), "已读取技能详情");
         }
 
-        if (lower.startsWith("note.") && !AiConfigStore.isNoteSkillEnabled(context)) {
-            String disabled = buildSkillDisabledMessage("note");
+        if (lower.startsWith("memory.") && !AiConfigStore.isMemorySkillEnabled(context)) {
+            String disabled = buildSkillDisabledMessage("memory");
             return new SingleExecution(disabled, disabled);
         }
         if (lower.startsWith("course.") && !AiConfigStore.isCourseSkillEnabled(context)) {
@@ -193,36 +193,36 @@ public final class SkillCommandCenter {
             return new SingleExecution("搜索失败：" + disabled, disabled);
         }
 
-        if ("note.read".equals(lower)) {
-            return new SingleExecution(NoteSkillManager.readNotes(context), "读取了笔记");
+        if ("memory.read".equals(lower)) {
+            return new SingleExecution(MemorySkillManager.readMemories(context), "读取了记忆");
         }
-        if (lower.startsWith("note.write ") || lower.startsWith("note.add ")) {
+        if (lower.startsWith("memory.write ") || lower.startsWith("memory.add ")) {
             int split = cmd.indexOf(' ');
             String payload = split < 0 ? "" : cmd.substring(split + 1).trim();
-            String result = NoteSkillManager.appendNote(context, payload);
-            return new SingleExecution(result, result.startsWith("已") ? "已新增笔记" : result);
+            String result = MemorySkillManager.appendMemory(context, payload);
+            return new SingleExecution(result, result.startsWith("已") ? "已新增记忆" : result);
         }
-        if (lower.startsWith("note.update ")) {
+        if (lower.startsWith("memory.update ")) {
             String[] parts = cmd.split("\\s+", 3);
             if (parts.length < 3 || !parts[1].matches("\\d+")) {
-                return new SingleExecution("修改失败：命令格式应为 note.update <序号> <内容>", "修改失败：命令格式错误");
+                return new SingleExecution("修改失败：命令格式应为 memory.update <序号> <内容>", "修改失败：命令格式错误");
             }
             int oneBasedIndex = Integer.parseInt(parts[1]);
-            String result = NoteSkillManager.updateNoteByIndex(context, oneBasedIndex, parts[2]);
-            return new SingleExecution(result, result.startsWith("修改成功") ? "已修改笔记" : result);
+            String result = MemorySkillManager.updateMemoryByIndex(context, oneBasedIndex, parts[2]);
+            return new SingleExecution(result, result.startsWith("修改成功") ? "已修改记忆" : result);
         }
-        if (lower.startsWith("note.delete ")) {
-            String arg = cmd.substring("note.delete ".length()).trim();
+        if (lower.startsWith("memory.delete ")) {
+            String arg = cmd.substring("memory.delete ".length()).trim();
             if (arg.matches("\\d+")) {
-                String result = NoteSkillManager.deleteNoteByIndex(context, Integer.parseInt(arg));
-                return new SingleExecution(result, result.startsWith("删除成功") ? "已删除笔记" : result);
+                String result = MemorySkillManager.deleteMemoryByIndex(context, Integer.parseInt(arg));
+                return new SingleExecution(result, result.startsWith("删除成功") ? "已删除记忆" : result);
             }
-            String result = NoteSkillManager.deleteNoteByKeyword(context, arg);
-            return new SingleExecution(result, result.startsWith("删除成功") ? "已删除笔记" : result);
+            String result = MemorySkillManager.deleteMemoryByKeyword(context, arg);
+            return new SingleExecution(result, result.startsWith("删除成功") ? "已删除记忆" : result);
         }
-        if ("note.clear".equals(lower)) {
-            String result = NoteSkillManager.clearNotes(context);
-            return new SingleExecution(result, result.startsWith("已") ? "已清空笔记" : result);
+        if ("memory.clear".equals(lower)) {
+            String result = MemorySkillManager.clearMemories(context);
+            return new SingleExecution(result, result.startsWith("已") ? "已清空记忆" : result);
         }
 
         if ("course.today_remaining".equals(lower) || "course.today.remaining".equals(lower)) {
@@ -443,12 +443,12 @@ public final class SkillCommandCenter {
         commands.add("skill.list");
         commands.add("skill.read <name>");
 
-        if (AiConfigStore.isNoteSkillEnabled(context)) {
-            commands.add("note.read");
-            commands.add("note.write <内容>");
-            commands.add("note.update <序号> <内容>");
-            commands.add("note.delete <序号或关键词>");
-            commands.add("note.clear");
+        if (AiConfigStore.isMemorySkillEnabled(context)) {
+            commands.add("memory.read");
+            commands.add("memory.write <内容>");
+            commands.add("memory.update <序号> <内容>");
+            commands.add("memory.delete <序号或关键词>");
+            commands.add("memory.clear");
         }
         if (AiConfigStore.isCourseSkillEnabled(context)) {
             commands.add("course.today_remaining");
@@ -767,7 +767,7 @@ public final class SkillCommandCenter {
         }
         String lower = text.toLowerCase(Locale.ROOT);
         return lower.startsWith("skill.")
-            || lower.startsWith("note.")
+            || lower.startsWith("memory.")
             || lower.startsWith("course.")
             || lower.startsWith("navigation.")
             || lower.startsWith("classroom.")
@@ -775,3 +775,4 @@ public final class SkillCommandCenter {
             || lower.startsWith("tavily.");
     }
 }
+

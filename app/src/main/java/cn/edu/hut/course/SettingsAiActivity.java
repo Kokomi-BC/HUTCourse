@@ -48,14 +48,14 @@ public class SettingsAiActivity extends AppCompatActivity {
     private MaterialToolbar toolbar;
     private RecyclerView rvAiModels;
     private TextView tvAiModelsEmpty;
-    private TextView tvNoteSkillSummary;
+    private TextView tvMemorySkillSummary;
     private TextView tvCourseSkillSummary;
     private TextView tvNavigationSkillSummary;
     private TextView tvClassroomSkillSummary;
     private TextView tvAgendaSkillSummary;
     private TextView tvWebSearchSkillSummary;
     private TextView tvTavilyConfigSummary;
-    private MaterialSwitch switchNoteSkill;
+    private MaterialSwitch switchMemorySkill;
     private MaterialSwitch switchCourseSkill;
     private MaterialSwitch switchNavigationSkill;
     private MaterialSwitch switchClassroomSkill;
@@ -84,14 +84,14 @@ public class SettingsAiActivity extends AppCompatActivity {
 
         rvAiModels = findViewById(R.id.rvAiModels);
         tvAiModelsEmpty = findViewById(R.id.tvAiModelsEmpty);
-        tvNoteSkillSummary = findViewById(R.id.tvNoteSkillSummary);
+        tvMemorySkillSummary = findViewById(R.id.tvMemorySkillSummary);
         tvCourseSkillSummary = findViewById(R.id.tvCourseSkillSummary);
         tvNavigationSkillSummary = findViewById(R.id.tvNavigationSkillSummary);
         tvClassroomSkillSummary = findViewById(R.id.tvClassroomSkillSummary);
         tvAgendaSkillSummary = findViewById(R.id.tvAgendaSkillSummary);
         tvWebSearchSkillSummary = findViewById(R.id.tvWebSearchSkillSummary);
         tvTavilyConfigSummary = findViewById(R.id.tvTavilyConfigSummary);
-        switchNoteSkill = findViewById(R.id.switchNoteSkill);
+        switchMemorySkill = findViewById(R.id.switchMemorySkill);
         switchCourseSkill = findViewById(R.id.switchCourseSkill);
         switchNavigationSkill = findViewById(R.id.switchNavigationSkill);
         switchClassroomSkill = findViewById(R.id.switchClassroomSkill);
@@ -131,12 +131,12 @@ public class SettingsAiActivity extends AppCompatActivity {
                 updateSkillSectionState();
             });
         }
-        if (switchNoteSkill != null) {
-            switchNoteSkill.setOnCheckedChangeListener((buttonView, isChecked) -> {
+        if (switchMemorySkill != null) {
+            switchMemorySkill.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 if (suppressSkillSwitchCallback) {
                     return;
                 }
-                AiConfigStore.setNoteSkillEnabled(this, isChecked);
+                AiConfigStore.setMemorySkillEnabled(this, isChecked);
                 updateSkillSectionState();
             });
         }
@@ -180,14 +180,14 @@ public class SettingsAiActivity extends AppCompatActivity {
 
     private void syncSkillSettingsFromStore() {
         suppressSkillSwitchCallback = true;
-        boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(this);
+        boolean memorySkillEnabled = AiConfigStore.isMemorySkillEnabled(this);
         boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(this);
         boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(this);
         boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(this);
         boolean agendaSkillEnabled = AiConfigStore.isAgendaSkillEnabled(this);
         boolean webSearchSkillEnabled = AiConfigStore.isWebSearchSkillEnabled(this);
-        if (switchNoteSkill != null) {
-            switchNoteSkill.setChecked(noteSkillEnabled);
+        if (switchMemorySkill != null) {
+            switchMemorySkill.setChecked(memorySkillEnabled);
         }
         if (switchCourseSkill != null) {
             switchCourseSkill.setChecked(courseSkillEnabled);
@@ -209,17 +209,17 @@ public class SettingsAiActivity extends AppCompatActivity {
     }
 
     private void updateSkillSectionState() {
-        boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(this);
+        boolean memorySkillEnabled = AiConfigStore.isMemorySkillEnabled(this);
         boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(this);
         boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(this);
         boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(this);
         boolean agendaSkillEnabled = AiConfigStore.isAgendaSkillEnabled(this);
         boolean webSearchSkillEnabled = AiConfigStore.isWebSearchSkillEnabled(this);
 
-        if (tvNoteSkillSummary != null) {
-            tvNoteSkillSummary.setText(noteSkillEnabled
+        if (tvMemorySkillSummary != null) {
+            tvMemorySkillSummary.setText(memorySkillEnabled
                     ? "可读取和记录长期记忆。"
-                    : "关闭状态：不会调用 note.* 命令。");
+                    : "关闭状态：不会调用 memory.* 命令。");
         }
         if (tvCourseSkillSummary != null) {
             tvCourseSkillSummary.setText(courseSkillEnabled
@@ -381,7 +381,7 @@ public class SettingsAiActivity extends AppCompatActivity {
     private void applySettingsAccentStyle() {
         int accent = UiStyleHelper.resolveAccentColor(this);
 
-        styleSkillSwitch(switchNoteSkill, accent);
+        styleSkillSwitch(switchMemorySkill, accent);
         styleSkillSwitch(switchCourseSkill, accent);
         styleSkillSwitch(switchNavigationSkill, accent);
         styleSkillSwitch(switchClassroomSkill, accent);
@@ -720,3 +720,4 @@ public class SettingsAiActivity extends AppCompatActivity {
         }
     }
 }
+

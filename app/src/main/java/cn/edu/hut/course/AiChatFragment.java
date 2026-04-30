@@ -2604,39 +2604,39 @@ public class AiChatFragment extends Fragment {
             setComposerFullscreenMode(false);
         }
 
-        if (!hasImage && "/notes".equalsIgnoreCase(rawUserText)) {
-            addBubble(false, NoteSkillManager.readNotes(ctx()), false);
+        if (!hasImage && "/memories".equalsIgnoreCase(rawUserText)) {
+            addBubble(false, MemorySkillManager.readMemories(ctx()), false);
             return;
         }
-        if (!hasImage && rawUserText.startsWith("/note ")) {
-            String result = NoteSkillManager.appendNote(ctx(), rawUserText.substring(6));
+        if (!hasImage && rawUserText.startsWith("/memory ")) {
+            String result = MemorySkillManager.appendMemory(ctx(), rawUserText.substring(8));
             addBubble(false, result, false);
             return;
         }
-        if (!hasImage && rawUserText.startsWith("/note-del ")) {
-            String arg = rawUserText.substring(10).trim();
+        if (!hasImage && rawUserText.startsWith("/memory-del ")) {
+            String arg = rawUserText.substring(12).trim();
             String result;
             if (arg.matches("\\d+")) {
-                result = NoteSkillManager.deleteNoteByIndex(ctx(), Integer.parseInt(arg));
+                result = MemorySkillManager.deleteMemoryByIndex(ctx(), Integer.parseInt(arg));
             } else {
-                result = NoteSkillManager.deleteNoteByKeyword(ctx(), arg);
+                result = MemorySkillManager.deleteMemoryByKeyword(ctx(), arg);
             }
             addBubble(false, result, false);
             return;
         }
-        if (!hasImage && rawUserText.startsWith("/note-edit ")) {
-            String[] parts = rawUserText.substring(11).trim().split("\\s+", 2);
+        if (!hasImage && rawUserText.startsWith("/memory-edit ")) {
+            String[] parts = rawUserText.substring(13).trim().split("\\s+", 2);
             if (parts.length < 2 || !parts[0].matches("\\d+")) {
-                addBubble(false, "修改失败：命令格式应为 /note-edit <序号> <内容>", false);
+                addBubble(false, "修改失败：命令格式应为 /memory-edit <序号> <内容>", false);
                 return;
             }
             int index = Integer.parseInt(parts[0]);
-            String result = NoteSkillManager.updateNoteByIndex(ctx(), index, parts[1]);
+            String result = MemorySkillManager.updateMemoryByIndex(ctx(), index, parts[1]);
             addBubble(false, result, false);
             return;
         }
-        if (!hasImage && "/note-clear".equalsIgnoreCase(rawUserText)) {
-            addBubble(false, NoteSkillManager.clearNotes(ctx()), false);
+        if (!hasImage && "/memory-clear".equalsIgnoreCase(rawUserText)) {
+            addBubble(false, MemorySkillManager.clearMemories(ctx()), false);
             return;
         }
         if (!hasImage && rawUserText.startsWith("/cmd ")) {
@@ -2660,7 +2660,7 @@ public class AiChatFragment extends Fragment {
         final String apiKey = selectedModel.apiKey;
         final String modelId = safe(selectedModel.id);
         final boolean skillEnabled = AiConfigStore.isSkillEnabled(ctx());
-        final boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(ctx());
+        final boolean memorySkillEnabled = AiConfigStore.isMemorySkillEnabled(ctx());
         final boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(ctx());
         final boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(ctx());
         final boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(ctx());
@@ -2693,7 +2693,7 @@ public class AiChatFragment extends Fragment {
                         imagesForRequest,
                         cacheHint,
                         skillEnabled,
-                        noteSkillEnabled,
+                        memorySkillEnabled,
                         courseSkillEnabled,
                         navigationSkillEnabled,
                         classroomSkillEnabled,
@@ -2900,7 +2900,7 @@ public class AiChatFragment extends Fragment {
         final String apiKey = selectedModel.apiKey;
         final String modelId = safe(selectedModel.id);
         final boolean skillEnabled = AiConfigStore.isSkillEnabled(ctx());
-        final boolean noteSkillEnabled = AiConfigStore.isNoteSkillEnabled(ctx());
+        final boolean memorySkillEnabled = AiConfigStore.isMemorySkillEnabled(ctx());
         final boolean courseSkillEnabled = AiConfigStore.isCourseSkillEnabled(ctx());
         final boolean navigationSkillEnabled = AiConfigStore.isNavigationSkillEnabled(ctx());
         final boolean classroomSkillEnabled = AiConfigStore.isClassroomSkillEnabled(ctx());
@@ -2926,7 +2926,7 @@ public class AiChatFragment extends Fragment {
                         (List<String>) null,
                         cacheHint,
                         skillEnabled,
-                        noteSkillEnabled,
+                        memorySkillEnabled,
                         courseSkillEnabled,
                         navigationSkillEnabled,
                         classroomSkillEnabled,
@@ -3159,7 +3159,7 @@ public class AiChatFragment extends Fragment {
                                              @Nullable List<String> imagePaths,
                                              @Nullable AiGateway.RequestCacheHint cacheHint,
                                              boolean skillEnabled,
-                             boolean noteSkillEnabled,
+                             boolean memorySkillEnabled,
                              boolean courseSkillEnabled,
                              boolean navigationSkillEnabled,
                              boolean classroomSkillEnabled,
@@ -3170,7 +3170,7 @@ public class AiChatFragment extends Fragment {
                 : "技能功能已关闭";
         String systemPrompt = AiPromptCenter.buildSystemPrompt(
             skillEnabled,
-            noteSkillEnabled,
+            memorySkillEnabled,
             courseSkillEnabled,
             navigationSkillEnabled,
             classroomSkillEnabled,
@@ -3961,15 +3961,15 @@ public class AiChatFragment extends Fragment {
                     || candidate.startsWith("工具调用:")
                     || candidate.startsWith("读取技能")
                     || candidate.startsWith("已读取技能")
-                    || candidate.startsWith("读取了笔记")
-                    || candidate.startsWith("新增笔记")
-                    || candidate.startsWith("已新增笔记")
-                    || candidate.startsWith("修改笔记")
-                    || candidate.startsWith("已修改笔记")
-                    || candidate.startsWith("删除笔记")
-                    || candidate.startsWith("已删除笔记")
-                    || candidate.startsWith("清空笔记")
-                    || candidate.startsWith("已清空笔记")
+                    || candidate.startsWith("读取了记忆")
+                    || candidate.startsWith("新增记忆")
+                    || candidate.startsWith("已新增记忆")
+                    || candidate.startsWith("修改记忆")
+                    || candidate.startsWith("已修改记忆")
+                    || candidate.startsWith("删除记忆")
+                    || candidate.startsWith("已删除记忆")
+                    || candidate.startsWith("清空记忆")
+                    || candidate.startsWith("已清空记忆")
                     || candidate.startsWith("查询今日剩余课程")
                     || candidate.startsWith("已查询今日剩余课程")
                     || candidate.startsWith("查询指定日期课程")
@@ -4861,3 +4861,4 @@ public class AiChatFragment extends Fragment {
         }
     }
 }
+

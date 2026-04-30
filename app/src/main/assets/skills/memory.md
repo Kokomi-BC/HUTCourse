@@ -1,9 +1,9 @@
 ---
-name: note
-description: "Only record key items the user explicitly asks to remember (preferences, constraints, long-term reminders). Keep notes concise and capped at 1000 characters."
+name: memory
+description: "Only record key items the user explicitly asks to remember (preferences, constraints, long-term reminders). Keep memories concise and capped at 1000 characters."
 ---
 
-# Note Skill
+# Memory Skill
 
 ## Purpose
 
@@ -20,19 +20,19 @@ description: "Only record key items the user explicitly asks to remember (prefer
 
 ## Commands
 
-- `note.read`: 读取事项。
-- `note.write <内容>`: 新增一条事项。
-- `note.update <序号> <内容>`: 按序号修改事项。
-- `note.delete <序号或关键词>`: 按序号或关键词删除事项。
-- `note.clear`: 清空所有事项。
+- `memory.read`: 读取事项。
+- `memory.write <内容>`: 新增一条事项。
+- `memory.update <序号> <内容>`: 按序号修改事项。
+- `memory.delete <序号或关键词>`: 按序号或关键词删除事项。
+- `memory.clear`: 清空所有事项。
 
 ## Chat Shortcuts
 
-- `/notes`: 读取事项。
-- `/note <内容>`: 新增事项。
-- `/note-edit <序号> <内容>`: 修改事项。
-- `/note-del <序号或关键词>`: 删除事项。
-- `/note-clear`: 清空事项。
+- `/memories`: 读取事项。
+- `/memory <内容>`: 新增事项。
+- `/memory-edit <序号> <内容>`: 修改事项。
+- `/memory-del <序号或关键词>`: 删除事项。
+- `/memory-clear`: 清空事项。
 
 ## Response Style
 

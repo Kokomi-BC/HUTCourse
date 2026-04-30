@@ -14,27 +14,27 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class NoteSkillManager {
+public final class MemorySkillManager {
 
-    private static final String NOTE_DIR = "skills";
-    private static final String NOTE_FILE = "note_user.md";
+    private static final String MEMORY_DIR = "skills";
+    private static final String MEMORY_FILE = "memory_user.md";
     private static final int MAX_CHARS = 1000;
     private static final Pattern PREFIX_NUMBER = Pattern.compile("^\\d+[\\.、)]\\s*");
     private static final Pattern BRACKET_TIME = Pattern.compile("^\\[(.+?)]\\s*(.*)$");
 
-    private NoteSkillManager() {
+    private MemorySkillManager() {
     }
 
-    private static File getNoteFile(Context context) {
-        File dir = new File(context.getFilesDir(), NOTE_DIR);
+    private static File getMemoryFile(Context context) {
+        File dir = new File(context.getFilesDir(), MEMORY_DIR);
         if (!dir.exists()) {
             //noinspection ResultOfMethodCallIgnored
             dir.mkdirs();
         }
-        return new File(dir, NOTE_FILE);
+        return new File(dir, MEMORY_FILE);
     }
 
-    public static synchronized String readNotes(Context context) {
+    public static synchronized String readMemories(Context context) {
         try {
             List<String> lines = loadStoredLines(context);
             if (lines.isEmpty()) {
@@ -53,7 +53,7 @@ public final class NoteSkillManager {
         }
     }
 
-    public static synchronized String appendNote(Context context, String rawInput) {
+    public static synchronized String appendMemory(Context context, String rawInput) {
         String cleaned = sanitize(rawInput);
         if (cleaned.isEmpty()) {
             return "记录失败：内容为空";
@@ -71,8 +71,8 @@ public final class NoteSkillManager {
         return saveLines(context, lines, "已记录");
     }
 
-    public static synchronized String clearNotes(Context context) {
-        File file = getNoteFile(context);
+    public static synchronized String clearMemories(Context context) {
+        File file = getMemoryFile(context);
         try {
             Files.write(file.toPath(), new byte[0]);
             return "已清空全部事项";
@@ -81,7 +81,7 @@ public final class NoteSkillManager {
         }
     }
 
-    public static synchronized String deleteNoteByIndex(Context context, int oneBasedIndex) {
+    public static synchronized String deleteMemoryByIndex(Context context, int oneBasedIndex) {
         List<String> lines;
         try {
             lines = loadStoredLines(context);
@@ -98,7 +98,7 @@ public final class NoteSkillManager {
         return saveLines(context, lines, "删除成功");
     }
 
-    public static synchronized String deleteNoteByKeyword(Context context, String keyword) {
+    public static synchronized String deleteMemoryByKeyword(Context context, String keyword) {
         List<String> lines;
         try {
             lines = loadStoredLines(context);
@@ -123,7 +123,7 @@ public final class NoteSkillManager {
         return saveLines(context, lines, "删除成功，共移除" + removed + "条");
     }
 
-    public static synchronized String updateNoteByIndex(Context context, int oneBasedIndex, String rawInput) {
+    public static synchronized String updateMemoryByIndex(Context context, int oneBasedIndex, String rawInput) {
         String cleaned = sanitize(rawInput);
         if (cleaned.isEmpty()) {
             return "修改失败：内容为空";
@@ -164,7 +164,7 @@ public final class NoteSkillManager {
     }
 
     private static List<String> loadStoredLines(Context context) throws IOException {
-        File file = getNoteFile(context);
+        File file = getMemoryFile(context);
         if (!file.exists()) {
             return new ArrayList<>();
         }
@@ -195,7 +195,7 @@ public final class NoteSkillManager {
 
     private static String saveLines(Context context, List<String> lines, String successPrefix) {
         String merged = enforceLimit(lines);
-        File file = getNoteFile(context);
+        File file = getMemoryFile(context);
         try {
             Files.write(file.toPath(), merged.getBytes(StandardCharsets.UTF_8));
             if (merged.isEmpty()) {

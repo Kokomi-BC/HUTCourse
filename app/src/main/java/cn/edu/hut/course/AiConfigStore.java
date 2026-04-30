@@ -24,14 +24,14 @@ public final class AiConfigStore {
     private static final String KEY_MODEL = "model";
     private static final String KEY_MODELS_JSON = "models_json";
     private static final String KEY_SKILL_ENABLED = "skill_enabled";
-    private static final String KEY_NOTE_SKILL_ENABLED = "note_skill_enabled";
+    private static final String KEY_MEMORY_SKILL_ENABLED = "memory_skill_enabled";
     private static final String KEY_COURSE_SKILL_ENABLED = "course_skill_enabled";
     private static final String KEY_NAVIGATION_SKILL_ENABLED = "navigation_skill_enabled";
     private static final String KEY_CLASSROOM_SKILL_ENABLED = "classroom_skill_enabled";
     private static final String KEY_AGENDA_SKILL_ENABLED = "agenda_skill_enabled";
     private static final String KEY_WEB_SEARCH_SKILL_ENABLED = "web_search_skill_enabled";
 
-    public static final String SKILL_NOTE = "note";
+    public static final String SKILL_MEMORY = "memory";
     public static final String SKILL_COURSE = "course";
     public static final String SKILL_NAVIGATION = "navigation";
     public static final String SKILL_CLASSROOM = "classroom";
@@ -423,14 +423,14 @@ public final class AiConfigStore {
                 .apply();
     }
 
-    public static boolean isNoteSkillEnabled(Context context) {
-        return prefs(context).getBoolean(KEY_NOTE_SKILL_ENABLED, true);
+    public static boolean isMemorySkillEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_MEMORY_SKILL_ENABLED, true);
     }
 
-    public static void setNoteSkillEnabled(Context context, boolean enabled) {
+    public static void setMemorySkillEnabled(Context context, boolean enabled) {
         prefs(context)
                 .edit()
-                .putBoolean(KEY_NOTE_SKILL_ENABLED, enabled)
+                .putBoolean(KEY_MEMORY_SKILL_ENABLED, enabled)
                 .apply();
     }
 
@@ -481,8 +481,8 @@ public final class AiConfigStore {
     public static boolean isSkillEnabledByName(Context context, String skillName) {
         String normalized = safe(skillName).trim().toLowerCase();
         switch (normalized) {
-            case SKILL_NOTE:
-                return isNoteSkillEnabled(context);
+            case SKILL_MEMORY:
+                return isMemorySkillEnabled(context);
             case SKILL_COURSE:
                 return isCourseSkillEnabled(context);
             case SKILL_NAVIGATION:

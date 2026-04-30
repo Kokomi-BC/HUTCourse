@@ -21,7 +21,7 @@ public final class AiPromptCenter {
     }
 
     public static String buildSystemPrompt(boolean skillEnabled,
-                                           boolean noteSkillEnabled,
+                                           boolean memorySkillEnabled,
                                            boolean courseSkillEnabled,
                                            boolean navigationSkillEnabled,
                                            boolean classroomSkillEnabled,
@@ -33,7 +33,7 @@ public final class AiPromptCenter {
             system.append("技能功能已关闭：禁止输出任何 CMD 行，禁止调用工具，请直接输出最终答复。\n");
             system.append("若问题依赖外部数据，请明确说明无法调用工具，不要编造。\n");
         } else {
-            boolean hasCallableSkill = noteSkillEnabled
+            boolean hasCallableSkill = memorySkillEnabled
                     || courseSkillEnabled
                     || navigationSkillEnabled
                     || classroomSkillEnabled
@@ -46,7 +46,7 @@ public final class AiPromptCenter {
             system.append("第一阶段仅使用技能frontmatter索引判断可用工具，不得假设你已知技能全文。\n");
             system.append("如需工具，输出一行或多行命令，格式必须为: CMD: <command>。\n");
             system.append("可用命令: ").append(buildCommandCatalog(
-                    noteSkillEnabled,
+                    memorySkillEnabled,
                     courseSkillEnabled,
                     navigationSkillEnabled,
                     classroomSkillEnabled,
@@ -56,8 +56,8 @@ public final class AiPromptCenter {
                 system.append("不要把 skill.list 或 skill.read 当作每轮默认步骤；仅当技能索引不足以决策时再调用，多数场景应直接回答或直接调用目标业务命令。\n");
             system.append("仅允许使用“可用命令”中出现的命令，未列出的命令一律视为禁用。\n");
 
-            if (!noteSkillEnabled) {
-                system.append("note 技能未启用，禁止调用 note.*。\n");
+            if (!memorySkillEnabled) {
+                system.append("MEMORY 技能未启用，禁止调用 MEMORY.*。\n");
             }
 
             if (agendaSkillEnabled) {
@@ -92,7 +92,7 @@ public final class AiPromptCenter {
             }
 
             system.append("最多连续调用工具30轮；达到上限后停止工具调用，直接给出可得结论。\n");
-            system.append("除非用户明确要求删除/清空，否则不要调用 agenda.delete、note.delete、note.clear。\n");
+            system.append("除非用户明确要求删除/清空，否则不要调用 agenda.delete、MEMORY.delete、MEMORY.clear。\n");
             system.append("当信息足够时输出最终答复，不要输出CMD。\n");
             system.append("若本轮要继续调用工具，只输出CMD行，不要输出TITLE。\n");
             system.append("是否需要TITLE由用户提示中的[标题策略]决定。\n");
@@ -107,7 +107,7 @@ public final class AiPromptCenter {
         return system.toString();
     }
 
-    private static String buildCommandCatalog(boolean noteSkillEnabled,
+    private static String buildCommandCatalog(boolean memorySkillEnabled,
                                               boolean courseSkillEnabled,
                                               boolean navigationSkillEnabled,
                                               boolean classroomSkillEnabled,
@@ -115,8 +115,8 @@ public final class AiPromptCenter {
                                               boolean webSearchSkillEnabled) {
         StringBuilder commands = new StringBuilder();
         commands.append("skill.list | skill.read <name>");
-        if (noteSkillEnabled) {
-            commands.append(" | note.read | note.write <内容> | note.update <序号> <内容> | note.delete <序号或关键词> | note.clear");
+        if (memorySkillEnabled) {
+            commands.append(" | MEMORY.read | MEMORY.write <内容> | MEMORY.update <序号> <内容> | MEMORY.delete <序号或关键词> | MEMORY.clear");
         }
         if (courseSkillEnabled) {
             commands.append(" | course.today_remaining | course.date <yyyy-MM-dd> | course.search.name <课程名> | course.search <关键词>");

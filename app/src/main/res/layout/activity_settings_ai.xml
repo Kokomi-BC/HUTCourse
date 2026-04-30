@@ -115,7 +115,7 @@
                 android:text="按需开启具体技能，减少不必要的工具调用。" />
 
             <com.google.android.material.card.MaterialCardView
-                android:id="@+id/cardSkillNote"
+                android:id="@+id/cardSkillMemory"
                 style="@style/Widget.MyApplication.SettingsCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -131,13 +131,13 @@
                     android:paddingBottom="12dp">
 
                     <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchNoteSkill"
+                        android:id="@+id/switchMemorySkill"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="笔记技能（note）" />
+                        android:text="记忆技能（memory）" />
 
                     <TextView
-                        android:id="@+id/tvNoteSkillSummary"
+                        android:id="@+id/tvMemorySkillSummary"
                         style="@style/Widget.MyApplication.SettingsRowSummary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
