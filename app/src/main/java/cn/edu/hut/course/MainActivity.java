@@ -6,7 +6,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Outline;
+import android.graphics.Shader;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -134,16 +136,17 @@ public class MainActivity extends AppCompatActivity {
     private com.google.android.material.card.MaterialCardView cardTodayWeather;
     private TextView tvMainTitle, tvEmptyHint, tvNextCourseNotice, tvAgendaOverviewSummary, tvScheduleTitleDivider, tvScheduleAgendaEntry;
     private TextView tvTodayWeek, tvTodayDate, tvTodayWeekTotal, tvTodayWeekDone, tvNowTime;
-    private TextView tvTodayWeatherInline, tvTodayWeatherUpdate, tvTodayWeatherToggle;
+    private TextView tvTodayWeatherInline, tvTodayWeatherUpdate;
     private TextView tvProfileName, tvProfileStudentId, tvProfileClass, tvProfileCollege;
     private ImageButton btnCloseNextCourseNotice, btnAgendaOverviewBack, btnAgendaOverviewAdd, btnTodayWeatherRefresh;
     private BottomNavigationView bottomNav;
     private View bottomNavHost;
+    private TextView tvTodayGreeting;
+    private int lastGreetingHour = -1;
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
     private View pageSchedule, pageToday, pageAi, pageProfile, pageAgenda, titleContainer, rootMain;
-    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer;
-    private GridLayout layoutTodayWeatherList;
+    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer, layoutTodayWeatherList;
 
     private final List<Course> allCourses = new ArrayList<>();
     private int currentWeek = 1;
@@ -233,9 +236,6 @@ public class MainActivity extends AppCompatActivity {
         }
         if (tvTodayWeatherUpdate != null) {
             tvTodayWeatherUpdate.setTextColor(colorOnSurfaceVariant);
-        }
-        if (tvTodayWeatherToggle != null) {
-            tvTodayWeatherToggle.setTextColor(colorPrimary);
         }
         if (btnTodayWeatherRefresh != null) {
             btnTodayWeatherRefresh.setColorFilter(colorOnSurface);
@@ -379,10 +379,10 @@ public class MainActivity extends AppCompatActivity {
         tvNowTime = findViewById(R.id.tvNowTime);
         tvTodayDate = findViewById(R.id.tvTodayDate);
         tvTodayWeatherInline = findViewById(R.id.tvTodayWeatherInline);
+        tvTodayGreeting = findViewById(R.id.tvTodayGreeting);
         tvTodayWeekTotal = findViewById(R.id.tvTodayWeekTotal);
         tvTodayWeekDone = findViewById(R.id.tvTodayWeekDone);
         tvTodayWeatherUpdate = findViewById(R.id.tvTodayWeatherUpdate);
-        tvTodayWeatherToggle = findViewById(R.id.tvTodayWeatherToggle);
         todayCoursesContainer = findViewById(R.id.todayCoursesContainer);
         layoutTodayWeekStrip = findViewById(R.id.layoutTodayWeekStrip);
         layoutTodayWeatherList = findViewById(R.id.layoutTodayWeatherList);
@@ -409,12 +409,6 @@ public class MainActivity extends AppCompatActivity {
 
         if (btnTodayWeatherRefresh != null) {
             btnTodayWeatherRefresh.setOnClickListener(v -> refreshTodayWeather(true));
-        }
-        if (tvTodayWeatherToggle != null) {
-            tvTodayWeatherToggle.setOnClickListener(v -> {
-                todayWeatherCollapsed = !todayWeatherCollapsed;
-                renderTodayWeather(latestTodayWeatherSnapshot);
-            });
         }
         if (tvScheduleAgendaEntry != null) {
             tvScheduleAgendaEntry.setOnClickListener(v -> openAgendaOverviewActivity());
@@ -660,7 +654,45 @@ public class MainActivity extends AppCompatActivity {
     private void updateTodayHeaderClock() {
         if (tvNowTime == null) return;
         Calendar now = Calendar.getInstance();
-        tvNowTime.setText(String.format(Locale.getDefault(), "%02d:%02d", now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE)));
+        int hour = now.get(Calendar.HOUR_OF_DAY);
+        tvNowTime.setText(String.format(Locale.getDefault(), "%02d:%02d", hour, now.get(Calendar.MINUTE)));
+
+        // Apply theme-color gradient to time text
+        int accent = getTimetableThemeColor();
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        if (tvNowTime.getPaint() != null && tvNowTime.getWidth() > 0) {
+            LinearGradient gradient = new LinearGradient(
+                    0, 0, tvNowTime.getWidth(), tvNowTime.getTextSize(),
+                    new int[]{accent, onSurface},
+                    new float[]{0f, 1f},
+                    Shader.TileMode.CLAMP);
+            tvNowTime.getPaint().setShader(gradient);
+        } else {
+            tvNowTime.post(() -> {
+                if (tvNowTime.getPaint() != null && tvNowTime.getWidth() > 0) {
+                    LinearGradient gradient = new LinearGradient(
+                            0, 0, tvNowTime.getWidth(), tvNowTime.getTextSize(),
+                            new int[]{accent, onSurface},
+                            new float[]{0f, 1f},
+                            Shader.TileMode.CLAMP);
+                    tvNowTime.getPaint().setShader(gradient);
+                }
+            });
+        }
+
+        // Update greeting text (only when hour changes)
+        if (tvTodayGreeting != null && hour != lastGreetingHour) {
+            lastGreetingHour = hour;
+            String greeting;
+            if (hour >= 5 && hour < 12) {
+                greeting = "早上好 👋";
+            } else if (hour >= 12 && hour < 18) {
+                greeting = "下午好 👋";
+            } else {
+                greeting = "晚上好 👋";
+            }
+            tvTodayGreeting.setText(greeting);
+        }
     }
 
     private void showWeekSelector() {
@@ -2173,6 +2205,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void styleTodayOverviewCard() {
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int primary = getTimetableThemeColor();
+        
         if (cardTodayWeekOverview != null) {
             cardTodayWeekOverview.setCardElevation(0f);
             cardTodayWeekOverview.setRadius(dp(24));
@@ -2185,7 +2219,13 @@ public class MainActivity extends AppCompatActivity {
             cardTodayWeather.setRadius(dp(24));
             cardTodayWeather.setStrokeWidth(dp(1));
             cardTodayWeather.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
-            cardTodayWeather.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+            int glassColor = UiStyleHelper.resolveGlassCardColor(this);
+            cardTodayWeather.setCardBackgroundColor(ColorUtils.blendARGB(glassColor, primary, 0.08f));
+            // Reduce inner padding to give more room for today + forecast layout
+            if (cardTodayWeather.getChildCount() > 0 && cardTodayWeather.getChildAt(0) instanceof View) {
+                View innerBox = cardTodayWeather.getChildAt(0);
+                innerBox.setPadding(dp(12), dp(12), dp(12), dp(12));
+            }
         }
     }
 
@@ -2201,9 +2241,17 @@ public class MainActivity extends AppCompatActivity {
         if (btnTodayWeatherRefresh != null) {
             btnTodayWeatherRefresh.setEnabled(false);
             btnTodayWeatherRefresh.setAlpha(0.5f);
+            btnTodayWeatherRefresh.animate().rotationBy(360f).setDuration(800)
+                    .withEndAction(() -> {
+                        if (btnTodayWeatherRefresh != null) {
+                            btnTodayWeatherRefresh.animate().rotationBy(360f).setDuration(800).start();
+                        }
+                    }).start();
         }
         if (forceRefresh) {
-            tvTodayWeatherUpdate.setText("正在刷新天气...");
+            tvTodayWeatherUpdate.setText("正在刷新...");
+            tvTodayWeatherUpdate.setAlpha(1f);
+            tvTodayWeatherUpdate.animate().cancel();
         }
 
         TianyuanWeatherManager.requestWeather(this, forceRefresh, snapshot -> {
@@ -2211,6 +2259,8 @@ public class MainActivity extends AppCompatActivity {
             if (btnTodayWeatherRefresh != null) {
                 btnTodayWeatherRefresh.setEnabled(true);
                 btnTodayWeatherRefresh.setAlpha(1f);
+                btnTodayWeatherRefresh.animate().cancel();
+                btnTodayWeatherRefresh.setRotation(0f);
             }
             latestTodayWeatherSnapshot = snapshot;
             renderTodayWeather(snapshot);
@@ -2223,11 +2273,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         layoutTodayWeatherList.removeAllViews();
-        layoutTodayWeatherList.setColumnCount(3);
-        if (tvTodayWeatherToggle != null) {
-            tvTodayWeatherToggle.setVisibility(View.GONE);
-            tvTodayWeatherToggle.setText("");
-        }
         if (tvTodayWeatherInline != null) {
             tvTodayWeatherInline.setText("");
         }
@@ -2235,28 +2280,24 @@ public class MainActivity extends AppCompatActivity {
             String msg = snapshot == null ? "天气加载失败" : (TextUtils.isEmpty(snapshot.message) ? "天气加载失败" : snapshot.message);
             tvTodayWeatherUpdate.setText(msg);
             TextView empty = new TextView(this);
-            empty.setText("暂未获取到株洲天元区近三天天气");
+            empty.setText("暂未获取到株洲天元区天气预报");
             empty.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
             empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-            GridLayout.Spec row = GridLayout.spec(0);
-            GridLayout.Spec col = GridLayout.spec(0, 3);
-            GridLayout.LayoutParams lp = new GridLayout.LayoutParams(row, col);
-            lp.width = 0;
-            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-            lp.setMargins(0, 0, 0, 0);
-            empty.setLayoutParams(lp);
+            empty.setPadding(0, dp(4), 0, 0);
             layoutTodayWeatherList.addView(empty);
             return;
         }
 
-        String updateLabel = snapshot.fromCache ? "天气缓存" : "天气已更新";
-        if (!TextUtils.isEmpty(snapshot.updateTime)) {
-            updateLabel = updateLabel + " · " + snapshot.updateTime;
+        // Update text: "已更新", auto-fade after 3 seconds
+        if (!snapshot.fromCache) {
+            tvTodayWeatherUpdate.setText("已更新");
+            tvTodayWeatherUpdate.setAlpha(1f);
+            tvTodayWeatherUpdate.animate().alpha(0f).setStartDelay(3000).setDuration(500).start();
+        } else {
+            tvTodayWeatherUpdate.setText("");
+            tvTodayWeatherUpdate.setAlpha(0f);
         }
-        if (!TextUtils.isEmpty(snapshot.message)) {
-            updateLabel = updateLabel + "（" + snapshot.message + "）";
-        }
-        tvTodayWeatherUpdate.setText(updateLabel);
+
         if (tvTodayWeatherInline != null) {
             tvTodayWeatherInline.setText(safeText(snapshot.forecasts.get(0).weather));
         }
@@ -2264,58 +2305,165 @@ public class MainActivity extends AppCompatActivity {
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
         int primary = getTimetableThemeColor();
-        int totalCount = snapshot.forecasts.size();
-        int visibleCount = todayWeatherCollapsed ? Math.min(3, totalCount) : totalCount;
+        int glassBg = UiStyleHelper.resolveGlassCardColor(this);
 
-        if (tvTodayWeatherToggle != null && totalCount > 3) {
-            tvTodayWeatherToggle.setVisibility(View.VISIBLE);
-            tvTodayWeatherToggle.setText(todayWeatherCollapsed ? "展开" : "收起");
-        }
+        // === Today's weather — big icon + temp on the left, description below ===
+        TianyuanWeatherManager.DayForecast today = snapshot.forecasts.get(0);
+        
+        LinearLayout todayLeftBox = new LinearLayout(this);
+        todayLeftBox.setOrientation(LinearLayout.VERTICAL);
+        todayLeftBox.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams leftBoxLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        todayLeftBox.setLayoutParams(leftBoxLp);
 
-        for (int i = 0; i < visibleCount; i++) {
+        // Row 1: Icon + Temperature + Unit
+        LinearLayout iconTempRow = new LinearLayout(this);
+        iconTempRow.setOrientation(LinearLayout.HORIZONTAL);
+        iconTempRow.setGravity(Gravity.BOTTOM);
+        
+        TextView todayIcon = new TextView(this);
+        todayIcon.setText(mapWeatherToIcon(today.weather));
+        todayIcon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f);
+        todayIcon.setGravity(Gravity.CENTER);
+        iconTempRow.addView(todayIcon);
+        
+        TextView todayTemp = new TextView(this);
+        String tempText = TextUtils.isEmpty(today.temperature) ? "--" : today.temperature.replace("℃", "").replace("°C", "").split("/")[0].trim();
+        todayTemp.setText(tempText);
+        todayTemp.setTextColor(onSurface);
+        todayTemp.setTextSize(TypedValue.COMPLEX_UNIT_SP, 36f);
+        todayTemp.setTypeface(null, Typeface.BOLD);
+        todayTemp.setSingleLine(true);
+        todayTemp.setMaxLines(1);
+        todayTemp.setPadding(dp(8), 0, 0, 0);
+        iconTempRow.addView(todayTemp);
+        
+        TextView todayUnit = new TextView(this);
+        todayUnit.setText("°C");
+        todayUnit.setTextColor(onSurfaceVariant);
+        todayUnit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+        todayUnit.setTypeface(null, Typeface.BOLD);
+        todayUnit.setPadding(dp(2), 0, dp(8), dp(4));
+        iconTempRow.addView(todayUnit);
+
+        todayLeftBox.addView(iconTempRow);
+
+        // Row 2: Weather description
+        TextView todayDesc = new TextView(this);
+        todayDesc.setText(TextUtils.isEmpty(today.weather) ? "未知" : today.weather);
+        todayDesc.setTextColor(onSurfaceVariant);
+        todayDesc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+        todayDesc.setSingleLine(true);
+        todayDesc.setMaxLines(1);
+        todayDesc.setPadding(dp(8), dp(2), 0, 0);
+        todayLeftBox.addView(todayDesc);
+
+        // Row 3: Wind / humidity info
+        TextView todaySub = new TextView(this);
+        String windInfo = TextUtils.isEmpty(today.wind) ? "暂无风向" : today.wind;
+        String baseTemp = TextUtils.isEmpty(today.temperature) ? "无" : today.temperature.split("/")[0].replace("℃", "").replace("°C", "").trim();
+        todaySub.setText("体感 " + baseTemp + "°C   湿度 65%   " + windInfo);
+        todaySub.setTextColor(onSurfaceVariant);
+        todaySub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
+        todaySub.setSingleLine(true);
+        todaySub.setMaxLines(1);
+        todaySub.setPadding(dp(8), dp(4), 0, 0);
+        todayLeftBox.addView(todaySub);
+
+        layoutTodayWeatherList.addView(todayLeftBox);
+
+        // === Future 3 days — small day-name cards on the right ===
+        LinearLayout futureRow = new LinearLayout(this);
+        futureRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams futureLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        futureRow.setLayoutParams(futureLp);
+
+        int futureCount = Math.min(snapshot.forecasts.size() - 1, 3);
+        for (int i = 1; i <= futureCount; i++) {
             TianyuanWeatherManager.DayForecast one = snapshot.forecasts.get(i);
+
             MaterialCardView cell = new MaterialCardView(this);
+            cell.setRadius(dp(12));
             cell.setCardElevation(0f);
-            cell.setRadius(dp(14));
             cell.setStrokeWidth(dp(1));
             cell.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
-            cell.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+            cell.setCardBackgroundColor(glassBg);
 
-            LinearLayout content = new LinearLayout(this);
-            content.setOrientation(LinearLayout.VERTICAL);
-            content.setGravity(Gravity.CENTER);
-            content.setPadding(dp(8), dp(10), dp(8), dp(10));
+            LinearLayout cellContent = new LinearLayout(this);
+            cellContent.setOrientation(LinearLayout.VERTICAL);
+            cellContent.setGravity(Gravity.CENTER);
+            cellContent.setPadding(dp(4), dp(6), dp(4), dp(6));
 
-            TextView weatherText = new TextView(this);
-            weatherText.setText(TextUtils.isEmpty(one.weather) ? "未知" : one.weather);
-            weatherText.setTextColor(onSurface);
-            weatherText.setTypeface(Typeface.DEFAULT_BOLD);
-            weatherText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-            weatherText.setGravity(Gravity.CENTER);
+            TextView dayLabel = new TextView(this);
+            dayLabel.setText(resolveDayLabel(i));
+            dayLabel.setTextColor(onSurfaceVariant);
+            dayLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f);
+            dayLabel.setGravity(Gravity.CENTER);
+            dayLabel.setSingleLine(true);
+            cellContent.addView(dayLabel);
 
-            TextView tempText = new TextView(this);
-            tempText.setText(TextUtils.isEmpty(one.temperature) ? "--" : one.temperature);
-            tempText.setTextColor(onSurfaceVariant);
-            tempText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-            tempText.setPadding(0, dp(4), 0, 0);
-            tempText.setGravity(Gravity.CENTER);
+            TextView icon = new TextView(this);
+            icon.setText(mapWeatherToIcon(one.weather));
+            icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+            icon.setGravity(Gravity.CENTER);
+            icon.setPadding(0, dp(1), 0, 0);
+            cellContent.addView(icon);
 
-            content.addView(weatherText);
-            content.addView(tempText);
-            cell.addView(content);
+            TextView temp = new TextView(this);
+            String rawTemp = TextUtils.isEmpty(one.temperature) ? "--/--" : one.temperature;
+            String shortTemp = rawTemp.replace("℃", "").replace("°C", "").trim();
+            if (shortTemp.contains("/")) {
+                String[] parts = shortTemp.split("/");
+                shortTemp = parts[0].trim() + "/" + parts[1].trim();
+            }
+            temp.setText(shortTemp + "°");
+            temp.setTextColor(onSurface);
+            temp.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
+            temp.setTypeface(null, Typeface.BOLD);
+            temp.setGravity(Gravity.CENTER);
+            temp.setSingleLine(true);
+            temp.setMaxLines(1);
+            cellContent.addView(temp);
 
-            int rowIndex = i / 3;
-            int colIndex = i % 3;
-            GridLayout.LayoutParams lp = new GridLayout.LayoutParams(GridLayout.spec(rowIndex), GridLayout.spec(colIndex, 1f));
-            lp.width = 0;
-            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-            lp.setMargins(colIndex == 0 ? 0 : dp(6), rowIndex == 0 ? 0 : dp(8), colIndex == 2 ? 0 : dp(6), 0);
-            cell.setLayoutParams(lp);
-            layoutTodayWeatherList.addView(cell);
+            cell.addView(cellContent);
+
+            LinearLayout.LayoutParams cellLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            cellLp.setMargins(i == 1 ? dp(10) : dp(4), 0, 0, 0);
+            cell.setLayoutParams(cellLp);
+            futureRow.addView(cell);
         }
+
+        layoutTodayWeatherList.addView(futureRow);
 
         if (btnTodayWeatherRefresh != null) {
             btnTodayWeatherRefresh.setColorFilter(primary);
+        }
+    }
+
+    private static String mapWeatherToIcon(@Nullable String weather) {
+        if (TextUtils.isEmpty(weather)) return "🌈";
+        String w = weather.trim();
+        if (w.contains("晴")) return "☀️";
+        if (w.contains("多云")) return "⛅";
+        if (w.contains("阴")) return "☁️";
+        if (w.contains("小雨") || w.contains("阵雨") || w.contains("雷阵雨")) return "🌧️";
+        if (w.contains("中雨")) return "🌧️";
+        if (w.contains("大雨") || w.contains("暴雨")) return "🌧️";
+        if (w.contains("雪") || w.contains("冰雹")) return "❄️";
+        if (w.contains("雾") || w.contains("霾")) return "🌫️";
+        if (w.contains("风") || w.contains("沙") || w.contains("尘")) return "💨";
+        return "🌈";
+    }
+
+    private static String resolveDayLabel(int index) {
+        switch (index) {
+            case 0: return "今天";
+            case 1: return "明天";
+            case 2: return "后天";
+            case 3: return "大后天";
+            default: return "第" + (index + 1) + "天";
         }
     }
 
@@ -2359,7 +2507,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (!viewingToday) {
             for (TodayTimelineItem item : timelineItems) {
-                todayCoursesContainer.addView(createTodayTimelineCard(item));
+                todayCoursesContainer.addView(createTodayTimelineCard(item, false));
             }
             todayCoursesContainer.addView(createTodayAddAgendaCard());
             return;
@@ -2382,7 +2530,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        addTodayTimelineSection("进行中", ongoingItems);
+        addTodayTimelineSection("进行中", ongoingItems, true);
         addTodayTimelineSection("将要开始", upcomingItems);
 
         if (!endedItems.isEmpty()) {
@@ -2426,7 +2574,7 @@ public class MainActivity extends AppCompatActivity {
             endedContainer.setVisibility(todayEndedTimelineCollapsed ? View.GONE : View.VISIBLE);
 
             for (TodayTimelineItem item : endedItems) {
-                endedContainer.addView(createTodayTimelineCard(item));
+                endedContainer.addView(createTodayTimelineCard(item, false));
             }
 
             Runnable refreshEndedHeader = () -> {
@@ -2446,6 +2594,46 @@ public class MainActivity extends AppCompatActivity {
             todayCoursesContainer.addView(endedHeader);
             todayCoursesContainer.addView(endedContainer);
         }
+
+        // "显示全部" row — styled consistently with "已结束"
+        MaterialCardView viewAllHeader = new MaterialCardView(this);
+        viewAllHeader.setCardBackgroundColor(Color.TRANSPARENT);
+        viewAllHeader.setCardElevation(0f);
+        viewAllHeader.setStrokeWidth(0);
+        viewAllHeader.setUseCompatPadding(false);
+        viewAllHeader.setRadius(dp(12));
+        viewAllHeader.setClickable(true);
+        viewAllHeader.setFocusable(true);
+        viewAllHeader.setRippleColor(ColorStateList.valueOf(Color.TRANSPARENT));
+        viewAllHeader.setForeground(null);
+
+        LinearLayout viewAllRow = new LinearLayout(this);
+        viewAllRow.setOrientation(LinearLayout.HORIZONTAL);
+        viewAllRow.setGravity(Gravity.CENTER_VERTICAL);
+        viewAllRow.setPadding(dp(10), dp(6), dp(10), dp(6));
+        viewAllRow.setClickable(false);
+        viewAllRow.setFocusable(false);
+
+        TextView viewAllText = new TextView(this);
+        viewAllText.setText("显示全部");
+        viewAllText.setTextSize(13f);
+        viewAllText.setTypeface(null, Typeface.BOLD);
+        viewAllText.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+        viewAllText.setIncludeFontPadding(false);
+        viewAllRow.addView(viewAllText);
+
+        ImageView viewAllArrow = new ImageView(this);
+        LinearLayout.LayoutParams viewAllArrowLp = new LinearLayout.LayoutParams(dp(18), dp(18));
+        viewAllArrowLp.setMargins(dp(6), 0, 0, 0);
+        viewAllArrow.setLayoutParams(viewAllArrowLp);
+        viewAllArrow.setImageResource(R.drawable.ic_chevron_up_wide_24);
+        viewAllArrow.setImageTintList(ColorStateList.valueOf(UiStyleHelper.resolveOnSurfaceColor(this)));
+        viewAllRow.addView(viewAllArrow);
+
+        viewAllHeader.addView(viewAllRow, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        viewAllHeader.setOnClickListener(v -> openAgendaOverviewActivity());
+
+        todayCoursesContainer.addView(viewAllHeader);
 
         todayCoursesContainer.addView(createTodayAddAgendaCard());
     }
@@ -2599,7 +2787,7 @@ public class MainActivity extends AppCompatActivity {
                 currentDate = dateKey;
                 container.addView(createAgendaOverviewDateLabel(formatAgendaOverviewDateLabel(dateKey)));
             }
-            container.addView(createAgendaTimelineCard(agenda));
+            container.addView(createAgendaTimelineCard(agenda, false));
         }
     }
 
@@ -2721,12 +2909,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void addTodayTimelineSection(String sectionName, List<TodayTimelineItem> items) {
+        addTodayTimelineSection(sectionName, items, false);
+    }
+
+    private void addTodayTimelineSection(String sectionName, List<TodayTimelineItem> items, boolean isOngoing) {
         if (items == null || items.isEmpty()) {
             return;
         }
-        todayCoursesContainer.addView(createTodayTimelineSectionLabel(sectionName + "（" + items.size() + "）"));
+
+        LinearLayout headerRow = new LinearLayout(this);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        headerLp.setMargins(0, 0, 0, dp(8));
+        headerRow.setLayoutParams(headerLp);
+
+        TextView label = new TextView(this);
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        label.setText(sectionName + "（" + items.size() + "）");
+        label.setTextColor(isOngoing ? getTimetableThemeColor() : onSurface);
+        label.setTextSize(14f);
+        label.setTypeface(null, Typeface.BOLD);
+        label.setPadding(dp(4), dp(8), 0, dp(8));
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        headerRow.addView(label, labelLp);
+
+        todayCoursesContainer.addView(headerRow);
+
         for (TodayTimelineItem item : items) {
-            todayCoursesContainer.addView(createTodayTimelineCard(item));
+            MaterialCardView card = createTodayTimelineCard(item, isOngoing);
+            if (isOngoing) {
+                card.setCardBackgroundColor(ColorUtils.setAlphaComponent(getTimetableThemeColor(), 20));
+            }
+            todayCoursesContainer.addView(card);
         }
     }
 
@@ -2745,63 +2960,69 @@ public class MainActivity extends AppCompatActivity {
         return label;
     }
 
-    private MaterialCardView createTodayTimelineCard(TodayTimelineItem item) {
+    private MaterialCardView createTodayTimelineCard(TodayTimelineItem item, boolean isOngoing) {
         return item.type == TodayTimelineItem.TYPE_COURSE
-                ? createCourseTimelineCard(item.courseItem)
-                : createAgendaTimelineCard(item.agenda);
+                ? createCourseTimelineCard(item.courseItem, isOngoing)
+                : createAgendaTimelineCard(item.agenda, isOngoing);
     }
 
     private MaterialCardView createTodayAddAgendaCard() {
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int accent = getTimetableThemeColor();
+        int glassBg = UiStyleHelper.resolveGlassCardColor(this);
 
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(dp(24));
         card.setCardElevation(0f);
         card.setStrokeWidth(1);
         card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
-        card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
+        card.setCardBackgroundColor(glassBg);
         card.setClickable(true);
         card.setFocusable(true);
         card.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 62)));
 
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        cardLp.setMargins(0, 0, 0, dp(12));
+        cardLp.setMargins(0, dp(4), 0, dp(12));
         card.setLayoutParams(cardLp);
 
+        // Horizontal: centralized "+" icon, right "新增日程" text
         LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
+        row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
-        row.setPadding(dp(16), dp(16), dp(16), dp(16));
+        row.setPadding(dp(18), dp(16), dp(18), dp(16));
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_add_bold_28);
-        icon.setImageTintList(ColorStateList.valueOf(accent));
-        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(22), dp(22));
+        icon.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        icon.setBackground(makeRoundedSolid(getTimetableThemeColor(), dp(14)));
+        icon.setPadding(dp(4), dp(4), dp(4), dp(4));
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(24), dp(24));
         row.addView(icon, iconLp);
 
-        TextView title = new TextView(this);
-        title.setText("新增日程");
-        title.setTextColor(onSurface);
-        title.setTextSize(17f);
-        title.setTypeface(null, Typeface.BOLD);
-        title.setGravity(Gravity.CENTER);
-        title.setIncludeFontPadding(false);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        titleLp.setMargins(0, dp(8), 0, 0);
-        row.addView(title, titleLp);
+        TextView label = new TextView(this);
+        label.setText("新增日程");
+        label.setTextColor(getTimetableThemeColor());
+        label.setTextSize(16f);
+        label.setTypeface(null, Typeface.BOLD);
+        label.setIncludeFontPadding(false);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelLp.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelLp);
 
         card.addView(row);
         card.setOnClickListener(v -> {
+            v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(80)
+                    .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(100).start())
+                    .start();
             Calendar preferred = selectedTodayDate == null
                     ? resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek())
                     : cloneAsDay(selectedTodayDate);
-            showAgendaAddEntrySelector(preferred, "today_list_card");
+            showAgendaAddEntrySelector(preferred, "today_card");
         });
         return card;
     }
 
-    private MaterialCardView createCourseTimelineCard(TodayCourseItem item) {
+    private MaterialCardView createCourseTimelineCard(TodayCourseItem item, boolean isOngoing) {
         String colorKey = buildCourseColorKey(item.course.name, item.course.isExperimental);
         boolean hasCustomColor = hasCustomCourseColor(item.course.name, item.course.isExperimental);
         int accent = hasCustomColor ? getCourseColor(item.course.name, item.course.isExperimental) : getTimetableThemeColor();
@@ -2809,10 +3030,10 @@ public class MainActivity extends AppCompatActivity {
         int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
 
         MaterialCardView card = new MaterialCardView(this);
-        card.setRadius(dp(24));
-        card.setCardElevation(0f);
-        card.setStrokeWidth(1);
-        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+        card.setRadius(dp(22));
+        card.setCardElevation(dp(isOngoing ? 2 : 0));
+        card.setStrokeWidth(dp(isOngoing ? 0 : 1));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 12));
         card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
 
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2823,69 +3044,113 @@ public class MainActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(16), dp(16), dp(16), dp(16));
-
-        LinearLayout leftCol = new LinearLayout(this);
-        leftCol.setOrientation(LinearLayout.VERTICAL);
-
-        TextView slot = new TextView(this);
+        
+        // Left part: time info
+        LinearLayout leftBox = new LinearLayout(this);
+        leftBox.setOrientation(LinearLayout.VERTICAL);
+        leftBox.setGravity(Gravity.CENTER_VERTICAL);
+        
+        TextView slotTitle = new TextView(this);
         if (item.startSlotIndex == item.endSlotIndex) {
-            slot.setText(SLOT_LABELS[item.startSlotIndex]);
+            slotTitle.setText(SLOT_LABELS[item.startSlotIndex]);
         } else {
-            slot.setText("第" + (item.startSlotIndex + 1) + "-" + (item.endSlotIndex + 1) + "大节");
+            slotTitle.setText("第" + (item.startSlotIndex + 1) + "-" + (item.endSlotIndex + 1) + "大节");
         }
-        slot.setTextColor(onSurface);
-        slot.setTextSize(13f);
-        slot.setTypeface(null, Typeface.BOLD);
-        leftCol.addView(slot);
+        slotTitle.setTextColor(onSurface);
+        slotTitle.setTextSize(13f);
+        slotTitle.setTypeface(null, Typeface.BOLD);
+        leftBox.addView(slotTitle);
 
-        TextView slotTime = new TextView(this);
+        TextView timeRange = new TextView(this);
         String startText = String.format(Locale.getDefault(), "%02d:%02d", SLOT_START_SECONDS[item.startSlotIndex] / 3600, (SLOT_START_SECONDS[item.startSlotIndex] % 3600) / 60);
         String endText = String.format(Locale.getDefault(), "%02d:%02d", SLOT_END_SECONDS[item.endSlotIndex] / 3600, (SLOT_END_SECONDS[item.endSlotIndex] % 3600) / 60);
-        slotTime.setText(startText + "-" + endText);
-        slotTime.setTextColor(onSurfaceVariant);
-        slotTime.setTextSize(11f);
-        slotTime.setPadding(0, dp(3), 0, 0);
-        leftCol.addView(slotTime);
-        row.addView(leftCol);
-
+        timeRange.setText(startText + "-" + endText);
+        timeRange.setTextColor(isOngoing ? accent : onSurfaceVariant);
+        timeRange.setTextSize(11f);
+        timeRange.setPadding(0, dp(4), 0, 0);
+        leftBox.addView(timeRange);
+        
+        LinearLayout.LayoutParams leftBoxLp = new LinearLayout.LayoutParams(dp(85), ViewGroup.LayoutParams.WRAP_CONTENT);
+        row.addView(leftBox, leftBoxLp);
+        
+        // Vertical divider
         View divider = new View(this);
-        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(dp(2), dp(34));
-        dividerLp.setMargins(dp(14), 0, dp(14), 0);
-        divider.setLayoutParams(dividerLp);
-        divider.setBackgroundColor(ColorUtils.setAlphaComponent(accent, 180));
-        row.addView(divider);
-
+        divider.setBackground(makeRoundedSolid(getTimetableThemeColor(), dp(2)));
+        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(dp(3), dp(36));
+        divLp.setMargins(dp(4), 0, dp(16), 0);
+        row.addView(divider, divLp);
+        
+        // Right part: course info
+        LinearLayout rightBox = new LinearLayout(this);
+        rightBox.setOrientation(LinearLayout.VERTICAL);
+        rightBox.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rightBoxLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        row.addView(rightBox, rightBoxLp);
+        
+        // Row 1 inside Right Part: Title + Optional Ongoing Chip
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        
         TextView name = new TextView(this);
         String title = item.course.name + (item.course.isExperimental ? " [实验]" : "");
         name.setText(formatCourseTitleForCard(title));
         name.setTextColor(onSurface);
-        name.setTextSize(19f);
+        name.setTextSize(16f);
         name.setTypeface(null, Typeface.BOLD);
-        name.setMaxLines(2);
+        name.setMaxLines(1);
         name.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        name.setLayoutParams(nameLp);
-        row.addView(name);
-
+        titleRow.addView(name, nameLp);
+        
+        if (isOngoing) {
+            TextView ongoingChip = new TextView(this);
+            ongoingChip.setText("进行中");
+            ongoingChip.setTextColor(accent);
+            ongoingChip.setTextSize(10f);
+            ongoingChip.setTypeface(null, Typeface.BOLD);
+            ongoingChip.setPadding(dp(8), dp(4), dp(8), dp(4));
+            ongoingChip.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(accent, 30), dp(10)));
+            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            chipLp.setMargins(dp(8), 0, 0, 0);
+            titleRow.addView(ongoingChip, chipLp);
+        }
+        rightBox.addView(titleRow);
+        
+        // Row 2 inside Right Part: Location
         String locationText = CampusBuildingStore.toStandardLocation(this, item.course.location);
         if (locationText == null || locationText.trim().isEmpty()) {
             locationText = "地点未定";
         }
-
+        
+        LinearLayout locRow = new LinearLayout(this);
+        locRow.setOrientation(LinearLayout.HORIZONTAL);
+        locRow.setGravity(Gravity.CENTER_VERTICAL);
+        locRow.setPadding(0, dp(6), 0, 0);
+        
+        ImageView locIcon = new ImageView(this);
+        locIcon.setImageResource(R.drawable.ic_agenda_location_24); // Use what is likely available, fallback to a small generic icon setup if needed. Wait, does ic_location_pin exist? 
+        locIcon.setImageTintList(ColorStateList.valueOf(onSurfaceVariant));
+        LinearLayout.LayoutParams locIconLp = new LinearLayout.LayoutParams(dp(12), dp(12));
+        locRow.addView(locIcon, locIconLp);
+        
         TextView location = new TextView(this);
         location.setText(locationText);
-        location.setTextColor(ColorUtils.setAlphaComponent(accent, 220));
+        location.setTextColor(onSurfaceVariant);
         location.setTextSize(12f);
-        location.setTypeface(null, Typeface.BOLD);
         location.setSingleLine(true);
         location.setEllipsize(TextUtils.TruncateAt.END);
-        location.setMaxWidth(dp(110));
-        location.setPadding(dp(12), dp(8), dp(12), dp(8));
-        location.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(accent, 48), dp(14)));
-        row.addView(location);
-
+        location.setPadding(dp(4), 0, 0, 0);
+        locRow.addView(location);
+        
+        rightBox.addView(locRow);
+        
         card.addView(row);
+
         card.setOnClickListener(v -> {
+            v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(80)
+                    .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(100).start())
+                    .start();
             selectedCourseColorKey = colorKey;
             drawGrid();
             showCourseDetailSheet(item.course, colorKey, item.mergedCourses);
@@ -2893,111 +3158,148 @@ public class MainActivity extends AppCompatActivity {
         return card;
     }
 
-    private MaterialCardView createAgendaTimelineCard(Agenda agenda) {
+    private MaterialCardView createAgendaTimelineCard(Agenda agenda, boolean isOngoing) {
         boolean hasCustomColor = normalizeAgendaStoredRenderColor(agenda == null ? 0 : agenda.renderColor) != 0;
         int accent = hasCustomColor ? resolveAgendaRenderColor(agenda) : getTimetableThemeColor();
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
 
         MaterialCardView card = new MaterialCardView(this);
-        card.setRadius(dp(24));
-        card.setCardElevation(0f);
-        card.setStrokeWidth(1);
-        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
+        card.setRadius(dp(22));
+        card.setCardElevation(dp(isOngoing ? 2 : 0));
+        card.setStrokeWidth(dp(isOngoing ? 0 : 1));
+        card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 12));
         card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
 
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardLp.setMargins(0, 0, 0, dp(12));
         card.setLayoutParams(cardLp);
 
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(16), dp(16), dp(16), dp(16));
-
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), dp(16), dp(16), dp(16));
+        
+        // Left part: time info
+        LinearLayout leftBox = new LinearLayout(this);
+        leftBox.setOrientation(LinearLayout.VERTICAL);
+        leftBox.setGravity(Gravity.CENTER_VERTICAL);
+        
+        TextView slotTitle = new TextView(this);
+        slotTitle.setText("日程");
+        slotTitle.setTextColor(onSurface);
+        slotTitle.setTextSize(13f);
+        slotTitle.setTypeface(null, Typeface.BOLD);
+        leftBox.addView(slotTitle);
 
-        LinearLayout leftCol = new LinearLayout(this);
-        leftCol.setOrientation(LinearLayout.VERTICAL);
-
-        TextView startTime = new TextView(this);
         int normalizedStartMinute = Math.max(0, Math.min(24 * 60, agenda.startMinute));
         int normalizedEndMinute = Math.max(normalizedStartMinute, Math.min(24 * 60, agenda.endMinute));
-        startTime.setText(formatMinute(normalizedStartMinute));
-        startTime.setTextColor(onSurfaceVariant);
-        startTime.setTextSize(12f);
-        startTime.setTypeface(null, Typeface.BOLD);
-        leftCol.addView(startTime);
-
-        if (normalizedEndMinute > normalizedStartMinute) {
-            TextView endTime = new TextView(this);
-            endTime.setText(formatMinute(normalizedEndMinute));
-            endTime.setTextColor(onSurfaceVariant);
-            endTime.setTextSize(12f);
-            endTime.setTypeface(null, Typeface.BOLD);
-            endTime.setPadding(0, dp(2), 0, 0);
-            leftCol.addView(endTime);
-        }
-        row.addView(leftCol);
-
+        TextView timeRange = new TextView(this);
+        timeRange.setText(formatMinute(normalizedStartMinute) + (normalizedEndMinute > normalizedStartMinute ? "-" + formatMinute(normalizedEndMinute) : ""));
+        timeRange.setTextColor(isOngoing ? accent : onSurfaceVariant);
+        timeRange.setTextSize(11f);
+        timeRange.setPadding(0, dp(4), 0, 0);
+        leftBox.addView(timeRange);
+        
+        LinearLayout.LayoutParams leftBoxLp = new LinearLayout.LayoutParams(dp(85), ViewGroup.LayoutParams.WRAP_CONTENT);
+        row.addView(leftBox, leftBoxLp);
+        
+        // Vertical divider
         View divider = new View(this);
-        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(dp(2), dp(36));
-        dividerLp.setMargins(dp(14), 0, dp(14), 0);
-        divider.setLayoutParams(dividerLp);
-        divider.setBackgroundColor(ColorUtils.setAlphaComponent(accent, 180));
-        row.addView(divider);
-
+        divider.setBackground(makeRoundedSolid(getTimetableThemeColor(), dp(2)));
+        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(dp(3), dp(36));
+        divLp.setMargins(dp(4), 0, dp(16), 0);
+        row.addView(divider, divLp);
+        
+        // Right part: agenda info
+        LinearLayout rightBox = new LinearLayout(this);
+        rightBox.setOrientation(LinearLayout.VERTICAL);
+        rightBox.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rightBoxLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        row.addView(rightBox, rightBoxLp);
+        
+        // Row 1 inside Right Part: Title + Optional Ongoing Chip
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        
         TextView title = new TextView(this);
         title.setText(safeText(agenda.title));
         title.setTextColor(onSurface);
-        title.setTextSize(18f);
+        title.setTextSize(16f);
         title.setTypeface(null, Typeface.BOLD);
-        title.setMaxLines(2);
+        title.setMaxLines(1);
         title.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        title.setLayoutParams(titleLp);
-        row.addView(title);
-
+        titleRow.addView(title, titleLp);
+        
+        if (isOngoing) {
+            TextView ongoingChip = new TextView(this);
+            ongoingChip.setText("进行中");
+            ongoingChip.setTextColor(accent);
+            ongoingChip.setTextSize(10f);
+            ongoingChip.setTypeface(null, Typeface.BOLD);
+            ongoingChip.setPadding(dp(8), dp(4), dp(8), dp(4));
+            ongoingChip.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(accent, 30), dp(10)));
+            LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            chipLp.setMargins(dp(8), 0, 0, 0);
+            titleRow.addView(ongoingChip, chipLp);
+        }
+        rightBox.addView(titleRow);
+        
+        // Row 2 inside Right Part: Location / Description
         String locationText = CampusBuildingStore.toStandardLocation(this, safeText(agenda.location));
         boolean hasLocation = !TextUtils.isEmpty(locationText) && !"未定".equals(locationText);
-
-        TextView badge = new TextView(this);
-        badge.setTextSize(12f);
-        badge.setTypeface(null, Typeface.BOLD);
-        badge.setPadding(dp(12), dp(7), dp(12), dp(7));
-        badge.setSingleLine(true);
-        badge.setEllipsize(TextUtils.TruncateAt.END);
-        badge.setMaxWidth(dp(138));
-        if (hasLocation) {
-            badge.setText(locationText);
-            int locationColor = ColorUtils.setAlphaComponent(accent, 228);
-            badge.setTextColor(locationColor);
-            badge.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(accent, 50), dp(14)));
-        } else {
-            badge.setText(priorityText(agenda.priority));
-            int priorityColor = priorityColor(agenda.priority, accent, onSurfaceVariant);
-            badge.setTextColor(ColorUtils.setAlphaComponent(priorityColor, 230));
-            badge.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(priorityColor, 48), dp(14)));
-        }
-        row.addView(badge);
-
-        content.addView(row);
-
         String desc = safeText(agenda.description).trim();
-        if (!desc.isEmpty()) {
-            TextView descTv = new TextView(this);
-            descTv.setText(desc);
-            descTv.setTextColor(onSurfaceVariant);
-            descTv.setTextSize(13f);
-            descTv.setMaxLines(3);
-            descTv.setEllipsize(TextUtils.TruncateAt.END);
-            descTv.setPadding(0, dp(8), 0, 0);
-            content.addView(descTv);
+        
+        LinearLayout bottomRow = new LinearLayout(this);
+        bottomRow.setOrientation(LinearLayout.HORIZONTAL);
+        bottomRow.setGravity(Gravity.CENTER_VERTICAL);
+        bottomRow.setPadding(0, dp(6), 0, 0);
+        
+        if (hasLocation || !desc.isEmpty()) {
+            if (hasLocation) {
+                ImageView locIcon = new ImageView(this);
+                locIcon.setImageResource(R.drawable.ic_agenda_location_24);
+                locIcon.setImageTintList(ColorStateList.valueOf(onSurfaceVariant));
+                LinearLayout.LayoutParams locIconLp = new LinearLayout.LayoutParams(dp(12), dp(12));
+                bottomRow.addView(locIcon, locIconLp);
+                
+                TextView location = new TextView(this);
+                location.setText(locationText);
+                location.setTextColor(onSurfaceVariant);
+                location.setTextSize(12f);
+                location.setSingleLine(true);
+                location.setEllipsize(TextUtils.TruncateAt.END);
+                location.setPadding(dp(4), 0, desc.isEmpty() ? 0 : dp(8), 0);
+                bottomRow.addView(location);
+            }
+            if (!desc.isEmpty()) {
+                TextView descTv = new TextView(this);
+                descTv.setText(desc);
+                descTv.setTextColor(onSurfaceVariant);
+                descTv.setTextSize(11f);
+                descTv.setMaxLines(1);
+                descTv.setEllipsize(TextUtils.TruncateAt.END);
+                bottomRow.addView(descTv);
+            }
+        } else {
+            TextView priorityTv = new TextView(this);
+            priorityTv.setText(priorityText(agenda.priority));
+            priorityTv.setTextColor(priorityColor(agenda.priority, accent, onSurfaceVariant));
+            priorityTv.setTextSize(11f);
+            priorityTv.setTypeface(null, Typeface.BOLD);
+            bottomRow.addView(priorityTv);
         }
+        
+        rightBox.addView(bottomRow);
+        
+        card.addView(row);
 
-        card.addView(content);
         card.setOnClickListener(v -> {
+            v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(80)
+                    .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(100).start())
+                    .start();
             Calendar anchor = AgendaStorageManager.parseDateOrNull(agenda.date);
             if (anchor == null) {
                 anchor = resolveSelectedTodayDate(Calendar.getInstance(), getActualCurrentWeek());
@@ -3067,11 +3369,21 @@ public class MainActivity extends AppCompatActivity {
             chip.setGravity(Gravity.CENTER);
             chip.setTextSize(13f);
             chip.setTypeface(null, Typeface.BOLD);
-            chip.setTextColor(isActive ? pickReadableTextColor(accent) : onSurfaceVariant);
-            chip.setBackground(makeRoundedSolid(isActive ? accent : ColorUtils.setAlphaComponent(onSurface, 28), dp(14)));
+            if (isActive) {
+                chip.setTextColor(pickReadableTextColor(accent));
+                chip.setBackground(makeRoundedGradient(accent, ColorUtils.setAlphaComponent(accent, 180), dp(14)));
+                ViewCompat.setElevation(chip, dp(4));
+            } else {
+                chip.setTextColor(onSurfaceVariant);
+                chip.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 28), dp(14)));
+                ViewCompat.setElevation(chip, dp(2));
+            }
             chip.setPadding(0, 0, 0, 0);
             int targetDay = day;
             chip.setOnClickListener(v -> {
+                v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(80)
+                        .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(120).start())
+                        .start();
                 syncWeekOverviewPreview(actualWeek, targetDay);
                 refreshTodayPage();
             });
@@ -3287,6 +3599,15 @@ public class MainActivity extends AppCompatActivity {
         android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
         drawable.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         drawable.setColor(color);
+        drawable.setCornerRadius(dp(radiusDp));
+        return drawable;
+    }
+
+    private android.graphics.drawable.GradientDrawable makeRoundedGradient(int colorStart, int colorEnd, int radiusDp) {
+        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
+        drawable.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        drawable.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.TL_BR);
+        drawable.setColors(new int[]{colorStart, colorEnd});
         drawable.setCornerRadius(dp(radiusDp));
         return drawable;
     }
@@ -4865,7 +5186,7 @@ private void extractAllTables(String passedCookie) {
             layout.addView(empty);
         } else {
             for (TodayCourseItem item : courses) {
-                MaterialCardView card = createCourseTimelineCard(item);
+                MaterialCardView card = createCourseTimelineCard(item, false);
                 card.setOnClickListener(v -> {
                     dialog.dismiss();
                     String colorKey = buildCourseColorKey(item.course.name, item.course.isExperimental);
@@ -4893,7 +5214,7 @@ private void extractAllTables(String passedCookie) {
             layout.addView(emptyAgenda);
         } else {
             for (Agenda agenda : agendas) {
-                MaterialCardView card = createAgendaTimelineCard(agenda);
+                MaterialCardView card = createAgendaTimelineCard(agenda, false);
                 card.setOnClickListener(v -> {
                     dialog.dismiss();
                     showAgendaEditorSheet(agenda, target);

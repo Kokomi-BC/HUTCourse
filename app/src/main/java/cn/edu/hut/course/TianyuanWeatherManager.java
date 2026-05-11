@@ -148,12 +148,12 @@ public final class TianyuanWeatherManager {
             throw new IllegalStateException("天气源校验失败：非株洲天元区");
         }
 
-        String area = "株洲·天元区";
+        String area = "天元区";
         String updateTime = extractUpdateTime(pageText);
 
         Elements dayNodes = doc.select("div#7d ul.t.clearfix li");
         List<DayForecast> forecasts = new ArrayList<>();
-        for (int i = 0; i < dayNodes.size() && forecasts.size() < 3; i++) {
+        for (int i = 0; i < dayNodes.size() && forecasts.size() < 7; i++) {
             Element node = dayNodes.get(i);
             String dayLabel = safe(node.selectFirst("h1") == null ? "" : node.selectFirst("h1").text()).trim();
             String weather = safe(node.selectFirst("p.wea") == null ? "" : node.selectFirst("p.wea").text()).trim();
@@ -186,7 +186,7 @@ public final class TianyuanWeatherManager {
         }
 
         if (forecasts.isEmpty()) {
-            throw new IllegalStateException("天气解析失败：未提取到近三天预报");
+            throw new IllegalStateException("天气解析失败：未提取到预报数据");
         }
 
         return new WeatherSnapshot(true, false, area, updateTime, "", forecasts);

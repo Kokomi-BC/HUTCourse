@@ -20,6 +20,15 @@
         <item name="android:includeFontPadding">false</item>
     </style>
 
+    <style name="TextAppearance.MyApplication.BottomNav.Active" parent="TextAppearance.MyApplication.BottomNav">
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+    </style>
+
+    <style name="TextAppearance.MyApplication.BottomNav.Inactive" parent="TextAppearance.MyApplication.BottomNav">
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
     <style name="ThemeOverlay.MyApplication.MaterialAlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="colorPrimary">?attr/colorPrimary</item>
         <item name="colorSecondary">?attr/colorSecondary</item>
