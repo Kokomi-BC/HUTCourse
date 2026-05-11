@@ -49,12 +49,16 @@ public final class AiGateway {
         }
     }
 
+    public interface StreamListener {
+        void onUpdate(String currentText);
+    }
+
     private AiGateway() {
     }
 
     public static String chat(String provider, String baseUrl, String apiKey, String model,
                               String systemPrompt, String userPrompt) throws Exception {
-        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, (List<String>) null, null);
+        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, (List<String>) null, null, null);
     }
 
     public static String chat(String provider, String baseUrl, String apiKey, String model,
@@ -63,34 +67,41 @@ public final class AiGateway {
         if (latestImagePath != null && !latestImagePath.trim().isEmpty()) {
             images.add(latestImagePath);
         }
-        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, images, null);
+        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, images, null, null);
     }
 
     public static String chat(String provider, String baseUrl, String apiKey, String model,
                               String systemPrompt, String userPrompt, List<String> imagePaths) throws Exception {
-        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, null);
+        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, null, null);
     }
 
     public static String chat(String provider, String baseUrl, String apiKey, String model,
                               String systemPrompt, String userPrompt, List<String> imagePaths,
                               RequestCacheHint cacheHint) throws Exception {
+        return chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, cacheHint, null);
+    }
+
+    public static String chat(String provider, String baseUrl, String apiKey, String model,
+                              String systemPrompt, String userPrompt, List<String> imagePaths,
+                              RequestCacheHint cacheHint, StreamListener listener) throws Exception {
         boolean hasImage = imagePaths != null && !imagePaths.isEmpty();
         if (AiConfigStore.PROVIDER_SDK.equals(provider)) {
             if (hasImage) {
                 // 现有 SDK 版本对多模态消息支持有限，图文请求统一走兼容接口。
-                return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, cacheHint);
+                return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, cacheHint, listener);
             }
             try {
+                // SDK暂时仍保持同步，如需流式可统一回退到curl或后续对接Flowable
                 return chatWithSdk(apiKey, model, systemPrompt, userPrompt, cacheHint);
             } catch (Exception sdkEx) {
                 // SDK 失败时回退到 OpenAI 兼容接口，保证可用性。
-                return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, null, cacheHint);
+                return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, null, cacheHint, listener);
             }
         }
         if (hasImage) {
-            return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, cacheHint);
+            return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, cacheHint, listener);
         }
-        return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, null, cacheHint);
+        return chatWithCurl(baseUrl, apiKey, model, systemPrompt, userPrompt, null, cacheHint, listener);
     }
 
     private static String chatWithSdk(String apiKey, String model, String systemPrompt,
@@ -130,7 +141,8 @@ public final class AiGateway {
     private static String chatWithCurl(String baseUrl, String apiKey, String model,
                                        String systemPrompt, String userPrompt,
                                        List<String> imagePaths,
-                                       RequestCacheHint cacheHint) throws Exception {
+                                       RequestCacheHint cacheHint,
+                                       StreamListener listener) throws Exception {
         String endpoint = buildEndpoint(baseUrl, "/chat/completions");
         boolean hasImage = imagePaths != null && !imagePaths.isEmpty();
         String conversationId = cacheHint == null ? "" : safe(cacheHint.conversationId);
@@ -190,7 +202,7 @@ public final class AiGateway {
             }
             payload.put("messages", messages);
             payload.put("temperature", 0.2);
-            payload.put("stream", false);
+            payload.put("stream", listener != null);
 
             byte[] payloadBytes = payload.toString().getBytes(StandardCharsets.UTF_8);
             conn.setFixedLengthStreamingMode(payloadBytes.length);
@@ -199,6 +211,53 @@ public final class AiGateway {
             }
 
             int code = conn.getResponseCode();
+            if (listener != null && code >= 200 && code < 300) {
+                // 处理 SSE 流式返回
+                InputStream stream = conn.getInputStream();
+                if (stream == null) return EMPTY_MODEL_RESPONSE;
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                    StringBuilder fullContent = new StringBuilder();
+                    String line;
+                    boolean isCmdOutput = false;
+                    while ((line = br.readLine()) != null) {
+                        String trimmed = line.trim();
+                        if (trimmed.startsWith("data:")) {
+                            String dataPayload = trimmed.substring(5).trim();
+                            if ("[DONE]".equals(dataPayload)) {
+                                break;
+                            }
+                            if (dataPayload.isEmpty()) {
+                                continue;
+                            }
+                            try {
+                                JSONObject chunkObj = new JSONObject(dataPayload);
+                                JSONArray choices = chunkObj.optJSONArray("choices");
+                                if (choices != null && choices.length() > 0) {
+                                    JSONObject delta = choices.optJSONObject(0).optJSONObject("delta");
+                                    if (delta != null && !delta.isNull("content")) {
+                                        String chunkStr = delta.optString("content", "");
+                                        if (!chunkStr.isEmpty() && !"null".equals(chunkStr)) {
+                                            fullContent.append(chunkStr);
+                                            String currentWhole = fullContent.toString();
+                                            // 保护机制：如果当前文本疑似内置CMD命令，就不再往外发射内容，避免在UI打字机中暴露 "CMD:"
+                                            if (currentWhole.contains("CMD:") || currentWhole.contains("CMD：") || currentWhole.contains("cmd:")) {
+                                                isCmdOutput = true;
+                                            }
+                                            if (!isCmdOutput) {
+                                                listener.onUpdate(currentWhole);
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (Exception ignore) {
+                            }
+                        }
+                    }
+                    String finalResult = fullContent.toString().trim();
+                    return finalResult.isEmpty() ? EMPTY_MODEL_RESPONSE : finalResult;
+                }
+            }
+
             String body = readBody(conn, code >= 200 && code < 300);
             Log.i(TAG, "chatWithCurl response code=" + code + ", bodyLen=" + (body == null ? 0 : body.length())
                     + ", hasImage=" + hasImage);

@@ -40,6 +40,7 @@ import androidx.annotation.Nullable;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
@@ -885,10 +886,8 @@ public class AgendaAiComposeBottomSheetFragment extends BottomSheetDialogFragmen
         BottomSheetDialog dialog = (BottomSheetDialog) getDialog();
         dialog.setDismissWithAnimation(true);
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setSoftInputMode(
-                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                            | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
-            );
+            WindowCompat.setDecorFitsSystemWindows(dialog.getWindow(), false);
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
         }
 
         sheetContainer = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);

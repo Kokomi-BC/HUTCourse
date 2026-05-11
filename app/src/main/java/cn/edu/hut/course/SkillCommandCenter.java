@@ -631,6 +631,38 @@ public final class SkillCommandCenter {
         return commands;
     }
 
+    public static String removeCommands(String modelText) {
+        if (modelText == null || modelText.trim().isEmpty()) return "";
+        String normalized = modelText.replace("\r\n", "\n");
+        StringBuilder sb = new StringBuilder();
+        boolean inCmdBlock = false;
+        for (String line : normalized.split("\n")) {
+            String one = line.trim();
+            Matcher matcher = CMD_PATTERN.matcher(one);
+            if (matcher.matches()) {
+                inCmdBlock = true;
+                continue;
+            }
+
+            if (!inCmdBlock) {
+                sb.append(line).append("\n");
+                continue;
+            }
+            if (one.isEmpty() || one.startsWith("```")) {
+                continue;
+            }
+
+            String candidate = stripBulletPrefix(one);
+            if (isLikelyCommand(candidate)) {
+                continue;
+            } else {
+                inCmdBlock = false;
+                sb.append(line).append("\n");
+            }
+        }
+        return sb.toString().trim();
+    }
+
     private static void appendExpandedCommands(String payload, List<String> out) {
         if (payload == null) {
             return;

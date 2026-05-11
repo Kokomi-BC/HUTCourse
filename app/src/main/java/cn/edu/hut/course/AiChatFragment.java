@@ -2070,11 +2070,47 @@ public class AiChatFragment extends Fragment {
             String fallbackTitle = deriveFallbackSessionTitle(session);
             if (!TextUtils.isEmpty(fallbackTitle) && !"新对话".equals(fallbackTitle)) {
                 session.title = fallbackTitle;
-                session.titleFromAi = false;
+                session.titleFromAi = isFallbackTitleDerivedFromAssistant(session, fallbackTitle);
                 title = fallbackTitle;
             }
         }
         return !title.isEmpty() && !"新对话".equals(title);
+    }
+
+    private boolean isFallbackTitleDerivedFromAssistant(@Nullable ChatSession session, @NonNull String title) {
+        if (session == null || session.messages == null) {
+            return false;
+        }
+        for (ChatMessage msg : session.messages) {
+            if (msg == null) {
+                continue;
+            }
+            String role = safe(msg.role).trim().toLowerCase(Locale.ROOT);
+            if (!"assistant".equals(role)) {
+                continue;
+            }
+            if (TextUtils.isEmpty(msg.content)) {
+                continue;
+            }
+            // 检查 assistant 回复中是否包含此标题（显式 TITLE 标记或内容开头）
+            String content = safe(msg.content).replace("\r\n", "\n");
+            String[] lines = content.split("\n");
+            for (String line : lines) {
+                Matcher matcher = TITLE_PATTERN.matcher(line.trim());
+                if (matcher.matches()) {
+                    String extracted = matcher.group(1) == null ? "" : matcher.group(1).trim();
+                    if (title.equals(extracted)) {
+                        return true;
+                    }
+                }
+            }
+            // 检查是否从 assistant 回复正文衍生
+            String candidate = normalizeTitleCandidate(msg.content);
+            if (title.equals(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int countNonEmptyMessages(ChatSession session) {
@@ -2095,6 +2131,36 @@ public class AiChatFragment extends Fragment {
         if (session == null || session.messages == null || session.messages.isEmpty()) {
             return "新对话";
         }
+        // 优先从 assistant 消息中提取标题：先检查显式 TITLE 标记，再取首条有意义的文本。
+        for (ChatMessage msg : session.messages) {
+            if (msg == null) {
+                continue;
+            }
+            String role = safe(msg.role).trim().toLowerCase(Locale.ROOT);
+            if (!"assistant".equals(role)) {
+                continue;
+            }
+            if (TextUtils.isEmpty(msg.content)) {
+                continue;
+            }
+            // 检查 assistant 回复中是否携带 TITLE / 标题 标记
+            String[] lines = safe(msg.content).replace("\r\n", "\n").split("\n");
+            for (String line : lines) {
+                Matcher matcher = TITLE_PATTERN.matcher(line.trim());
+                if (matcher.matches()) {
+                    String title = matcher.group(1) == null ? "" : matcher.group(1).trim();
+                    if (!title.isEmpty()) {
+                        return title;
+                    }
+                }
+            }
+            // 若无显式标记，使用 assistant 首条有意义文本作为保底标题
+            String normalizedText = normalizeTitleCandidate(msg.content);
+            if (!normalizedText.isEmpty()) {
+                return normalizedText;
+            }
+        }
+        // 其次回退到用户消息
         for (ChatMessage msg : session.messages) {
             if (msg == null) {
                 continue;
@@ -2254,7 +2320,7 @@ public class AiChatFragment extends Fragment {
         }
         if (btnAddImage != null) {
             btnAddImage.setImageTintList(android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 196)));
-            btnAddImage.setBackgroundTintList(android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(onSurface, 20)));
+            btnAddImage.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.TRANSPARENT));
         }
         if (btnRemovePendingImage != null) {
             btnRemovePendingImage.setImageTintList(android.content.res.ColorStateList.valueOf(ContextCompat.getColor(ctx(), R.color.ai_close_button_icon)));
@@ -2292,12 +2358,12 @@ public class AiChatFragment extends Fragment {
             updateSendButtonMode(isAiConversationRunning());
         }
         if (btnOpenHistory != null) {
-            btnOpenHistory.setBackgroundTintList(android.content.res.ColorStateList.valueOf(accentFill));
-            btnOpenHistory.setImageTintList(android.content.res.ColorStateList.valueOf(pickReadableTextColor(accentFill)));
+            btnOpenHistory.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.TRANSPARENT));
+            btnOpenHistory.setImageTintList(android.content.res.ColorStateList.valueOf(accentFill));
         }
         if (btnNewSession != null) {
-            btnNewSession.setBackgroundTintList(android.content.res.ColorStateList.valueOf(accentFill));
-            btnNewSession.setImageTintList(android.content.res.ColorStateList.valueOf(pickReadableTextColor(accentFill)));
+            btnNewSession.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.TRANSPARENT));
+            btnNewSession.setImageTintList(android.content.res.ColorStateList.valueOf(accentFill));
         }
         if (tvHistoryMeta != null) {
             tvHistoryMeta.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(ctx()));
@@ -3214,12 +3280,19 @@ public class AiChatFragment extends Fragment {
         final Set<String> toolFeedbackItems = new LinkedHashSet<>();
         final int[] toolFeedbackHistoryIndex = new int[]{-1};
         boolean agendaMutationNotified = false;
+        StringBuilder mixedOutputAccumulator = new StringBuilder();
 
         for (int round = 1; round <= MAX_TOOL_COMMAND_ROUNDS; round++) {
             ensureAiRequestActiveOrThrow(requestToken);
+            String textPortion = SkillCommandCenter.removeCommands(assistantOutput);
+            if (!TextUtils.isEmpty(textPortion) && !"模型返回为空".equals(textPortion) && !"模型无有效命令输出".equals(textPortion)) {
+                if (mixedOutputAccumulator.length() > 0) mixedOutputAccumulator.append("\n\n");
+                mixedOutputAccumulator.append(textPortion);
+            }
+
             List<String> commands = SkillCommandCenter.extractCommands(assistantOutput);
             if (commands.isEmpty()) {
-                return assistantOutput;
+                return mixedOutputAccumulator.length() > 0 ? mixedOutputAccumulator.toString() : assistantOutput;
             }
 
             SkillCommandCenter.CommandBatchResult batch = SkillCommandCenter.executeCommandsWithFeedback(ctx(), commands, originalUserText);
@@ -3359,8 +3432,35 @@ public class AiChatFragment extends Fragment {
                                               int roundTag) throws Exception {
         AiGateway.RequestCacheHint roundCacheHint = buildRoundCacheHint(baseCacheHint, model, userPrompt, roundTag);
         long firstStartMs = SystemClock.elapsedRealtime();
+
+        AiGateway.StreamListener uiStreamListener = (currentText) -> {
+            String display = currentText;
+            if (display.contains("TITLE:") || display.contains("标题:") || display.contains("标题：")) {
+                String raw = display.replace("\r\n", "\n");
+                int firstBreak = raw.indexOf('\n');
+                String firstLine = firstBreak >= 0 ? raw.substring(0, firstBreak).trim() : raw.trim();
+                if (TITLE_PATTERN.matcher(firstLine).matches()) {
+                    display = firstBreak >= 0 ? raw.substring(firstBreak + 1) : "";
+                    if (display.startsWith("\n")) {
+                        display = display.substring(1);
+                    }
+                }
+            }
+            final String finalDisplay = display;
+            if (isAdded()) {
+                requireActivity().runOnUiThread(() -> {
+                    removeTypingBubble();
+                    removeStreamBubble();
+                    addBubble(false, finalDisplay, false, false, -2); // -2 表示临时流式气泡
+                });
+            }
+        };
+
         try {
-            String reply = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, roundCacheHint);
+            String reply = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, roundCacheHint, uiStreamListener);
+            if (isAdded()) {
+                requireActivity().runOnUiThread(this::removeStreamBubble);
+            }
             long costMs = SystemClock.elapsedRealtime() - firstStartMs;
             Log.i(TAG, "model call done round=" + roundTag
                     + ", promptLen=" + safe(userPrompt).length()
@@ -3379,7 +3479,10 @@ public class AiChatFragment extends Fragment {
                     + ", firstDurationMs=" + firstCostMs
                     + ", reason=" + clipForLog(firstEx.getMessage()), firstEx);
             long retryStartMs = SystemClock.elapsedRealtime();
-            String reply = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, null);
+            String reply = AiGateway.chat(provider, baseUrl, apiKey, model, systemPrompt, userPrompt, imagePaths, null, uiStreamListener);
+            if (isAdded()) {
+                requireActivity().runOnUiThread(this::removeStreamBubble);
+            }
             long retryCostMs = SystemClock.elapsedRealtime() - retryStartMs;
             Log.i(TAG, "model retry done round=" + roundTag
                     + ", promptLen=" + safe(userPrompt).length()
@@ -4384,6 +4487,17 @@ public class AiChatFragment extends Fragment {
         }
     }
 
+    private void removeStreamBubble() {
+        for (int i = chatContainer.getChildCount() - 1; i >= 0; i--) {
+            View child = chatContainer.getChildAt(i);
+            Object tag = child.getTag();
+            // -2 是上边定义的临时流式气泡的 historyIndexHint
+            if (tag instanceof MessageViewMeta && ((MessageViewMeta) tag).historyIndex == -2) {
+                chatContainer.removeViewAt(i);
+            }
+        }
+    }
+
     private int pickBubbleColor(boolean isUser) {
         int primary = UiStyleHelper.resolveAccentColor(ctx());
         int surface = UiStyleHelper.resolveGlassCardColor(ctx());
@@ -4444,18 +4558,39 @@ public class AiChatFragment extends Fragment {
 
     private ReplyWithTitle extractTitle(String rawReply) {
         String raw = safe(rawReply).replace("\r\n", "\n");
-        int firstBreak = raw.indexOf('\n');
-        String firstLine = firstBreak >= 0 ? raw.substring(0, firstBreak).trim() : raw.trim();
-        Matcher matcher = TITLE_PATTERN.matcher(firstLine);
-        if (!matcher.matches()) {
-            return new ReplyWithTitle("", raw);
+        String[] lines = raw.split("\n");
+        // 扫描前 6 个非空行查找 TITLE / 标题 标记，防止工具输出等前置内容遮挡。
+        int searchLimit = Math.min(lines.length, 6);
+        for (int i = 0; i < searchLimit; i++) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            Matcher matcher = TITLE_PATTERN.matcher(line);
+            if (matcher.matches()) {
+                String title = matcher.group(1) == null ? "" : matcher.group(1).trim();
+                // 移除匹配行及其之前的空行，重建回复正文
+                StringBuilder rest = new StringBuilder();
+                boolean pastTitle = false;
+                for (int j = 0; j < lines.length; j++) {
+                    if (j == i) {
+                        pastTitle = true;
+                        continue;
+                    }
+                    if (!pastTitle && lines[j].trim().isEmpty()) {
+                        continue;
+                    }
+                    if (rest.length() > 0) {
+                        rest.append('\n');
+                    }
+                    rest.append(lines[j]);
+                }
+                return new ReplyWithTitle(title, rest.toString().trim());
+            }
+            // 首个非空行不匹配则停止，避免误伤正文中类似格式的行
+            break;
         }
-        String title = matcher.group(1) == null ? "" : matcher.group(1).trim();
-        String rest = firstBreak >= 0 ? raw.substring(firstBreak + 1) : "";
-        if (rest.startsWith("\n")) {
-            rest = rest.substring(1);
-        }
-        return new ReplyWithTitle(title, rest);
+        return new ReplyWithTitle("", raw);
     }
 
     private int pickTextColor(boolean isUser) {
