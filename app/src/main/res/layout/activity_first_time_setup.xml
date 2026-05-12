@@ -35,7 +35,7 @@
                 style="@style/Widget.MyApplication.SettingsRowTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="欢迎使用 HUT 课表助手" />
+                android:text="欢迎使用 HUT 智能助理" />
 
             <TextView
                 style="@style/Widget.MyApplication.SettingsRowSummary"

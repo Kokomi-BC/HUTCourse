@@ -67,6 +67,7 @@ import cn.edu.hut.course.data.CampusBuildingStore;
 import cn.edu.hut.course.data.AgendaStorageManager;
 import cn.edu.hut.course.data.CourseJsonCodec;
 import cn.edu.hut.course.data.CourseStorageManager;
+import cn.edu.hut.course.data.WeatherSQLiteStore;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -133,12 +134,10 @@ public class MainActivity extends AppCompatActivity {
 
     private com.google.android.material.card.MaterialCardView cardNextCourseNotice;
     private com.google.android.material.card.MaterialCardView cardTodayWeekOverview;
-    private com.google.android.material.card.MaterialCardView cardTodayWeather;
     private TextView tvMainTitle, tvEmptyHint, tvNextCourseNotice, tvAgendaOverviewSummary, tvScheduleTitleDivider, tvScheduleAgendaEntry;
     private TextView tvTodayWeek, tvTodayDate, tvTodayWeekTotal, tvTodayWeekDone, tvNowTime;
-    private TextView tvTodayWeatherInline, tvTodayWeatherUpdate;
     private TextView tvProfileName, tvProfileStudentId, tvProfileClass, tvProfileCollege;
-    private ImageButton btnCloseNextCourseNotice, btnAgendaOverviewBack, btnAgendaOverviewAdd, btnTodayWeatherRefresh;
+    private ImageButton btnCloseNextCourseNotice, btnAgendaOverviewBack, btnAgendaOverviewAdd;
     private BottomNavigationView bottomNav;
     private View bottomNavHost;
     private TextView tvTodayGreeting;
@@ -146,7 +145,8 @@ public class MainActivity extends AppCompatActivity {
     // Grid for header rendering if needed, but we use VP2 now
     private ViewPager2 viewPager;
     private View pageSchedule, pageToday, pageAi, pageProfile, pageAgenda, titleContainer, rootMain;
-    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer, layoutTodayWeatherList;
+    private LinearLayout todayCoursesContainer, layoutTodayWeekStrip, agendaOverviewContainer;
+    private LinearLayout layoutTodayHeaderWeather, layoutTodayWeekWeather;
 
     private final List<Course> allCourses = new ArrayList<>();
     private int currentWeek = 1;
@@ -157,15 +157,12 @@ public class MainActivity extends AppCompatActivity {
     private Calendar selectedTodayDate;
     private int weekOverviewPreviewWeek = -1;
     private int weekOverviewPreviewDay = -1;
-    private boolean todayWeatherRefreshing = false;
-    private boolean todayWeatherCollapsed = true;
     private boolean todayEndedTimelineCollapsed = true;
     private boolean agendaOngoingCollapsed = false;
     private boolean agendaUpcomingCollapsed = false;
     private boolean agendaEndedCollapsed = true;
     private int selectedNavItemId = R.id.nav_today;
-    @Nullable
-    private TianyuanWeatherManager.WeatherSnapshot latestTodayWeatherSnapshot;
+
     private int lastRealtimeWeek = -1;
     private int lastRealtimeDay = -1;
     private int lastRealtimeSlot = -2;
@@ -225,20 +222,11 @@ public class MainActivity extends AppCompatActivity {
         if (tvTodayDate != null) {
             tvTodayDate.setTextColor(colorOnSurfaceVariant);
         }
-        if (tvTodayWeatherInline != null) {
-            tvTodayWeatherInline.setTextColor(colorOnSurfaceVariant);
-        }
         if (tvTodayWeekTotal != null) {
             tvTodayWeekTotal.setTextColor(colorOnSurfaceVariant);
         }
         if (tvTodayWeekDone != null) {
             tvTodayWeekDone.setTextColor(colorOnSurfaceVariant);
-        }
-        if (tvTodayWeatherUpdate != null) {
-            tvTodayWeatherUpdate.setTextColor(colorOnSurfaceVariant);
-        }
-        if (btnTodayWeatherRefresh != null) {
-            btnTodayWeatherRefresh.setColorFilter(colorOnSurface);
         }
 
         if (bottomNav != null) {
@@ -386,21 +374,18 @@ public class MainActivity extends AppCompatActivity {
         tvTodayWeek = findViewById(R.id.tvTodayWeek);
         tvNowTime = findViewById(R.id.tvNowTime);
         tvTodayDate = findViewById(R.id.tvTodayDate);
-        tvTodayWeatherInline = findViewById(R.id.tvTodayWeatherInline);
         tvTodayGreeting = findViewById(R.id.tvTodayGreeting);
         tvTodayWeekTotal = findViewById(R.id.tvTodayWeekTotal);
         tvTodayWeekDone = findViewById(R.id.tvTodayWeekDone);
-        tvTodayWeatherUpdate = findViewById(R.id.tvTodayWeatherUpdate);
         todayCoursesContainer = findViewById(R.id.todayCoursesContainer);
         layoutTodayWeekStrip = findViewById(R.id.layoutTodayWeekStrip);
-        layoutTodayWeatherList = findViewById(R.id.layoutTodayWeatherList);
+        layoutTodayHeaderWeather = findViewById(R.id.layoutTodayHeaderWeather);
+        layoutTodayWeekWeather = findViewById(R.id.layoutTodayWeekWeather);
         agendaOverviewContainer = findViewById(R.id.agendaOverviewContainer);
         tvAgendaOverviewSummary = findViewById(R.id.tvAgendaOverviewSummary);
         btnAgendaOverviewBack = findViewById(R.id.btnAgendaOverviewBack);
         btnAgendaOverviewAdd = findViewById(R.id.btnAgendaOverviewAdd);
         cardTodayWeekOverview = findViewById(R.id.cardTodayWeekOverview);
-        cardTodayWeather = findViewById(R.id.cardTodayWeather);
-        btnTodayWeatherRefresh = findViewById(R.id.btnTodayWeatherRefresh);
         bottomNavHost = findViewById(R.id.bottomNavHost);
         bottomNav = findViewById(R.id.bottomNav);
         viewPager = findViewById(R.id.viewPager);
@@ -415,9 +400,6 @@ public class MainActivity extends AppCompatActivity {
         setupBottomNavInsetsHandling();
         setupAgendaAddEntryResultListeners();
 
-        if (btnTodayWeatherRefresh != null) {
-            btnTodayWeatherRefresh.setOnClickListener(v -> refreshTodayWeather(true));
-        }
         if (tvScheduleAgendaEntry != null) {
             tvScheduleAgendaEntry.setOnClickListener(v -> openAgendaOverviewActivity());
         }
@@ -2073,9 +2055,6 @@ public class MainActivity extends AppCompatActivity {
         if (tvTodayDate != null) {
             tvTodayDate.setText(String.format(Locale.getDefault(), "%d月%d日", displayDate.get(Calendar.MONTH) + 1, displayDate.get(Calendar.DAY_OF_MONTH)));
         }
-        if (tvTodayWeatherInline != null && (latestTodayWeatherSnapshot == null || !latestTodayWeatherSnapshot.success)) {
-            tvTodayWeatherInline.setText("");
-        }
         updateTodayHeaderClock();
 
         List<TodayCourseItem> courses = buildDateCourseItems(actualWeek, previewDay);
@@ -2083,7 +2062,7 @@ public class MainActivity extends AppCompatActivity {
         renderTodayTimelineCards(courses, agendas, viewingToday);
         renderTodayWeekOverview(actualWeek, previewDay, currentDay, currentSeconds);
         styleTodayOverviewCard();
-        refreshTodayWeather(false);
+        loadAndRenderWeather();
     }
 
     private void disableParentClipping(@NonNull View target) {
@@ -2222,231 +2201,191 @@ public class MainActivity extends AppCompatActivity {
             cardTodayWeekOverview.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
             cardTodayWeekOverview.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
         }
-        if (cardTodayWeather != null) {
-            cardTodayWeather.setCardElevation(0f);
-            cardTodayWeather.setRadius(dp(24));
-            cardTodayWeather.setStrokeWidth(dp(1));
-            cardTodayWeather.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
-            int glassColor = UiStyleHelper.resolveGlassCardColor(this);
-            cardTodayWeather.setCardBackgroundColor(ColorUtils.blendARGB(glassColor, primary, 0.08f));
-            // Reduce inner padding to give more room for today + forecast layout
-            if (cardTodayWeather.getChildCount() > 0 && cardTodayWeather.getChildAt(0) instanceof View) {
-                View innerBox = cardTodayWeather.getChildAt(0);
-                innerBox.setPadding(dp(12), dp(12), dp(12), dp(12));
-            }
-        }
     }
 
-    private void refreshTodayWeather(boolean forceRefresh) {
-        if (tvTodayWeatherUpdate == null || layoutTodayWeatherList == null) {
-            return;
-        }
-        if (todayWeatherRefreshing) {
-            return;
-        }
-
-        todayWeatherRefreshing = true;
-        if (btnTodayWeatherRefresh != null) {
-            btnTodayWeatherRefresh.setEnabled(false);
-            btnTodayWeatherRefresh.setAlpha(0.5f);
-            btnTodayWeatherRefresh.animate().rotationBy(360f).setDuration(800)
-                    .withEndAction(() -> {
-                        if (btnTodayWeatherRefresh != null) {
-                            btnTodayWeatherRefresh.animate().rotationBy(360f).setDuration(800).start();
-                        }
-                    }).start();
-        }
-        if (forceRefresh) {
-            tvTodayWeatherUpdate.setText("正在刷新...");
-            tvTodayWeatherUpdate.setAlpha(1f);
-            tvTodayWeatherUpdate.animate().cancel();
-        }
-
+    private void loadAndRenderWeather() {
+        boolean forceRefresh = TianyuanWeatherManager.shouldRefreshNow(this);
         TianyuanWeatherManager.requestWeather(this, forceRefresh, snapshot -> {
-            todayWeatherRefreshing = false;
-            if (btnTodayWeatherRefresh != null) {
-                btnTodayWeatherRefresh.setEnabled(true);
-                btnTodayWeatherRefresh.setAlpha(1f);
-                btnTodayWeatherRefresh.animate().cancel();
-                btnTodayWeatherRefresh.setRotation(0f);
-            }
-            latestTodayWeatherSnapshot = snapshot;
-            renderTodayWeather(snapshot);
+            renderTodayHeaderWeather(snapshot);
+            renderTodayWeekWeather(snapshot);
         });
     }
 
-    private void renderTodayWeather(@Nullable TianyuanWeatherManager.WeatherSnapshot snapshot) {
-        if (tvTodayWeatherUpdate == null || layoutTodayWeatherList == null) {
-            return;
-        }
+    private void renderTodayHeaderWeather(@Nullable TianyuanWeatherManager.WeatherSnapshot snapshot) {
+        if (layoutTodayHeaderWeather == null) return;
+        layoutTodayHeaderWeather.removeAllViews();
 
-        layoutTodayWeatherList.removeAllViews();
-        if (tvTodayWeatherInline != null) {
-            tvTodayWeatherInline.setText("");
-        }
         if (snapshot == null || !snapshot.success || snapshot.forecasts == null || snapshot.forecasts.isEmpty()) {
-            String msg = snapshot == null ? "天气加载失败" : (TextUtils.isEmpty(snapshot.message) ? "天气加载失败" : snapshot.message);
-            tvTodayWeatherUpdate.setText(msg);
-            TextView empty = new TextView(this);
-            empty.setText("暂未获取到株洲天元区天气预报");
-            empty.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
-            empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-            empty.setPadding(0, dp(4), 0, 0);
-            layoutTodayWeatherList.addView(empty);
+            layoutTodayHeaderWeather.setVisibility(View.GONE);
             return;
         }
 
-        // Update text: "已更新", auto-fade after 3 seconds
-        if (!snapshot.fromCache) {
-            tvTodayWeatherUpdate.setText("已更新");
-            tvTodayWeatherUpdate.setAlpha(1f);
-            tvTodayWeatherUpdate.animate().alpha(0f).setStartDelay(3000).setDuration(500).start();
-        } else {
-            tvTodayWeatherUpdate.setText("");
-            tvTodayWeatherUpdate.setAlpha(0f);
-        }
+        layoutTodayHeaderWeather.setVisibility(View.VISIBLE);
+        // Make the container horizontal: icon on left, text stack on right
+        layoutTodayHeaderWeather.setOrientation(LinearLayout.HORIZONTAL);
+        layoutTodayHeaderWeather.setGravity(Gravity.CENTER_VERTICAL);
 
-        if (tvTodayWeatherInline != null) {
-            tvTodayWeatherInline.setText(safeText(snapshot.forecasts.get(0).weather));
-        }
+        TianyuanWeatherManager.DayForecast today = snapshot.forecasts.get(0);
 
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
-        int primary = getTimetableThemeColor();
-        int glassBg = UiStyleHelper.resolveGlassCardColor(this);
+        int accent = getTimetableThemeColor();
 
-        // === Today's weather — big icon + temp on the left, description below ===
-        TianyuanWeatherManager.DayForecast today = snapshot.forecasts.get(0);
-        
-        LinearLayout todayLeftBox = new LinearLayout(this);
-        todayLeftBox.setOrientation(LinearLayout.VERTICAL);
-        todayLeftBox.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams leftBoxLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        todayLeftBox.setLayoutParams(leftBoxLp);
+        // Parse temperature: format is "28/19" (high/low)
+        String highTemp = "--";
+        String lowTemp = "--";
+        if (!TextUtils.isEmpty(today.temperature)) {
+            String raw = today.temperature.replace("℃", "").replace("°C", "").trim();
+            if (raw.contains("/")) {
+                String[] parts = raw.split("/");
+                highTemp = parts[0].trim();
+                lowTemp = parts.length > 1 ? parts[1].trim() : highTemp;
+            } else {
+                highTemp = raw;
+                lowTemp = raw;
+            }
+        }
 
-        // Row 1: Icon + Temperature + Unit
-        LinearLayout iconTempRow = new LinearLayout(this);
-        iconTempRow.setOrientation(LinearLayout.HORIZONTAL);
-        iconTempRow.setGravity(Gravity.BOTTOM);
-        
-        TextView todayIcon = new TextView(this);
-        todayIcon.setText(mapWeatherToIcon(today.weather));
-        todayIcon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f);
-        todayIcon.setGravity(Gravity.CENTER);
-        iconTempRow.addView(todayIcon);
-        
-        TextView todayTemp = new TextView(this);
-        String tempText = TextUtils.isEmpty(today.temperature) ? "--" : today.temperature.replace("℃", "").replace("°C", "").split("/")[0].trim();
-        todayTemp.setText(tempText);
-        todayTemp.setTextColor(onSurface);
-        todayTemp.setTextSize(TypedValue.COMPLEX_UNIT_SP, 36f);
-        todayTemp.setTypeface(null, Typeface.BOLD);
-        todayTemp.setSingleLine(true);
-        todayTemp.setMaxLines(1);
-        todayTemp.setPadding(dp(8), 0, 0, 0);
-        iconTempRow.addView(todayTemp);
-        
-        TextView todayUnit = new TextView(this);
-        todayUnit.setText("°C");
-        todayUnit.setTextColor(onSurfaceVariant);
-        todayUnit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
-        todayUnit.setTypeface(null, Typeface.BOLD);
-        todayUnit.setPadding(dp(2), 0, dp(8), dp(4));
-        iconTempRow.addView(todayUnit);
+        // ---- Large standalone icon on the left ----
+        TextView icon = new TextView(this);
+        icon.setText(mapWeatherToIcon(today.weather));
+        icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f);
+        icon.setGravity(Gravity.CENTER);
+        icon.setPadding(0, 0, dp(10), 0);
+        layoutTodayHeaderWeather.addView(icon);
 
-        todayLeftBox.addView(iconTempRow);
+        // ---- Right: 3-line text block ----
+        LinearLayout textBlock = new LinearLayout(this);
+        textBlock.setOrientation(LinearLayout.VERTICAL);
+        textBlock.setGravity(Gravity.START);
 
-        // Row 2: Weather description
-        TextView todayDesc = new TextView(this);
-        todayDesc.setText(TextUtils.isEmpty(today.weather) ? "未知" : today.weather);
-        todayDesc.setTextColor(onSurfaceVariant);
-        todayDesc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-        todayDesc.setSingleLine(true);
-        todayDesc.setMaxLines(1);
-        todayDesc.setPadding(dp(8), dp(2), 0, 0);
-        todayLeftBox.addView(todayDesc);
+        // Line 1: feels-like temp (big) + unit
+        LinearLayout line1 = new LinearLayout(this);
+        line1.setOrientation(LinearLayout.HORIZONTAL);
+        line1.setGravity(Gravity.CENTER_VERTICAL);
 
-        // Row 3: Wind / humidity info
-        TextView todaySub = new TextView(this);
-        String windInfo = TextUtils.isEmpty(today.wind) ? "暂无风向" : today.wind;
-        String baseTemp = TextUtils.isEmpty(today.temperature) ? "无" : today.temperature.split("/")[0].replace("℃", "").replace("°C", "").trim();
-        todaySub.setText("体感 " + baseTemp + "°C   湿度 65%   " + windInfo);
-        todaySub.setTextColor(onSurfaceVariant);
-        todaySub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
-        todaySub.setSingleLine(true);
-        todaySub.setMaxLines(1);
-        todaySub.setPadding(dp(8), dp(4), 0, 0);
-        todayLeftBox.addView(todaySub);
+        TextView tempValue = new TextView(this);
+        tempValue.setText(highTemp);
+        tempValue.setTextColor(accent);
+        tempValue.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f);
+        tempValue.setTypeface(null, Typeface.BOLD);
+        tempValue.setSingleLine(true);
+        tempValue.setMaxLines(1);
+        line1.addView(tempValue);
 
-        layoutTodayWeatherList.addView(todayLeftBox);
+        TextView tempUnit = new TextView(this);
+        tempUnit.setText("°");
+        tempUnit.setTextColor(accent);
+        tempUnit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f);
+        tempUnit.setTypeface(null, Typeface.BOLD);
+        tempUnit.setPadding(dp(1), dp(4), 0, 0);
+        line1.addView(tempUnit);
 
-        // === Future 3 days — small day-name cards on the right ===
-        LinearLayout futureRow = new LinearLayout(this);
-        futureRow.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams futureLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        futureRow.setLayoutParams(futureLp);
+        textBlock.addView(line1);
 
-        int futureCount = Math.min(snapshot.forecasts.size() - 1, 3);
-        for (int i = 1; i <= futureCount; i++) {
-            TianyuanWeatherManager.DayForecast one = snapshot.forecasts.get(i);
+        // Line 2: high/low with slash (e.g. "28°/19°")
+        TextView highLow = new TextView(this);
+        highLow.setText(highTemp + "°/" + lowTemp + "°");
+        highLow.setTextColor(onSurfaceVariant);
+        highLow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        highLow.setSingleLine(true);
+        highLow.setMaxLines(1);
+        highLow.setPadding(0, dp(2), 0, 0);
+        textBlock.addView(highLow);
 
-            MaterialCardView cell = new MaterialCardView(this);
-            cell.setRadius(dp(12));
-            cell.setCardElevation(0f);
-            cell.setStrokeWidth(dp(1));
-            cell.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 24));
-            cell.setCardBackgroundColor(glassBg);
+        // Line 3: weather + humidity (single line)
+        TextView desc = new TextView(this);
+        String weatherText = safeText(today.weather);
+        String humidityText = TextUtils.isEmpty(today.humidity) ? "--" : today.humidity;
+        desc.setText(weatherText + "  湿度" + humidityText + "%");
+        desc.setTextColor(onSurfaceVariant);
+        desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        desc.setSingleLine(true);
+        desc.setMaxLines(1);
+        desc.setPadding(0, dp(2), 0, 0);
+        textBlock.addView(desc);
 
-            LinearLayout cellContent = new LinearLayout(this);
-            cellContent.setOrientation(LinearLayout.VERTICAL);
-            cellContent.setGravity(Gravity.CENTER);
-            cellContent.setPadding(dp(4), dp(6), dp(4), dp(6));
+        layoutTodayHeaderWeather.addView(textBlock);
+    }
 
-            TextView dayLabel = new TextView(this);
-            dayLabel.setText(resolveDayLabel(i));
-            dayLabel.setTextColor(onSurfaceVariant);
-            dayLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f);
-            dayLabel.setGravity(Gravity.CENTER);
-            dayLabel.setSingleLine(true);
-            cellContent.addView(dayLabel);
+    private void renderTodayWeekWeather(@Nullable TianyuanWeatherManager.WeatherSnapshot snapshot) {
+        if (layoutTodayWeekWeather == null) return;
+        layoutTodayWeekWeather.removeAllViews();
+
+        int actualWeek = getActualCurrentWeek();
+        Calendar weekStart = buildDateInAcademicWeek(actualWeek, 1);
+        Calendar weekEnd = buildDateInAcademicWeek(actualWeek, 7);
+        String fromDate = AgendaStorageManager.formatDate(weekStart);
+        String toDate = AgendaStorageManager.formatDate(weekEnd);
+
+        List<WeatherSQLiteStore.DailyEntry> entries = WeatherSQLiteStore.queryRange(this, fromDate, toDate);
+        Map<String, WeatherSQLiteStore.DailyEntry> byDate = new HashMap<>();
+        for (WeatherSQLiteStore.DailyEntry entry : entries) {
+            byDate.put(entry.date, entry);
+        }
+        if (snapshot != null && snapshot.forecasts != null) {
+            for (TianyuanWeatherManager.DayForecast one : snapshot.forecasts) {
+                if (one.date == null || byDate.containsKey(one.date)) continue;
+                byDate.put(one.date, new WeatherSQLiteStore.DailyEntry(
+                        one.date, one.weather, one.temperature, one.wind, one.humidity, 0L));
+            }
+        }
+
+        if (byDate.isEmpty()) {
+            layoutTodayWeekWeather.setVisibility(View.GONE);
+            return;
+        }
+
+        layoutTodayWeekWeather.setVisibility(View.VISIBLE);
+
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+        String todayKey = WeatherSQLiteStore.DateUtils.todayDate();
+
+        // Render Monday-Sunday aligned cells
+        for (int day = 1; day <= 7; day++) {
+            Calendar date = buildDateInAcademicWeek(actualWeek, day);
+            String dateKey = AgendaStorageManager.formatDate(date);
+            WeatherSQLiteStore.DailyEntry entry = byDate.get(dateKey);
+
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams cellLp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            cell.setLayoutParams(cellLp);
 
             TextView icon = new TextView(this);
-            icon.setText(mapWeatherToIcon(one.weather));
             icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
             icon.setGravity(Gravity.CENTER);
-            icon.setPadding(0, dp(1), 0, 0);
-            cellContent.addView(icon);
+            cell.addView(icon);
 
             TextView temp = new TextView(this);
-            String rawTemp = TextUtils.isEmpty(one.temperature) ? "--/--" : one.temperature;
-            String shortTemp = rawTemp.replace("℃", "").replace("°C", "").trim();
-            if (shortTemp.contains("/")) {
-                String[] parts = shortTemp.split("/");
-                shortTemp = parts[0].trim() + "/" + parts[1].trim();
-            }
-            temp.setText(shortTemp + "°");
             temp.setTextColor(onSurface);
-            temp.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
+            temp.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
             temp.setTypeface(null, Typeface.BOLD);
             temp.setGravity(Gravity.CENTER);
             temp.setSingleLine(true);
             temp.setMaxLines(1);
-            cellContent.addView(temp);
+            cell.addView(temp);
 
-            cell.addView(cellContent);
+            if (entry == null) {
+                if (dateKey.compareTo(todayKey) < 0) {
+                    icon.setText(" ");
+                    temp.setText(" ");
+                } else {
+                    icon.setText(" ");
+                    temp.setText("--");
+                    temp.setTextColor(onSurfaceVariant);
+                }
+            } else {
+                icon.setText(mapWeatherToIcon(entry.weather));
+                String rawTemp = TextUtils.isEmpty(entry.temperature) ? "--/--" : entry.temperature;
+                String shortTemp = rawTemp.replace("℃", "").replace("°C", "").trim();
+                temp.setText(shortTemp + "°");
+            }
 
-            LinearLayout.LayoutParams cellLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            cellLp.setMargins(i == 1 ? dp(10) : dp(4), 0, 0, 0);
-            cell.setLayoutParams(cellLp);
-            futureRow.addView(cell);
-        }
-
-        layoutTodayWeatherList.addView(futureRow);
-
-        if (btnTodayWeatherRefresh != null) {
-            btnTodayWeatherRefresh.setColorFilter(primary);
+            layoutTodayWeekWeather.addView(cell);
         }
     }
 
@@ -2463,16 +2402,6 @@ public class MainActivity extends AppCompatActivity {
         if (w.contains("雾") || w.contains("霾")) return "🌫️";
         if (w.contains("风") || w.contains("沙") || w.contains("尘")) return "💨";
         return "🌈";
-    }
-
-    private static String resolveDayLabel(int index) {
-        switch (index) {
-            case 0: return "今天";
-            case 1: return "明天";
-            case 2: return "后天";
-            case 3: return "大后天";
-            default: return "第" + (index + 1) + "天";
-        }
     }
 
     private void renderTodayTimelineCards(List<TodayCourseItem> courses, List<Agenda> agendas, boolean viewingToday) {
@@ -3039,8 +2968,8 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(dp(22));
-        card.setCardElevation(dp(isOngoing ? 2 : 0));
-        card.setStrokeWidth(dp(isOngoing ? 0 : 1));
+        card.setCardElevation(0f);
+        card.setStrokeWidth(dp(1));
         card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 12));
         card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
 
@@ -3174,8 +3103,8 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(dp(22));
-        card.setCardElevation(dp(isOngoing ? 2 : 0));
-        card.setStrokeWidth(dp(isOngoing ? 0 : 1));
+        card.setCardElevation(0f);
+        card.setStrokeWidth(dp(1));
         card.setStrokeColor(ColorUtils.setAlphaComponent(onSurface, 12));
         card.setCardBackgroundColor(UiStyleHelper.resolveGlassCardColor(this));
 
