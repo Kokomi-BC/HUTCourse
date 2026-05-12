@@ -234,7 +234,7 @@
                                     android:layout_height="wrap_content"
                                     android:layout_gravity="start|center_vertical"
                                     android:layout_marginEnd="40dp"
-                                    android:text="株洲·天元区天气"
+                                    android:text="学校天气"
                                     android:textColor="?attr/colorOnSurface"
                                     android:textSize="17sp"
                                     android:textStyle="bold" />

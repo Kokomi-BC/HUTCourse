@@ -36,6 +36,9 @@
         <activity android:name=".SettingsHomeActivity" />
         <activity android:name=".SettingsAiActivity" />
         <activity
+            android:name=".FirstTimeSetupActivity"
+            android:exported="false" />
+        <activity
             android:name=".AiImagePreviewActivity"
             android:exported="false" />
         <activity

@@ -3,6 +3,8 @@ package cn.edu.hut.course;
 import android.content.Context;
 import android.content.res.AssetManager;
 
+import androidx.annotation.Nullable;
+
 import cn.edu.hut.course.data.AgendaStorageManager;
 
 import java.io.BufferedReader;
@@ -46,6 +48,7 @@ public final class SkillCommandCenter {
         StringBuilder sb = new StringBuilder();
         sb.append("可用技能索引(仅frontmatter):\n");
         for (SkillDoc doc : enabledDocs) {
+            if (doc.hidden) continue;
             sb.append("- name: ").append(doc.name)
                     .append(" | description: ").append(doc.description)
                     .append("\n");
@@ -544,12 +547,15 @@ public final class SkillCommandCenter {
         String frontmatter = text.substring(4, second).trim();
         String name = "";
         String description = "";
+        boolean hidden = false;
         for (String line : frontmatter.split("\n")) {
             String one = line.trim();
             if (one.startsWith("name:")) {
                 name = one.substring("name:".length()).trim().replace("\"", "");
             } else if (one.startsWith("description:")) {
                 description = one.substring("description:".length()).trim().replace("\"", "");
+            } else if (one.startsWith("hidden:")) {
+                hidden = "true".equalsIgnoreCase(one.substring("hidden:".length()).trim());
             }
         }
         if (name.isEmpty()) {
@@ -564,18 +570,29 @@ public final class SkillCommandCenter {
             }
             name = fileName;
         }
-        return new SkillDoc(name, description, text);
+        return new SkillDoc(name, description, text, hidden);
+    }
+
+    /** 供外部程序化读取skill全文（不经过技能开关校验），用于vision等内部skill。 */
+    @Nullable
+    public static String readSkillContent(Context context, String skillName) {
+        if (skillName == null || skillName.trim().isEmpty()) return null;
+        Map<String, SkillDoc> docs = loadSkillDocs(context);
+        SkillDoc doc = docs.get(skillName.trim().toLowerCase(Locale.ROOT));
+        return doc == null ? null : doc.fullContent;
     }
 
     private static final class SkillDoc {
         final String name;
         final String description;
         final String fullContent;
+        final boolean hidden;
 
-        SkillDoc(String name, String description, String fullContent) {
+        SkillDoc(String name, String description, String fullContent, boolean hidden) {
             this.name = name;
             this.description = description;
             this.fullContent = fullContent;
+            this.hidden = hidden;
         }
     }
 

@@ -57,6 +57,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
     private LinearLayout layoutThemePaletteRow;
     private TextView tvThemeColorValue;
     private TextView tvTimetableFontPercent;
+    private TextView tvFontPreview;
     private SeekBar seekTimetableFontSize;
 
     @Override
@@ -76,6 +77,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         layoutThemePaletteRow = findViewById(R.id.layoutThemePaletteRow);
         tvThemeColorValue = findViewById(R.id.tvThemeColorValue);
         tvTimetableFontPercent = findViewById(R.id.tvTimetableFontPercent);
+        tvFontPreview = findViewById(R.id.tvFontPreview);
         seekTimetableFontSize = findViewById(R.id.seekTimetableFontSize);
 
         SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
@@ -194,6 +196,10 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         tvTimetableFontPercent.setText(percent + "%");
         tvTimetableFontPercent.setTextColor(onSurface);
         tvTimetableFontPercent.setBackground(makeRoundedSolid(ColorUtils.setAlphaComponent(onSurface, 28), 10));
+        if (tvFontPreview != null) {
+            float scale = percent / 100f;
+            tvFontPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f * scale);
+        }
     }
 
     private void renderThemePaletteRow() {

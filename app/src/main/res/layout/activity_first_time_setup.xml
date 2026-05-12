@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/rootSettingsHome"
+    android:id="@+id/rootFirstTimeSetup"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true">
@@ -15,12 +15,13 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="设置" />
+            app:title="初始设置" />
     </com.google.android.material.appbar.AppBarLayout>
 
-    <ScrollView
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:fillViewport="true"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <LinearLayout
@@ -29,12 +30,35 @@
             android:orientation="vertical"
             android:padding="20dp">
 
+            <!-- 欢迎标题 -->
+            <TextView
+                style="@style/Widget.MyApplication.SettingsRowTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="欢迎使用 HUT 课表助手" />
+
+            <TextView
+                style="@style/Widget.MyApplication.SettingsRowSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="首次使用前请完成以下设置，各项可在设置中随时修改。" />
+
+            <!-- ========== 教务系统 ========== -->
+            <TextView
+                style="@style/Widget.MyApplication.SettingsRowTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:text="教务系统" />
+
             <com.google.android.material.card.MaterialCardView
-                android:id="@+id/itemAccountSync"
+                android:id="@+id/cardLoginJwxt"
                 style="@style/Widget.MyApplication.SettingsCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="10dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground">
@@ -56,24 +80,25 @@
                             style="@style/Widget.MyApplication.SettingsRowTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="账号与同步" />
+                            android:text="登入教务系统" />
 
                         <TextView
+                            android:id="@+id/tvLoginStatus"
                             style="@style/Widget.MyApplication.SettingsRowSummary"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="登录教务、刷新课表与清理" />
+                            android:text="打开浏览器完成统一认证登录" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
-                android:id="@+id/itemDisplaySettings"
+                android:id="@+id/cardFetchSchedule"
                 style="@style/Widget.MyApplication.SettingsCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
+                android:layout_marginBottom="10dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground">
@@ -95,24 +120,34 @@
                             style="@style/Widget.MyApplication.SettingsRowTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="课表显示" />
+                            android:text="刷新课表" />
 
                         <TextView
+                            android:id="@+id/tvFetchStatus"
                             style="@style/Widget.MyApplication.SettingsRowSummary"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="背景与课程颜色" />
+                            android:text="从教务系统同步最新课表" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- ========== 学期设置 ========== -->
+            <TextView
+                style="@style/Widget.MyApplication.SettingsRowTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="学期设置" />
+
             <com.google.android.material.card.MaterialCardView
-                android:id="@+id/itemDataManagement"
+                android:id="@+id/cardSemesterDate"
                 style="@style/Widget.MyApplication.SettingsCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="10dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground">
@@ -134,24 +169,180 @@
                             style="@style/Widget.MyApplication.SettingsRowTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="数据管理" />
+                            android:text="选择开学日期" />
+
+                        <TextView
+                            android:id="@+id/tvSemesterDateSummary"
+                            style="@style/Widget.MyApplication.SettingsRowSummary"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="自动（周一）" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ========== 课表外观 ========== -->
+            <TextView
+                style="@style/Widget.MyApplication.SettingsRowTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="课表外观" />
+
+            <!-- 主题色 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardThemeColor"
+                style="@style/Widget.MyApplication.SettingsCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        style="@style/Widget.MyApplication.SettingsRowTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="课表主题色" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:overScrollMode="never"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/layoutThemePaletteRow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 网格线 -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.MyApplication.SettingsCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/Widget.MyApplication.SettingsRowTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="显示网格线" />
 
                         <TextView
                             style="@style/Widget.MyApplication.SettingsRowSummary"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="导入导出课表与Cookie" />
+                            android:text="在课表单元格之间显示分隔线" />
                     </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchGridLines"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 字号 -->
             <com.google.android.material.card.MaterialCardView
-                android:id="@+id/itemAiAccess"
                 style="@style/Widget.MyApplication.SettingsCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
+                android:layout_marginBottom="10dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            style="@style/Widget.MyApplication.SettingsRowTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="课表字号" />
+
+                        <TextView
+                            android:id="@+id/tvFontPercent"
+                            style="@style/Widget.MyApplication.SettingsRowSummary"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_font_percent_tag"
+                            android:gravity="center"
+                            android:minWidth="48dp"
+                            android:paddingHorizontal="10dp"
+                            android:paddingVertical="4dp"
+                            android:text="100%" />
+                    </LinearLayout>
+
+                    <SeekBar
+                        android:id="@+id/seekFontSize"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:max="45" />
+
+                    <TextView
+                        android:id="@+id/tvFontPreview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:gravity="center"
+                        android:text="高等数学A（一）&#10;张三 · 公共教学楼101"
+                        android:textColor="?attr/colorOnSurface" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ========== AI 配置 ========== -->
+            <TextView
+                style="@style/Widget.MyApplication.SettingsRowTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="AI 配置" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardAiSettings"
+                style="@style/Widget.MyApplication.SettingsCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground">
@@ -173,56 +364,32 @@
                             style="@style/Widget.MyApplication.SettingsRowTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="大模型设置" />
+                            android:text="大模型配置" />
 
                         <TextView
                             style="@style/Widget.MyApplication.SettingsRowSummary"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="模型设置与技能设置" />
+                            android:text="配置 AI 模型与 API Key（可选）" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/itemSetupWizard"
-                style="@style/Widget.MyApplication.SettingsCard"
+            <!-- ========== 进入按钮 ========== -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEnter"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="?attr/selectableItemBackground">
+                android:layout_height="56dp"
+                android:layout_marginTop="28dp"
+                android:layout_marginBottom="24dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="进入课表"
+                android:textAllCaps="false"
+                android:textSize="18sp"
+                app:cornerRadius="28dp" />
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:padding="16dp">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            style="@style/Widget.MyApplication.SettingsRowTitle"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="重新配置程序" />
-
-                        <TextView
-                            style="@style/Widget.MyApplication.SettingsRowSummary"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="重新运行首次设置向导" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
-    </ScrollView>
-
+    </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

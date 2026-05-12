@@ -360,6 +360,14 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // 首次进入：跳转到初始设置页
+        if (!FirstTimeSetupActivity.isFirstLaunchCompleted(this)) {
+            startActivity(new Intent(this, FirstTimeSetupActivity.class));
+            finish();
+            return;
+        }
+
         UiStyleHelper.hideStatusBar(this);
 
         setContentView(R.layout.activity_main);

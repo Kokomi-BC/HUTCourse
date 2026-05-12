@@ -194,6 +194,8 @@ public class AiChatFragment extends Fragment {
     private Thread activeAiWorkerThread;
     @Nullable
     private Runnable activeStreamTicker;
+    @Nullable
+    private Runnable thinkingDotAnimator;
     private View rootView;
     private PopupWindow sessionMenuPopup;
     private float lastHistoryTouchRawX = -1f;
@@ -356,6 +358,7 @@ public class AiChatFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
+        stopThinkingAnimation();
         stopImeProbe();
         clearImeGlobalLayoutFallback();
         if (sessionMenuPopup != null) {
@@ -2646,15 +2649,28 @@ public class AiChatFragment extends Fragment {
             ), true);
             return;
         }
-        if (hasImage && !selectedModel.multimodal) {
-            Toast.makeText(ctx(), "模型未启用多模态，请到模型设置中开启后重试", Toast.LENGTH_SHORT).show();
-            return;
+
+        // 图片转文字回退：若当前模型不支持多模态但有图，用优先级最高的多模态模型先描述图片
+        final boolean needVisionFallback = hasImage && !selectedModel.multimodal;
+        final AiConfigStore.AiModelConfig visionModel;
+        final String visionSkillContent;
+        if (needVisionFallback) {
+            visionModel = AiConfigStore.getTopMultimodalModel(ctx());
+            if (visionModel == null) {
+                addSystemMessage(buildApiConfigCardPayload(
+                        "发送图片需要多模态模型",
+                        "请先在 大模型设置 中至少添加一个已启用多模态的模型，用于将图片转为文字描述。"
+                ), true);
+                return;
+            }
+            visionSkillContent = SkillCommandCenter.readSkillContent(ctx(), "vision");
+        } else {
+            visionModel = null;
+            visionSkillContent = null;
         }
 
         final boolean requestTitleInFinalAnswer = shouldRequestModelTitleForCurrentTurn();
         final String modelPromptText = rawUserText;
-        final String contextAwarePromptText = buildContextAwarePromptText(modelPromptText);
-        final AiGateway.RequestCacheHint cacheHint = buildRequestCacheHint(selectedModel.modelName, contextAwarePromptText);
         final List<String> imagesForRequest = hasImage
                 ? new ArrayList<>(pendingImagePaths.subList(0, Math.min(4, pendingImagePaths.size())))
                 : java.util.Collections.emptyList();
@@ -2718,7 +2734,8 @@ public class AiChatFragment extends Fragment {
 
         final long requestToken = beginAiConversationRequest();
         updateSendButtonMode(true);
-        addBubble(false, "思考中...", true);
+        addBubble(false, "思考中.", true);
+        startThinkingAnimation();
 
         final String provider = selectedModel.provider;
         final String baseUrl = selectedModel.baseUrl;
@@ -2738,12 +2755,53 @@ public class AiChatFragment extends Fragment {
             boolean cancelled = false;
             PendingLoginContinuation loginContinuation = null;
             try {
+                // 图片转文字回退：先用多模态模型描述图片，再将文字描述交给目标模型
+                final String effectivePromptText;
+                final List<String> effectiveImages;
+                if (needVisionFallback && visionModel != null) {
+                    String visionSystem = visionSkillContent != null ? visionSkillContent : "请详细描述以下图片内容。";
+                    String imageDescription;
+                    try {
+                        imageDescription = AiGateway.chat(
+                                visionModel.provider,
+                                visionModel.baseUrl,
+                                visionModel.apiKey,
+                                visionModel.modelName,
+                                visionSystem,
+                                "请描述以下图片内容",
+                                imagesForRequest,
+                                null,
+                                null
+                        );
+                    } catch (Exception visionEx) {
+                        Log.w(TAG, "vision fallback failed: " + clipForLog(visionEx.getMessage()));
+                        imageDescription = null;
+                    }
+                    ensureAiRequestActiveOrThrow(requestToken);
+                    if (!TextUtils.isEmpty(imageDescription)
+                            && !imageDescription.startsWith("模型返回为空")
+                            && !imageDescription.startsWith("请求失败")
+                            && !imageDescription.startsWith("模型服务返回错误")) {
+                        effectivePromptText = modelPromptText + "\n\n[图片描述]\n" + imageDescription;
+                        effectiveImages = java.util.Collections.emptyList();
+                    } else {
+                        effectivePromptText = modelPromptText;
+                        effectiveImages = imagesForRequest;
+                    }
+                } else {
+                    effectivePromptText = modelPromptText;
+                    effectiveImages = imagesForRequest;
+                }
+                final String contextAwarePromptText = buildContextAwarePromptText(effectivePromptText);
+                final AiGateway.RequestCacheHint cacheHint = buildRequestCacheHint(model, contextAwarePromptText);
+
                 if (hasImage) {
-                    Log.i(TAG, "multimodal request start token=" + requestToken
+                    Log.i(TAG, "request start token=" + requestToken
                             + ", model=" + safe(model)
                             + ", provider=" + safe(provider)
-                            + ", imageCount=" + imagesForRequest.size()
-                            + ", promptLen=" + modelPromptText.length());
+                            + ", imageCount=" + effectiveImages.size()
+                            + ", promptLen=" + effectivePromptText.length()
+                            + (needVisionFallback ? ", visionFallback=true" : ""));
                 }
                 ensureAiRequestActiveOrThrow(requestToken);
                 reply = runModelWithSkillCommands(
@@ -2753,10 +2811,10 @@ public class AiChatFragment extends Fragment {
                         model,
                         modelId,
                         contextAwarePromptText,
-                        modelPromptText,
+                        effectivePromptText,
                         requestTitleInFinalAnswer,
                         requestToken,
-                        imagesForRequest,
+                        effectiveImages,
                         cacheHint,
                         skillEnabled,
                         memorySkillEnabled,
@@ -2768,7 +2826,7 @@ public class AiChatFragment extends Fragment {
                 );
                 ensureAiRequestActiveOrThrow(requestToken);
                 if (hasImage) {
-                    Log.i(TAG, "multimodal request finish token=" + requestToken
+                    Log.i(TAG, "request finish token=" + requestToken
                             + ", replyLen=" + safe(reply).length());
                 }
             } catch (LoginRequiredException loginEx) {
@@ -2777,7 +2835,7 @@ public class AiChatFragment extends Fragment {
                 cancelled = true;
             } catch (Throwable e) {
                 if (hasImage) {
-                    Log.e(TAG, "multimodal request failed token=" + requestToken
+                    Log.e(TAG, "request failed token=" + requestToken
                             + ", reason=" + safe(e.getMessage()), e);
                 }
                 if (isAiRequestActive(requestToken)) {
@@ -2839,7 +2897,7 @@ public class AiChatFragment extends Fragment {
                 String visibleReply = stripLeadingToolFeedbackLines(visibleReplyRaw);
                 if (TextUtils.isEmpty(visibleReply.trim())) {
                     if (hasImage) {
-                        Log.w(TAG, "multimodal visible reply empty token=" + requestToken
+                        Log.w(TAG, "visible reply empty token=" + requestToken
                                 + ", rawReply=" + clipForLog(finalReply));
                     }
                     String fallback = hasImage
@@ -2958,7 +3016,8 @@ public class AiChatFragment extends Fragment {
 
         final long requestToken = beginAiConversationRequest();
         updateSendButtonMode(true);
-        addBubble(false, "思考中...", true);
+        addBubble(false, "思考中.", true);
+        startThinkingAnimation();
 
         final String provider = selectedModel.provider;
         final String baseUrl = selectedModel.baseUrl;
@@ -4159,7 +4218,10 @@ public class AiChatFragment extends Fragment {
             historyIndex = getActiveSessionLastMessageIndex();
         }
 
-        maybeAddAssistantSeparator(isUser, typing);
+        // 临时流式气泡（historyIndexHint == -2）不添加分隔线，避免流式更新时累积多条横线
+        if (historyIndexHint != -2) {
+            maybeAddAssistantSeparator(isUser, typing);
+        }
 
         TextView tv = new TextView(ctx());
         tv.setTag(new MessageViewMeta(isUser, safe(text), typing, historyIndex));
@@ -4181,7 +4243,6 @@ public class AiChatFragment extends Fragment {
             GradientDrawable bg = new GradientDrawable();
             bg.setCornerRadius(dp(20));
             bg.setColor(pickBubbleColor(isUser));
-            bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 36));
             tv.setBackground(bg);
             tv.setClipToOutline(true);
 
@@ -4281,7 +4342,6 @@ public class AiChatFragment extends Fragment {
                 GradientDrawable bg = new GradientDrawable();
                 bg.setCornerRadius(dp(20));
                 bg.setColor(pickBubbleColor(true));
-                bg.setStroke(dp(1), ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 36));
                 captionView.setBackground(bg);
                 LinearLayout.LayoutParams captionLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 captionLp.topMargin = dp(6);
@@ -4476,7 +4536,40 @@ public class AiChatFragment extends Fragment {
         bubbleView.setLongClickable(true);
     }
 
+    private void startThinkingAnimation() {
+        stopThinkingAnimation();
+        thinkingDotAnimator = new Runnable() {
+            int dotCount = 1;
+            @Override
+            public void run() {
+                if (thinkingDotAnimator != this) return;
+                if (chatContainer == null) return;
+                for (int i = chatContainer.getChildCount() - 1; i >= 0; i--) {
+                    View child = chatContainer.getChildAt(i);
+                    Object tag = child.getTag();
+                    if (tag instanceof MessageViewMeta && ((MessageViewMeta) tag).typing && child instanceof TextView) {
+                        StringBuilder dots = new StringBuilder("思考中");
+                        for (int d = 0; d < dotCount; d++) dots.append(".");
+                        ((TextView) child).setText(dots.toString());
+                        break;
+                    }
+                }
+                dotCount = dotCount % 3 + 1;
+                streamHandler.postDelayed(this, 500);
+            }
+        };
+        streamHandler.post(thinkingDotAnimator);
+    }
+
+    private void stopThinkingAnimation() {
+        if (thinkingDotAnimator != null) {
+            streamHandler.removeCallbacks(thinkingDotAnimator);
+            thinkingDotAnimator = null;
+        }
+    }
+
     private void removeTypingBubble() {
+        stopThinkingAnimation();
         for (int i = chatContainer.getChildCount() - 1; i >= 0; i--) {
             View child = chatContainer.getChildAt(i);
             Object tag = child.getTag();
@@ -4494,6 +4587,13 @@ public class AiChatFragment extends Fragment {
             // -2 是上边定义的临时流式气泡的 historyIndexHint
             if (tag instanceof MessageViewMeta && ((MessageViewMeta) tag).historyIndex == -2) {
                 chatContainer.removeViewAt(i);
+                // 同时移除紧邻该临时气泡之前可能遗留的孤儿分隔线
+                if (i > 0 && i <= chatContainer.getChildCount()) {
+                    View prev = chatContainer.getChildAt(i - 1);
+                    if ("ai_chat_divider".equals(prev.getTag())) {
+                        chatContainer.removeViewAt(i - 1);
+                    }
+                }
             }
         }
     }
@@ -4514,6 +4614,7 @@ public class AiChatFragment extends Fragment {
         }
 
         View divider = new View(ctx());
+        divider.setTag("ai_chat_divider");
         divider.setBackgroundColor(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(ctx()), 58));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
         lp.setMargins(dp(4), dp(2), dp(4), dp(8));

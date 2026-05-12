@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.text.TextUtils;
 
+import androidx.annotation.Nullable;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -497,5 +499,19 @@ public final class AiConfigStore {
             default:
                 return true;
         }
+    }
+
+    /** 获取优先级最高且已配置完整（有apiKey和modelName）的多模态模型，用于图片转文字回退。 */
+    @Nullable
+    public static AiModelConfig getTopMultimodalModel(Context context) {
+        List<AiModelConfig> models = getModels(context);
+        for (AiModelConfig model : models) {
+            if (model.multimodal
+                    && !TextUtils.isEmpty(model.apiKey)
+                    && !TextUtils.isEmpty(model.modelName)) {
+                return model;
+            }
+        }
+        return null;
     }
 }
