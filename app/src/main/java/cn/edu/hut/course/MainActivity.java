@@ -2221,13 +2221,12 @@ public class MainActivity extends AppCompatActivity {
         }
 
         layoutTodayHeaderWeather.setVisibility(View.VISIBLE);
-        // Make the container horizontal: icon on left, text stack on right
-        layoutTodayHeaderWeather.setOrientation(LinearLayout.HORIZONTAL);
-        layoutTodayHeaderWeather.setGravity(Gravity.CENTER_VERTICAL);
+        // Stack elements and align to right (END)
+        layoutTodayHeaderWeather.setOrientation(LinearLayout.VERTICAL);
+        layoutTodayHeaderWeather.setGravity(Gravity.END);
 
         TianyuanWeatherManager.DayForecast today = snapshot.forecasts.get(0);
 
-        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
         int accent = getTimetableThemeColor();
 
@@ -2246,42 +2245,55 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // ---- Large standalone icon on the left ----
-        TextView icon = new TextView(this);
-        icon.setText(mapWeatherToIcon(today.weather));
-        icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f);
-        icon.setGravity(Gravity.CENTER);
-        icon.setPadding(0, 0, dp(10), 0);
-        layoutTodayHeaderWeather.addView(icon);
+        String feelsLike = safeText(today.feelsLike)
+                .replace("℃", "")
+                .replace("°C", "")
+                .trim();
+        if (TextUtils.isEmpty(feelsLike)) {
+            feelsLike = highTemp;
+        }
+        if (TextUtils.isEmpty(feelsLike)) {
+            feelsLike = "--";
+        }
 
-        // ---- Right: 3-line text block ----
-        LinearLayout textBlock = new LinearLayout(this);
-        textBlock.setOrientation(LinearLayout.VERTICAL);
-        textBlock.setGravity(Gravity.START);
-
-        // Line 1: feels-like temp (big) + unit
+        // Line 1: icon + current temp (was feels-like)
         LinearLayout line1 = new LinearLayout(this);
         line1.setOrientation(LinearLayout.HORIZONTAL);
-        line1.setGravity(Gravity.CENTER_VERTICAL);
+        line1.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+
+        TextView icon = new TextView(this);
+        icon.setText(mapWeatherToIcon(today.weather));
+        icon.setTextSize(TypedValue.COMPLEX_UNIT_SP, 36f);
+        icon.setGravity(Gravity.CENTER);
+        icon.setPadding(0, 0, dp(6), 0);
+        line1.addView(icon);
 
         TextView tempValue = new TextView(this);
-        tempValue.setText(highTemp);
+        tempValue.setText(feelsLike);
         tempValue.setTextColor(accent);
-        tempValue.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f);
+        tempValue.setTextSize(TypedValue.COMPLEX_UNIT_SP, 42f);
         tempValue.setTypeface(null, Typeface.BOLD);
         tempValue.setSingleLine(true);
         tempValue.setMaxLines(1);
+        tempValue.setIncludeFontPadding(false);
         line1.addView(tempValue);
 
         TextView tempUnit = new TextView(this);
         tempUnit.setText("°");
         tempUnit.setTextColor(accent);
-        tempUnit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f);
+        tempUnit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f);
         tempUnit.setTypeface(null, Typeface.BOLD);
         tempUnit.setPadding(dp(1), dp(4), 0, 0);
         line1.addView(tempUnit);
 
-        textBlock.addView(line1);
+        layoutTodayHeaderWeather.addView(line1);
+
+        // Add a flexible space to push the bottom lines down so they align with "下午好"
+        android.widget.Space space = new android.widget.Space(this);
+        LinearLayout.LayoutParams spaceParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0);
+        spaceParams.weight = 1f;
+        layoutTodayHeaderWeather.addView(space, spaceParams);
 
         // Line 2: high/low with slash (e.g. "28°/19°")
         TextView highLow = new TextView(this);
@@ -2290,8 +2302,9 @@ public class MainActivity extends AppCompatActivity {
         highLow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
         highLow.setSingleLine(true);
         highLow.setMaxLines(1);
+        highLow.setGravity(Gravity.END);
         highLow.setPadding(0, dp(2), 0, 0);
-        textBlock.addView(highLow);
+        layoutTodayHeaderWeather.addView(highLow);
 
         // Line 3: weather + humidity (single line)
         TextView desc = new TextView(this);
@@ -2302,10 +2315,9 @@ public class MainActivity extends AppCompatActivity {
         desc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
         desc.setSingleLine(true);
         desc.setMaxLines(1);
+        desc.setGravity(Gravity.END);
         desc.setPadding(0, dp(2), 0, 0);
-        textBlock.addView(desc);
-
-        layoutTodayHeaderWeather.addView(textBlock);
+        layoutTodayHeaderWeather.addView(desc);
     }
 
     private void renderTodayWeekWeather(@Nullable TianyuanWeatherManager.WeatherSnapshot snapshot) {
@@ -2327,7 +2339,8 @@ public class MainActivity extends AppCompatActivity {
             for (TianyuanWeatherManager.DayForecast one : snapshot.forecasts) {
                 if (one.date == null || byDate.containsKey(one.date)) continue;
                 byDate.put(one.date, new WeatherSQLiteStore.DailyEntry(
-                        one.date, one.weather, one.temperature, one.wind, one.humidity, 0L));
+                    one.date, one.weather, one.temperature, one.wind, one.humidity,
+                    one.feelsLike, 0L));
             }
         }
 

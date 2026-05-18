@@ -21,7 +21,7 @@ import java.util.List;
 public final class WeatherSQLiteStore {
 
     private static final String DB_NAME = "weather_store.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
 
     private static final String TABLE_WEATHER = "weather_daily";
     private static final String COL_DATE = "date_value";       // "YYYY-MM-DD"
@@ -29,6 +29,7 @@ public final class WeatherSQLiteStore {
     private static final String COL_TEMPERATURE = "temperature"; // e.g. "28/18"
     private static final String COL_WIND = "wind";             // e.g. "南风 3-5级"
     private static final String COL_HUMIDITY = "humidity";     // e.g. "65"
+    private static final String COL_FEELS_LIKE = "feels_like"; // e.g. "31"
     private static final String COL_FETCHED_AT = "fetched_at"; // epoch millis
 
     private WeatherSQLiteStore() {}
@@ -41,7 +42,8 @@ public final class WeatherSQLiteStore {
      */
     public static void upsertDay(Context context, @NonNull String date,
                                  @NonNull String weather, @NonNull String temperature,
-                                 @NonNull String wind, @NonNull String humidity, long fetchedAt) {
+                                 @NonNull String wind, @NonNull String humidity,
+                                 @NonNull String feelsLike, long fetchedAt) {
         if (!isDateGteToday(date)) return;
         SQLiteDatabase db = new DbHelper(context.getApplicationContext()).getWritableDatabase();
         try {
@@ -51,6 +53,7 @@ public final class WeatherSQLiteStore {
             cv.put(COL_TEMPERATURE, temperature);
             cv.put(COL_WIND, wind);
             cv.put(COL_HUMIDITY, humidity);
+            cv.put(COL_FEELS_LIKE, feelsLike);
             cv.put(COL_FETCHED_AT, fetchedAt);
 
             int updated = db.update(TABLE_WEATHER, cv, COL_DATE + "=?", new String[]{date});
@@ -79,6 +82,7 @@ public final class WeatherSQLiteStore {
                 cv.put(COL_TEMPERATURE, entry.temperature);
                 cv.put(COL_WIND, entry.wind);
                 cv.put(COL_HUMIDITY, entry.humidity);
+                cv.put(COL_FEELS_LIKE, entry.feelsLike);
                 cv.put(COL_FETCHED_AT, now);
 
                 int updated = db.update(TABLE_WEATHER, cv, COL_DATE + "=?", new String[]{entry.date});
@@ -116,6 +120,7 @@ public final class WeatherSQLiteStore {
                         c.getString(c.getColumnIndexOrThrow(COL_TEMPERATURE)),
                         c.getString(c.getColumnIndexOrThrow(COL_WIND)),
                         c.getString(c.getColumnIndexOrThrow(COL_HUMIDITY)),
+                        c.getString(c.getColumnIndexOrThrow(COL_FEELS_LIKE)),
                         c.getLong(c.getColumnIndexOrThrow(COL_FETCHED_AT))
                 ));
             }
@@ -123,6 +128,32 @@ public final class WeatherSQLiteStore {
             db.close();
         }
         return result;
+    }
+
+    /**
+     * Read one forecast for the given date. Returns null if not found.
+     */
+    @Nullable
+    public static DailyEntry queryByDate(Context context, @NonNull String date) {
+        SQLiteDatabase db = new DbHelper(context.getApplicationContext()).getReadableDatabase();
+        try (Cursor c = db.query(TABLE_WEATHER, null,
+                COL_DATE + "=?", new String[]{date},
+                null, null, null)) {
+            if (c.moveToFirst()) {
+                return new DailyEntry(
+                        c.getString(c.getColumnIndexOrThrow(COL_DATE)),
+                        c.getString(c.getColumnIndexOrThrow(COL_WEATHER)),
+                        c.getString(c.getColumnIndexOrThrow(COL_TEMPERATURE)),
+                        c.getString(c.getColumnIndexOrThrow(COL_WIND)),
+                        c.getString(c.getColumnIndexOrThrow(COL_HUMIDITY)),
+                        c.getString(c.getColumnIndexOrThrow(COL_FEELS_LIKE)),
+                        c.getLong(c.getColumnIndexOrThrow(COL_FETCHED_AT))
+                );
+            }
+        } finally {
+            db.close();
+        }
+        return null;
     }
 
     /**
@@ -173,22 +204,25 @@ public final class WeatherSQLiteStore {
         public final String temperature;
         public final String wind;
         public final String humidity;
+        public final String feelsLike;
         public final long fetchedAt;
 
         public DailyEntry(String date, String weather, String temperature,
-                          String wind, String humidity, long fetchedAt) {
+                          String wind, String humidity, String feelsLike, long fetchedAt) {
             this.date = date;
             this.weather = weather;
             this.temperature = temperature;
             this.wind = wind;
             this.humidity = humidity;
+            this.feelsLike = feelsLike;
             this.fetchedAt = fetchedAt;
         }
 
         @NonNull
         @Override
         public String toString() {
-            return date + " " + weather + " " + temperature + " " + wind + " " + humidity;
+            return date + " " + weather + " " + temperature + " " + wind + " "
+                    + humidity + " " + feelsLike;
         }
     }
 
@@ -238,6 +272,7 @@ public final class WeatherSQLiteStore {
                     + COL_TEMPERATURE + " TEXT NOT NULL,"
                     + COL_WIND + " TEXT NOT NULL,"
                     + COL_HUMIDITY + " TEXT NOT NULL DEFAULT '',"
+                    + COL_FEELS_LIKE + " TEXT NOT NULL DEFAULT '',"
                     + COL_FETCHED_AT + " INTEGER NOT NULL"
                     + ")");
         }
@@ -247,6 +282,12 @@ public final class WeatherSQLiteStore {
             if (oldVersion < 2) {
                 try {
                     db.execSQL("ALTER TABLE " + TABLE_WEATHER + " ADD COLUMN " + COL_HUMIDITY + " TEXT NOT NULL DEFAULT ''");
+                } catch (Exception ignored) {
+                }
+            }
+            if (oldVersion < 3) {
+                try {
+                    db.execSQL("ALTER TABLE " + TABLE_WEATHER + " ADD COLUMN " + COL_FEELS_LIKE + " TEXT NOT NULL DEFAULT ''");
                 } catch (Exception ignored) {
                 }
             }

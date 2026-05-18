@@ -234,7 +234,7 @@ public final class AiGateway {
                                 JSONArray choices = chunkObj.optJSONArray("choices");
                                 if (choices != null && choices.length() > 0) {
                                     JSONObject delta = choices.optJSONObject(0).optJSONObject("delta");
-                                    if (delta != null && !delta.isNull("content")) {
+                                     if (delta != null && !delta.isNull("content")) {
                                         String chunkStr = delta.optString("content", "");
                                         if (!chunkStr.isEmpty() && !"null".equals(chunkStr)) {
                                             fullContent.append(chunkStr);

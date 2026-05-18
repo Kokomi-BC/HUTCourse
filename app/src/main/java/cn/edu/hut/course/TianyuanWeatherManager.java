@@ -22,6 +22,7 @@ import cn.edu.hut.course.data.WeatherSQLiteStore;
 public final class TianyuanWeatherManager {
 
     private static final String WEATHER_URL = "https://www.weather.com.cn/weather/101250309.shtml";
+    private static final String WEATHER_1D_URL = "https://www.weather.com.cn/weather1d/101250309.shtml";
     private static final long REFRESH_INTERVAL_MS = 30 * 60 * 1000L; // 30 minutes
 
     private TianyuanWeatherManager() {
@@ -38,14 +39,17 @@ public final class TianyuanWeatherManager {
         public final String temperature;
         public final String wind;
         public final String humidity;             // e.g. "65" or empty
+        public final String feelsLike;            // e.g. "31" or empty
 
-        DayForecast(String date, String dayLabel, String weather, String temperature, String wind, String humidity) {
+        DayForecast(String date, String dayLabel, String weather, String temperature,
+                    String wind, String humidity, String feelsLike) {
             this.date = date;
             this.dayLabel = dayLabel;
             this.weather = weather;
             this.temperature = temperature;
             this.wind = wind;
             this.humidity = humidity;
+            this.feelsLike = feelsLike;
         }
     }
 
@@ -114,7 +118,8 @@ public final class TianyuanWeatherManager {
         List<DayForecast> forecasts = new ArrayList<>();
         for (WeatherSQLiteStore.DailyEntry e : entries) {
             String label = resolveDayLabelForDate(e.date);
-            forecasts.add(new DayForecast(e.date, label, e.weather, e.temperature, e.wind, e.humidity));
+            forecasts.add(new DayForecast(e.date, label, e.weather, e.temperature, e.wind,
+                    e.humidity, e.feelsLike));
         }
 
         return new WeatherSnapshot(true, true, "株洲·天元区", "", "", forecasts);
@@ -141,8 +146,9 @@ public final class TianyuanWeatherManager {
         try {
             WeatherSnapshot fetched = fetchFromWeb();
             if (fetched.success) {
-                saveToDb(context, fetched);
-                return fetched;
+                WeatherSnapshot adjusted = applyEveningHighLowPolicy(context, fetched);
+                saveToDb(context, adjusted);
+                return adjusted;
             }
             // Fallback to DB
             WeatherSnapshot fromDb = buildFromDb(context);
@@ -178,6 +184,40 @@ public final class TianyuanWeatherManager {
 
         String area = "天元区";
         String updateTime = extractUpdateTime(pageText);
+        
+        // 获取1D页面的当前温度和湿度
+        String currentTemp = "";
+        String currentHumidity = "";
+        try {
+            Document doc1d = Jsoup.connect(WEATHER_1D_URL)
+                    .userAgent("Mozilla/5.0")
+                    .timeout(12000)
+                    .get();
+            Elements scripts = doc1d.select("script");
+            for (Element script : scripts) {
+                String html = script.html();
+                if (html.contains("var observe24h_data =")) {
+                    int start = html.indexOf("var observe24h_data =") + "var observe24h_data =".length();
+                    int end = html.indexOf(";", start);
+                    if (start > 0 && end > start) {
+                        String jsonStr = html.substring(start, end).trim();
+                        org.json.JSONObject obj = new org.json.JSONObject(jsonStr);
+                        org.json.JSONArray od2 = obj.optJSONObject("od").optJSONArray("od2");
+                        if (od2 != null && od2.length() > 0) {
+                            org.json.JSONObject latest = od2.getJSONObject(0);
+                            currentTemp = latest.optString("od22").replace(".0", "");
+                            if (currentTemp.contains(".")) {
+                                currentTemp = String.valueOf(Math.round(Float.parseFloat(currentTemp)));
+                            }
+                            currentHumidity = latest.optString("od27");
+                        }
+                    }
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
         LocalDate today = LocalDate.now();
         Elements dayNodes = doc.select("div#7d ul.t.clearfix li");
@@ -213,8 +253,10 @@ public final class TianyuanWeatherManager {
             }
 
             String dateStr = today.plusDays(i).toString();
-            String humidity = extractHumidity(doc, i);
-            forecasts.add(new DayForecast(dateStr, dayLabel, weather, temperature, wind, humidity));
+            String humidity = i == 0 ? currentHumidity : "";
+            String dayFeelsLike = i == 0 ? currentTemp : ""; // Using feelsLike field to store current real-time temp
+            forecasts.add(new DayForecast(dateStr, dayLabel, weather, temperature, wind,
+                    humidity, dayFeelsLike));
         }
 
         if (forecasts.isEmpty()) {
@@ -229,9 +271,30 @@ public final class TianyuanWeatherManager {
         for (DayForecast f : snapshot.forecasts) {
             if (f.date == null) continue;
             entries.add(new WeatherSQLiteStore.DailyEntry(
-                    f.date, f.weather, f.temperature, f.wind, f.humidity, 0L));
+                    f.date, f.weather, f.temperature, f.wind, f.humidity, f.feelsLike, 0L));
         }
         WeatherSQLiteStore.upsertDays(context, entries);
+    }
+
+    private static WeatherSnapshot applyEveningHighLowPolicy(@NonNull Context context,
+                                                            @NonNull WeatherSnapshot snapshot) {
+        if (!shouldSkipHighLow(snapshot.updateTime)) return snapshot;
+        String today = WeatherSQLiteStore.DateUtils.todayDate();
+        WeatherSQLiteStore.DailyEntry existing = WeatherSQLiteStore.queryByDate(context, today);
+        if (existing == null || TextUtils.isEmpty(existing.temperature)) return snapshot;
+
+        List<DayForecast> adjusted = new ArrayList<>();
+        for (DayForecast f : snapshot.forecasts) {
+            if (f.date != null && f.date.equals(today)) {
+                String feelsLike = TextUtils.isEmpty(f.feelsLike) ? existing.feelsLike : f.feelsLike;
+                adjusted.add(new DayForecast(f.date, f.dayLabel, f.weather,
+                        existing.temperature, f.wind, f.humidity, feelsLike));
+            } else {
+                adjusted.add(f);
+            }
+        }
+        return new WeatherSnapshot(snapshot.success, snapshot.fromCache, snapshot.area,
+                snapshot.updateTime, snapshot.message, adjusted);
     }
 
     private static String extractUpdateTime(String pageText) {
@@ -248,6 +311,31 @@ public final class TianyuanWeatherManager {
         return fragment;
     }
 
+    private static boolean shouldSkipHighLow(@Nullable String updateTime) {
+        if (TextUtils.isEmpty(updateTime)) return false;
+        String normalized = updateTime.replace('：', ':');
+        return normalized.contains("18:00")
+                || normalized.contains("18时")
+                || normalized.contains("18点");
+    }
+
+    @NonNull
+    private static String extractFeelsLike(@NonNull Document doc) {
+        try {
+            String text = firstTextBySelectors(doc,
+                    new String[]{"div.sk", "div#sk", "div#now", "div.t", "div.today", "div.left"});
+            String temp = extractDigitsAfterKeywords(text,
+                    new String[]{"体感温度", "体感", "温度", "气温"});
+            if (!TextUtils.isEmpty(temp)) return temp;
+
+            String html = doc.html();
+            temp = extractDigitsAfterKeywords(html, new String[]{"\"temp\""});
+            if (!TextUtils.isEmpty(temp)) return temp;
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
     /**
      * Try to extract today's humidity from the page. Returns "" if not found.
      * Searches the live-weather section then falls back to full body text.
@@ -256,36 +344,69 @@ public final class TianyuanWeatherManager {
     private static String extractHumidity(@NonNull Document doc, int dayIndex) {
         if (dayIndex != 0) return ""; // only today has humidity on 7d page
         try {
-            // Try various known container selectors, then fall back to body text
-            String text = "";
-            for (String sel : new String[]{"div.t", "div.sk", "div.today", "div.left"}) {
-                Elements els = doc.select(sel);
-                if (!els.isEmpty()) {
-                    text = els.text();
-                    break;
-                }
-            }
-            if (TextUtils.isEmpty(text)) {
-                text = doc.body().text();
-            }
-            // Try "湿度" first, then "相对湿度"
-            for (String keyword : new String[]{"湿度", "相对湿度"}) {
-                int idx = text.indexOf(keyword);
-                if (idx >= 0) {
-                    int start = idx + keyword.length();
-                    StringBuilder digits = new StringBuilder();
-                    while (start < text.length() && Character.isDigit(text.charAt(start))) {
-                        digits.append(text.charAt(start));
-                        start++;
-                    }
-                    if (digits.length() > 0) {
-                        return digits.toString();
-                    }
-                }
-            }
+            String text = firstTextBySelectors(doc,
+                    new String[]{"div.t", "div.sk", "div.today", "div.left"});
+            String humidity = extractDigitsAfterKeywords(text,
+                    new String[]{"湿度", "相对湿度"});
+            if (!TextUtils.isEmpty(humidity)) return humidity;
+
+            String html = doc.html();
+            humidity = extractDigitsAfterKeywords(html,
+                    new String[]{"\"humidity\"", "humidity", "\"shidu\"", "shidu"});
+            if (!TextUtils.isEmpty(humidity)) return humidity;
         } catch (Exception ignored) {
         }
         return "";
+    }
+
+    @NonNull
+    private static String firstTextBySelectors(@NonNull Document doc, @NonNull String[] selectors) {
+        for (String sel : selectors) {
+            Elements els = doc.select(sel);
+            if (!els.isEmpty()) {
+                return els.text();
+            }
+        }
+        return doc.body() == null ? "" : doc.body().text();
+    }
+
+    @NonNull
+    private static String extractDigitsAfterKeywords(@NonNull String text,
+                                                     @NonNull String[] keywords) {
+        if (TextUtils.isEmpty(text)) return "";
+        for (String keyword : keywords) {
+            String digits = extractDigitsAfterKeyword(text, keyword);
+            if (!TextUtils.isEmpty(digits)) return digits;
+        }
+        return "";
+    }
+
+    @NonNull
+    private static String extractDigitsAfterKeyword(@NonNull String text, @NonNull String keyword) {
+        int idx = text.indexOf(keyword);
+        while (idx >= 0) {
+            int start = idx + keyword.length();
+            String digits = scanDigits(text, start, 12);
+            if (!TextUtils.isEmpty(digits)) return digits;
+            idx = text.indexOf(keyword, idx + keyword.length());
+        }
+        return "";
+    }
+
+    @NonNull
+    private static String scanDigits(@NonNull String text, int start, int maxSkip) {
+        int i = start;
+        int skipped = 0;
+        while (i < text.length() && skipped < maxSkip && !Character.isDigit(text.charAt(i))) {
+            i++;
+            skipped++;
+        }
+        StringBuilder digits = new StringBuilder();
+        while (i < text.length() && Character.isDigit(text.charAt(i)) && digits.length() < 3) {
+            digits.append(text.charAt(i));
+            i++;
+        }
+        return digits.toString();
     }
 
     @NonNull

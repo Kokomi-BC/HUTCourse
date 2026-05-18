@@ -102,6 +102,7 @@ public final class AiPromptCenter {
             system.append("时间语义规则: 用户提到明天/明日/次日时，优先使用 course.date <下一自然日>，不要用 course.today_remaining。\n");
         }
         system.append("当时间在 00:00-05:59，'今天'仍指自然日，'明天/明日'必须是下一自然日。\n");
+        system.append("请勿创建距当前时间过远的日程\n");
         system.append("最终答复必须经过你的自然语言组织，禁止直接展示、暴露或大段复制工具返回的原始数据内容（如 JSON 结构、原始列表等）。\n");
         system.append("最终答复末尾补一句与问题强相关的简短反问，推动下一步（例如：要不要我顺便帮你生成明晚自习规划？）。\n");
         system.append("最终答复不要出现工具调用过程口播（如'已查询...'、'已调用...'），只输出对用户有用的结论。\n");
