@@ -14,11 +14,12 @@ import java.util.List;
 public final class AgendaSQLiteStore {
 
     private static final String DB_NAME = "agenda_store.db";
-    private static final int DB_VERSION = 3;
+    private static final int DB_VERSION = 4;
 
     private static final String TABLE_AGENDAS = "agendas";
 
     private static final String COL_ID = "id";
+    private static final String COL_TABLE_ID = "table_id";
     private static final String COL_TITLE = "title";
     private static final String COL_DESCRIPTION = "description";
     private static final String COL_LOCATION = "location";
@@ -35,14 +36,14 @@ public final class AgendaSQLiteStore {
     private AgendaSQLiteStore() {
     }
 
-    public static synchronized long insertAgenda(Context context, Agenda agenda) {
+    public static synchronized long insertAgenda(Context context, Agenda agenda, long tableId) {
         if (agenda == null) {
             return -1L;
         }
         DbHelper helper = new DbHelper(context.getApplicationContext());
         SQLiteDatabase db = helper.getWritableDatabase();
         try {
-            ContentValues values = toValues(agenda, false);
+            ContentValues values = toValues(agenda, tableId, false);
             return db.insert(TABLE_AGENDAS, null, values);
         } finally {
             db.close();
@@ -56,7 +57,7 @@ public final class AgendaSQLiteStore {
         DbHelper helper = new DbHelper(context.getApplicationContext());
         SQLiteDatabase db = helper.getWritableDatabase();
         try {
-            ContentValues values = toValues(agenda, true);
+            ContentValues values = toValues(agenda, 0, true);
             int rows = db.update(TABLE_AGENDAS, values, COL_ID + "=?", new String[]{String.valueOf(agenda.id)});
             return rows > 0;
         } finally {
@@ -99,13 +100,14 @@ public final class AgendaSQLiteStore {
         }
     }
 
-    public static synchronized List<Agenda> readAllAgendas(Context context) {
+    public static synchronized List<Agenda> readAllAgendas(Context context, long tableId) {
         DbHelper helper = new DbHelper(context.getApplicationContext());
         SQLiteDatabase db = helper.getReadableDatabase();
         Cursor cursor = null;
         List<Agenda> result = new ArrayList<>();
         try {
-            cursor = db.query(TABLE_AGENDAS, null, null, null, null, null,
+            cursor = db.query(TABLE_AGENDAS, null, COL_TABLE_ID + "=?",
+                    new String[]{String.valueOf(tableId)}, null, null,
                     COL_DATE + " ASC, " + COL_START_MINUTE + " ASC, " + COL_ID + " ASC");
             while (cursor.moveToNext()) {
                 result.add(readAgenda(cursor));
@@ -119,8 +121,41 @@ public final class AgendaSQLiteStore {
         }
     }
 
-    private static ContentValues toValues(Agenda agenda, boolean forUpdate) {
+    public static synchronized void overwriteAgendasForTable(Context context, long tableId, List<Agenda> agendas) {
+        DbHelper helper = new DbHelper(context.getApplicationContext());
+        SQLiteDatabase db = helper.getWritableDatabase();
+        db.beginTransaction();
+        try {
+            db.delete(TABLE_AGENDAS, COL_TABLE_ID + "=?", new String[]{String.valueOf(tableId)});
+            if (agendas != null) {
+                for (Agenda a : agendas) {
+                    if (a == null) continue;
+                    ContentValues values = toValues(a, tableId, false);
+                    db.insert(TABLE_AGENDAS, null, values);
+                }
+            }
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+            db.close();
+        }
+    }
+
+    public static synchronized void deleteAgendasByTable(Context context, long tableId) {
+        DbHelper helper = new DbHelper(context.getApplicationContext());
+        SQLiteDatabase db = helper.getWritableDatabase();
+        try {
+            db.delete(TABLE_AGENDAS, COL_TABLE_ID + "=?", new String[]{String.valueOf(tableId)});
+        } finally {
+            db.close();
+        }
+    }
+
+    private static ContentValues toValues(Agenda agenda, long tableId, boolean forUpdate) {
         ContentValues values = new ContentValues();
+        if (!forUpdate && tableId > 0) {
+            values.put(COL_TABLE_ID, tableId);
+        }
         values.put(COL_TITLE, safe(agenda.title));
         values.put(COL_DESCRIPTION, safe(agenda.description));
         values.put(COL_LOCATION, safe(agenda.location));
@@ -171,6 +206,7 @@ public final class AgendaSQLiteStore {
         public void onCreate(SQLiteDatabase db) {
             db.execSQL("CREATE TABLE IF NOT EXISTS " + TABLE_AGENDAS + " ("
                     + COL_ID + " INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    + COL_TABLE_ID + " INTEGER NOT NULL DEFAULT 1,"
                     + COL_TITLE + " TEXT NOT NULL,"
                     + COL_DESCRIPTION + " TEXT,"
                     + COL_LOCATION + " TEXT,"
@@ -197,6 +233,12 @@ public final class AgendaSQLiteStore {
             if (oldVersion < 3) {
                 try {
                     db.execSQL("ALTER TABLE " + TABLE_AGENDAS + " ADD COLUMN " + COL_RENDER_COLOR + " INTEGER DEFAULT 0");
+                } catch (Exception ignored) {
+                }
+            }
+            if (oldVersion < 4) {
+                try {
+                    db.execSQL("ALTER TABLE " + TABLE_AGENDAS + " ADD COLUMN " + COL_TABLE_ID + " INTEGER NOT NULL DEFAULT 1");
                 } catch (Exception ignored) {
                 }
             }

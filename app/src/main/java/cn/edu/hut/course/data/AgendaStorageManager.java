@@ -21,8 +21,9 @@ public final class AgendaStorageManager {
         if (context == null || agenda == null) {
             return -1L;
         }
+        long tableId = CourseStorageManager.getActiveTableId(context);
         Agenda normalized = normalizeForPersist(agenda.copy(), true);
-        long id = AgendaSQLiteStore.insertAgenda(context, normalized);
+        long id = AgendaSQLiteStore.insertAgenda(context, normalized, tableId);
         normalized.id = id;
         return id;
     }
@@ -44,7 +45,12 @@ public final class AgendaStorageManager {
     }
 
     public static synchronized List<Agenda> loadAllAgendas(Context context) {
-        return AgendaSQLiteStore.readAllAgendas(context);
+        long tableId = CourseStorageManager.getActiveTableId(context);
+        return AgendaSQLiteStore.readAllAgendas(context, tableId);
+    }
+
+    public static synchronized List<Agenda> loadAllAgendasForTable(Context context, long tableId) {
+        return AgendaSQLiteStore.readAllAgendas(context, tableId);
     }
 
     public static synchronized List<Agenda> queryAgendasByDate(Context context, String dateStr) {
@@ -174,6 +180,14 @@ public final class AgendaStorageManager {
             return target.get(Calendar.DAY_OF_MONTH) == expectedDay;
         }
         return false;
+    }
+
+    public static synchronized void overwriteAgendasForTable(Context context, long tableId, List<Agenda> agendas) {
+        AgendaSQLiteStore.overwriteAgendasForTable(context, tableId, agendas);
+    }
+
+    public static synchronized void deleteAgendasByTable(Context context, long tableId) {
+        AgendaSQLiteStore.deleteAgendasByTable(context, tableId);
     }
 
     private static Agenda normalizeForPersist(Agenda agenda, boolean forInsert) {

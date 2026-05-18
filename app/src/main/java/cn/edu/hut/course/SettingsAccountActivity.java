@@ -11,6 +11,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -19,6 +21,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.datepicker.MaterialDatePicker;
 import androidx.appcompat.app.AlertDialog;
 
@@ -75,6 +78,8 @@ public class SettingsAccountActivity extends AppCompatActivity {
         resetExtractSummary();
         updateActionStatusSummaries();
         updateStartDateSummary(tvStartDateSummary);
+        ensureTableSwitcherCard();
+
         findViewById(R.id.itemSetStartDate).setOnClickListener(v -> {
             if (!shouldHandleActionClick()) return;
             showMaterialDatePicker(tvStartDateSummary);
@@ -86,11 +91,13 @@ public class SettingsAccountActivity extends AppCompatActivity {
                 boolean loginSuccess = data.getBooleanExtra("login_success", false);
                 if (loginSuccess) {
                     Toast.makeText(this, "登录成功", Toast.LENGTH_SHORT).show();
+                    // 通知主页刷新课表
                     Intent out = new Intent();
                     out.putExtra("action", "extract_after_login");
                     out.putExtra("cookie", data.getStringExtra("cookie"));
                     setResult(RESULT_OK, out);
-                    finish();
+                    // 不关闭当前界面，留在账号与同步页面
+                    updateActionStatusSummaries();
                 }
             }
         });
@@ -108,13 +115,13 @@ public class SettingsAccountActivity extends AppCompatActivity {
         findViewById(R.id.btnClearCurrent).setOnClickListener(v ->
             {
                 if (!shouldHandleActionClick()) return;
-                showConfirmActionDialog("清除课表", "仅清除本地课表，不退出登录，是否继续？", this::clearLocalScheduleOnly);
+                showConfirmActionDialog("清空当前课表", "仅清空当前课表的课程与日程，不退出登录，是否继续？", this::clearLocalScheduleOnly);
             });
 
         findViewById(R.id.btnLogout).setOnClickListener(v ->
             {
                 if (!shouldHandleActionClick()) return;
-                showConfirmActionDialog("退出登录", "将清除教务系统登录状态，是否继续？", this::logoutJwxtSession);
+                showConfirmActionDialog("退出登录", "将清除当前课表的教务系统登录状态，其他课表不受影响，是否继续？", this::logoutJwxtSession);
             });
     }
 
@@ -132,6 +139,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
         super.onResume();
         applyPageVisualStyle();
         updateActionStatusSummaries();
+        ensureTableSwitcherCard();
         if (!extractInProgress) {
             resetExtractSummary();
         }
@@ -141,13 +149,15 @@ public class SettingsAccountActivity extends AppCompatActivity {
         int savedCount = getSavedCourseCount();
         if (tvClearSummary != null) {
             if (savedCount > 0) {
-                tvClearSummary.setText("已保存" + savedCount + "门课程，可清除");
+                tvClearSummary.setText("当前课表已保存" + savedCount + "门课程");
             } else {
-                tvClearSummary.setText("暂无本地课表");
+                tvClearSummary.setText("当前课表暂无数据");
             }
         }
         if (tvLogoutSummary != null) {
-            tvLogoutSummary.setText(hasLocalLoginCookie() ? "状态：已登录" : "状态：未登录");
+            long activeId = CourseStorageManager.getActiveTableId(this);
+            String savedCookie = CourseStorageManager.getCookieForTable(this, activeId);
+            tvLogoutSummary.setText((savedCookie != null && !savedCookie.isEmpty()) ? "状态：已登录" : "状态：未登录");
         }
     }
 
@@ -156,6 +166,10 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private boolean hasLocalLoginCookie() {
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        String savedCookie = CourseStorageManager.getCookieForTable(this, activeId);
+        if (savedCookie != null && !savedCookie.isEmpty()) return true;
+        // Fallback to system CookieManager
         String cookie = CookieManager.getInstance().getCookie(TARGET_URL);
         if (cookie == null || cookie.isEmpty()) {
             cookie = CookieManager.getInstance().getCookie(BASE_URL);
@@ -176,7 +190,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private void showNotLoggedInHint() {
-        runOnUiThread(() -> Toast.makeText(SettingsAccountActivity.this, "未登录或者登录信息失效", Toast.LENGTH_SHORT).show());
+        runOnUiThread(() -> Toast.makeText(SettingsAccountActivity.this, "请登录教务系统", Toast.LENGTH_SHORT).show());
         setExtractSummary("未登录，请先登录教务");
     }
 
@@ -325,19 +339,29 @@ public class SettingsAccountActivity extends AppCompatActivity {
 
     private void clearLocalScheduleOnly() {
         CourseStorageManager.clearCourses(this);
-        getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE)
-                .edit()
-                .clear()
-                .apply();
+        // Only clear current table's colors
+        long tableId = CourseStorageManager.getActiveTableId(this);
+        SharedPreferences colorPrefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
+        SharedPreferences.Editor editor = colorPrefs.edit();
+        for (String key : colorPrefs.getAll().keySet()) {
+            if (key.startsWith(tableId + "_")) {
+                editor.remove(key);
+            }
+        }
+        editor.apply();
         clearAppCacheDirs();
         Intent result = new Intent();
         result.putExtra("action", "reload_courses");
         setResult(RESULT_OK, result);
-        Toast.makeText(this, "已清除本地课表（保留登录状态）", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "已清空当前课表（保留登录状态）", Toast.LENGTH_SHORT).show();
         updateActionStatusSummaries();
     }
 
     private void logoutJwxtSession() {
+        // Only clear current table's stored cookie
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        CourseStorageManager.clearCookieForTable(this, activeId);
+        // Also clear system CookieManager to force re-login for this table
         CookieManager manager = CookieManager.getInstance();
         manager.removeSessionCookies(null);
         manager.removeAllCookies(null);
@@ -345,7 +369,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
         Intent result = new Intent();
         result.putExtra("action", "reload_courses");
         setResult(RESULT_OK, result);
-        Toast.makeText(this, "已退出登录", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "已退出当前课表登录", Toast.LENGTH_SHORT).show();
         updateActionStatusSummaries();
     }
 
@@ -372,6 +396,11 @@ public class SettingsAccountActivity extends AppCompatActivity {
 
     private void extractCourseWithFallback(String passedCookie, boolean allowSilentRetry) {
         String cookie = passedCookie;
+        if (cookie == null || cookie.isEmpty()) {
+            // Try per-table stored cookie first
+            long activeId = CourseStorageManager.getActiveTableId(this);
+            cookie = CourseStorageManager.getCookieForTable(this, activeId);
+        }
         if (cookie == null || cookie.isEmpty()) {
             cookie = CookieManager.getInstance().getCookie(TARGET_URL);
             if (cookie == null || cookie.isEmpty()) {
@@ -411,6 +440,9 @@ public class SettingsAccountActivity extends AppCompatActivity {
 
                 final int finalCourseCount = courseCount;
                 saveCoursesToLocal(courses);
+                // Save cookie per table
+                long activeId = CourseStorageManager.getActiveTableId(SettingsAccountActivity.this);
+                CourseStorageManager.saveCookieForTable(SettingsAccountActivity.this, activeId, finalCookie);
                 runOnUiThread(() -> {
                     Intent result = new Intent();
                     result.putExtra("action", "reload_courses");
@@ -578,5 +610,151 @@ public class SettingsAccountActivity extends AppCompatActivity {
         });
 
         picker.show(getSupportFragmentManager(), "semester_date_picker");
+    }
+
+    // ==================== Table Switcher ====================
+
+    private void ensureTableSwitcherCard() {
+        LinearLayout contentList = null;
+        // Find the ScrollView inside the CoordinatorLayout
+        View root = findViewById(R.id.rootSettingsAccount);
+        if (root instanceof androidx.coordinatorlayout.widget.CoordinatorLayout) {
+            for (int i = 0; i < ((android.view.ViewGroup) root).getChildCount(); i++) {
+                View child = ((android.view.ViewGroup) root).getChildAt(i);
+                if (child instanceof ScrollView && ((ScrollView) child).getChildCount() > 0
+                        && ((ScrollView) child).getChildAt(0) instanceof LinearLayout) {
+                    contentList = (LinearLayout) ((ScrollView) child).getChildAt(0);
+                    break;
+                }
+            }
+        }
+        if (contentList == null) return;
+
+        // Remove old switcher card if exists
+        View oldCard = contentList.findViewWithTag("table_switcher_card");
+        if (oldCard != null) {
+            contentList.removeView(oldCard);
+        }
+
+        List<CourseTable> tables = CourseStorageManager.readAllCourseTables(this);
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        String activeName = "未命名课表";
+        for (CourseTable t : tables) {
+            if (t.id == activeId) {
+                activeName = (t.name != null && !t.name.trim().isEmpty()) ? t.name.trim() : "未命名课表";
+                break;
+            }
+        }
+
+        com.google.android.material.card.MaterialCardView card = new com.google.android.material.card.MaterialCardView(this);
+        card.setTag("table_switcher_card");
+        card.setRadius(dp(24));
+        card.setCardElevation(0f);
+        card.setClickable(true);
+        card.setFocusable(true);
+        android.util.TypedValue tv = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+        card.setForeground(getResources().getDrawable(tv.resourceId, getTheme()));
+
+        LinearLayout cardContent = new LinearLayout(this);
+        cardContent.setOrientation(LinearLayout.VERTICAL);
+        cardContent.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+        TextView cardTitle = new TextView(this);
+        cardTitle.setText("切换课表");
+        cardTitle.setTextSize(16);
+        cardTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        cardContent.addView(cardTitle);
+
+        TextView cardSummary = new TextView(this);
+        cardSummary.setText("当前：" + activeName + "  ›");
+        cardSummary.setTextSize(12);
+        cardSummary.setPadding(0, dp(6), 0, 0);
+        cardContent.addView(cardSummary);
+
+        card.addView(cardContent);
+        card.setOnClickListener(v -> showTableSwitcherSheet());
+
+        // Insert at the top of the content list
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 0, dp(12));
+        card.setLayoutParams(lp);
+        contentList.addView(card, 0);
+    }
+
+    private void showTableSwitcherSheet() {
+        if (isFinishing() || isDestroyed()) return;
+
+        List<CourseTable> tables = CourseStorageManager.readAllCourseTables(this);
+        long activeId = CourseStorageManager.getActiveTableId(this);
+
+        com.google.android.material.bottomsheet.BottomSheetDialog sheet =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(0, dp(8), 0, dp(16));
+
+        TextView title = new TextView(this);
+        title.setText("切换课表");
+        title.setTextSize(18);
+        title.setPadding(dp(20), dp(12), dp(20), dp(8));
+        root.addView(title);
+
+        for (CourseTable t : tables) {
+            boolean isActive = t.id == activeId;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(20), dp(10), dp(12), dp(10));
+            row.setClickable(true);
+            row.setFocusable(true);
+            row.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            TextView ind = new TextView(this);
+            ind.setText(isActive ? "● " : "○ ");
+            ind.setTextSize(14);
+            ind.setTextColor(isActive ? getResources().getColor(android.R.color.holo_blue_dark, getTheme()) : 0xFF5F6368);
+            row.addView(ind);
+
+            LinearLayout info = new LinearLayout(this);
+            info.setOrientation(LinearLayout.VERTICAL);
+            info.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+            TextView tvName = new TextView(this);
+            tvName.setText(t.name != null && !t.name.trim().isEmpty() ? t.name.trim() : "未命名课表");
+            tvName.setTextSize(15);
+            info.addView(tvName);
+
+            if (!t.profileName.isEmpty()) {
+                TextView tvProfile = new TextView(this);
+                tvProfile.setText(t.profileName);
+                tvProfile.setTextSize(12);
+                info.addView(tvProfile);
+            }
+
+            row.addView(info);
+            final long tableId = t.id;
+            row.setOnClickListener(v -> {
+                sheet.dismiss();
+                if (tableId != activeId) {
+                    CourseStorageManager.setActiveTableId(SettingsAccountActivity.this, tableId);
+                    Toast.makeText(SettingsAccountActivity.this, "已切换到：" + (t.name != null && !t.name.trim().isEmpty() ? t.name.trim() : "未命名课表"), Toast.LENGTH_SHORT).show();
+                    updateActionStatusSummaries();
+                    ensureTableSwitcherCard();
+                }
+            });
+            root.addView(row);
+        }
+
+        sheet.setContentView(root);
+        sheet.show();
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 }

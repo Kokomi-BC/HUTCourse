@@ -56,6 +56,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.datepicker.MaterialDatePicker;
@@ -463,22 +464,11 @@ public class MainActivity extends AppCompatActivity {
                             break;
                         case "reload_courses":
                             loadCoursesFromLocal();
+                            renderProfileFromLocal();
                             updateNextCourseNotice();
                             break;
                         case "open_course_editor":
                             openCourseEditorFromAction(result.getData());
-                            break;
-                        case "export_table":
-                            exportTable();
-                            break;
-                        case "import_table":
-                            importTable();
-                            break;
-                        case "export_cookie":
-                            exportCookie();
-                            break;
-                        case "import_cookie":
-                            importCookie();
                             break;
                     }
                 }
@@ -880,6 +870,7 @@ public class MainActivity extends AppCompatActivity {
         renderProfileFromLocal();
         updateTitle();
         styleProfileCards();
+        ensureTableSwitcherCardInProfile();
     }
 
     private void refreshAgendaDependentViews() {
@@ -925,6 +916,192 @@ public class MainActivity extends AppCompatActivity {
             itemSettingsEntry.setStrokeColor(strokeColor);
             itemSettingsEntry.setCardBackgroundColor(glass);
         }
+    }
+
+    // ==================== Profile: Table Switcher Card ====================
+
+    private void ensureTableSwitcherCardInProfile() {
+        if (pageProfile == null) return;
+        // The profile page is a ScrollView containing a LinearLayout
+        ScrollView sv = (ScrollView) pageProfile;
+        if (sv.getChildCount() == 0) return;
+        View profileContent = sv.getChildAt(0);
+        if (!(profileContent instanceof LinearLayout)) return;
+        LinearLayout profileList = (LinearLayout) profileContent;
+
+        // Remove old switcher card if exists
+        View oldCard = profileList.findViewWithTag("table_switcher_card");
+        if (oldCard != null) {
+            profileList.removeView(oldCard);
+        }
+
+        // Build table switcher card
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int strokeColor = ColorUtils.setAlphaComponent(onSurface, 24);
+        int glass = UiStyleHelper.resolveGlassCardColor(this);
+        int accent = getTimetableThemeColor();
+
+        MaterialCardView switcherCard = new MaterialCardView(this);
+        switcherCard.setTag("table_switcher_card");
+        switcherCard.setRadius(dp(24));
+        switcherCard.setCardElevation(0f);
+        switcherCard.setStrokeWidth(dp(1));
+        switcherCard.setStrokeColor(strokeColor);
+        switcherCard.setCardBackgroundColor(glass);
+        switcherCard.setClickable(true);
+        switcherCard.setFocusable(true);
+        switcherCard.setRippleColor(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 62)));
+
+        LinearLayout cardContent = new LinearLayout(this);
+        cardContent.setOrientation(LinearLayout.VERTICAL);
+        cardContent.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+        TextView cardTitle = new TextView(this);
+        cardTitle.setText("切换课表");
+        cardTitle.setTextColor(onSurface);
+        cardTitle.setTextSize(16f);
+        cardTitle.setTypeface(null, Typeface.BOLD);
+        cardContent.addView(cardTitle);
+
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        String activeName = "未命名课表";
+        List<CourseTable> tables = CourseStorageManager.readAllCourseTables(this);
+        for (CourseTable t : tables) {
+            if (t.id == activeId) {
+                activeName = (t.name != null && !t.name.trim().isEmpty()) ? t.name.trim() : "未命名课表";
+                break;
+            }
+        }
+
+        TextView cardSummary = new TextView(this);
+        cardSummary.setText("当前：" + activeName + "  ›");
+        cardSummary.setTextSize(12f);
+        cardSummary.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+        cardSummary.setPadding(0, dp(6), 0, 0);
+        cardContent.addView(cardSummary);
+
+        switcherCard.addView(cardContent);
+        switcherCard.setOnClickListener(v -> showTableSwitcherInProfile());
+
+        // Insert after cardProfileInfo, before itemSettingsEntry
+        View itemSettings = profileList.findViewWithTag(null); // not used
+        int settingsIndex = -1;
+        for (int i = 0; i < profileList.getChildCount(); i++) {
+            View child = profileList.getChildAt(i);
+            if (child.getId() == R.id.itemSettingsEntry) {
+                settingsIndex = i;
+                break;
+            }
+        }
+        // Add margin
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(12), 0, 0);
+        switcherCard.setLayoutParams(lp);
+
+        if (settingsIndex >= 0) {
+            profileList.addView(switcherCard, settingsIndex);
+        } else {
+            profileList.addView(switcherCard);
+        }
+    }
+
+    private void showTableSwitcherInProfile() {
+        if (isFinishing() || isDestroyed()) return;
+        int colorOnSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+
+        List<CourseTable> tables = CourseStorageManager.readAllCourseTables(this);
+        long activeId = CourseStorageManager.getActiveTableId(this);
+
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(0, dp(8), 0, dp(16));
+
+        TextView title = new TextView(this);
+        title.setText("切换课表");
+        title.setTextSize(18);
+        title.setPadding(dp(20), dp(12), dp(20), dp(8));
+        title.setTextColor(colorOnSurface);
+        root.addView(title);
+
+        for (CourseTable t : tables) {
+            View row = buildProfileTableRow(t, t.id == activeId, () -> {
+                sheet.dismiss();
+                if (t.id != activeId) {
+                    CourseStorageManager.setActiveTableId(this, t.id);
+                    loadCoursesFromLocal();
+                    renderProfileFromLocal();
+                    updateNextCourseNotice();
+                    drawGrid();
+                    Toast.makeText(this, "已切换到：" + safeTableName(t), Toast.LENGTH_SHORT).show();
+                }
+            });
+            root.addView(row);
+        }
+
+        sheet.setContentView(root);
+        sheet.show();
+    }
+
+    private View buildProfileTableRow(CourseTable table, boolean isActive, Runnable onClick) {
+        int accent = getTimetableThemeColor();
+        int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
+        int onSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = dp(20);
+        row.setPadding(pad, dp(10), dp(12), dp(10));
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView ind = new TextView(this);
+        ind.setText(isActive ? "● " : "○ ");
+        ind.setTextSize(14);
+        ind.setTextColor(isActive ? accent : onSurfaceVariant);
+        row.addView(ind);
+
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView tvName = new TextView(this);
+        tvName.setText(safeTableName(table));
+        tvName.setTextSize(15);
+        tvName.setTextColor(onSurface);
+        info.addView(tvName);
+
+        String profileSummary = "";
+        if (!table.profileName.isEmpty()) {
+            profileSummary = table.profileName;
+        } else if (!table.profileStudentId.isEmpty()) {
+            profileSummary = table.profileStudentId;
+        }
+        if (!profileSummary.isEmpty()) {
+            TextView tvProfile = new TextView(this);
+            tvProfile.setText(profileSummary);
+            tvProfile.setTextSize(12);
+            tvProfile.setTextColor(onSurfaceVariant);
+            info.addView(tvProfile);
+        }
+
+        row.addView(info);
+        row.setOnClickListener(v -> onClick.run());
+
+        return row;
+    }
+
+    private String safeTableName(CourseTable table) {
+        if (table == null) return "未命名课表";
+        String name = table.name;
+        if (name == null || name.trim().isEmpty()) return "未命名课表";
+        return name.trim();
     }
 
     private void ensureAiFragmentAttached() {
@@ -1039,12 +1216,24 @@ public class MainActivity extends AppCompatActivity {
 
     private int getCourseColor(String courseName, boolean isExperimental) {
         SharedPreferences mPrefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
-        String key = buildCourseColorKey(courseName, isExperimental);
+        long tableId = CourseStorageManager.getActiveTableId(this);
+        String key = buildCourseColorKey(courseName, isExperimental, tableId);
         if (mPrefs.contains(key)) {
             return mPrefs.getInt(key, 0);
         }
+        // Fallback to old global key for migration
+        String oldKey = courseName + (isExperimental ? "|EXP" : "|REG");
+        if (mPrefs.contains(oldKey)) {
+            int color = mPrefs.getInt(oldKey, 0);
+            // Migrate to per-table key
+            mPrefs.edit().putInt(key, color).remove(oldKey).apply();
+            return color;
+        }
+        // Fallback to courseName only (legacy)
         if (mPrefs.contains(courseName)) {
-            return mPrefs.getInt(courseName, 0);
+            int color = mPrefs.getInt(courseName, 0);
+            mPrefs.edit().putInt(key, color).remove(courseName).apply();
+            return color;
         }
 
         int[] palette = ColorPaletteProvider.vibrantLightPalette();
@@ -1057,13 +1246,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String buildCourseColorKey(String courseName, boolean isExperimental) {
-        return courseName + (isExperimental ? "|EXP" : "|REG");
+        long tableId = CourseStorageManager.getActiveTableId(this);
+        return tableId + "_" + courseName + (isExperimental ? "|EXP" : "|REG");
+    }
+
+    private String buildCourseColorKey(String courseName, boolean isExperimental, long tableId) {
+        return tableId + "_" + courseName + (isExperimental ? "|EXP" : "|REG");
     }
 
     private boolean hasCustomCourseColor(String courseName, boolean isExperimental) {
         SharedPreferences mPrefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
-        String key = buildCourseColorKey(courseName, isExperimental);
-        return mPrefs.contains(key) || mPrefs.contains(courseName);
+        long tableId = CourseStorageManager.getActiveTableId(this);
+        String key = buildCourseColorKey(courseName, isExperimental, tableId);
+        return mPrefs.contains(key)
+                || mPrefs.contains(courseName + (isExperimental ? "|EXP" : "|REG"))
+                || mPrefs.contains(courseName);
     }
 
     private int getTimetableThemeColor() {
@@ -4019,6 +4216,10 @@ private void extractAllTables(String passedCookie) {
                 }
                 
                 List<Course> finalResult = deduplicate(outcome.courses);
+                // Save cookie per table
+                long activeTableId = CourseStorageManager.getActiveTableId(MainActivity.this);
+                CourseStorageManager.saveCookieForTable(MainActivity.this, activeTableId, activeCookie);
+
                 StudentProfile refreshedProfile = null;
                 try {
                     refreshedProfile = fetchStudentProfile(activeCookie);
@@ -4135,21 +4336,21 @@ private void extractAllTables(String passedCookie) {
 
     private void saveProfileToLocal(StudentProfile profile) {
         if (profile == null) return;
-        SharedPreferences.Editor editor = getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit();
-        editor.putString(KEY_PROFILE_NAME, profile.name == null ? "" : profile.name);
-        editor.putString(KEY_PROFILE_STUDENT_ID, profile.studentId == null ? "" : profile.studentId);
-        editor.putString(KEY_PROFILE_CLASS, profile.className == null ? "" : profile.className);
-        editor.putString(KEY_PROFILE_COLLEGE, profile.college == null ? "" : profile.college);
-        editor.apply();
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        CourseStorageManager.saveProfileForTable(this, activeId,
+                profile.name == null ? "" : profile.name,
+                profile.studentId == null ? "" : profile.studentId,
+                profile.className == null ? "" : profile.className,
+                profile.college == null ? "" : profile.college);
     }
 
     private StudentProfile readProfileFromLocal() {
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        long activeId = CourseStorageManager.getActiveTableId(this);
         StudentProfile profile = new StudentProfile();
-        profile.name = prefs.getString(KEY_PROFILE_NAME, "");
-        profile.studentId = prefs.getString(KEY_PROFILE_STUDENT_ID, "");
-        profile.className = prefs.getString(KEY_PROFILE_CLASS, "");
-        profile.college = prefs.getString(KEY_PROFILE_COLLEGE, "");
+        profile.name = CourseStorageManager.getProfileName(this, activeId);
+        profile.studentId = CourseStorageManager.getProfileStudentId(this, activeId);
+        profile.className = CourseStorageManager.getProfileClassName(this, activeId);
+        profile.college = CourseStorageManager.getProfileCollege(this, activeId);
         return profile;
     }
 
@@ -4163,16 +4364,16 @@ private void extractAllTables(String passedCookie) {
         }
 
         if (tvProfileName != null) {
-            tvProfileName.setText("姓名：" + (TextUtils.isEmpty(profile.name) ? "--" : profile.name));
+            tvProfileName.setText("姓名：" + (TextUtils.isEmpty(profile.name) ? "-" : profile.name));
         }
         if (tvProfileStudentId != null) {
-            tvProfileStudentId.setText("学号：" + (TextUtils.isEmpty(profile.studentId) ? "--" : profile.studentId));
+            tvProfileStudentId.setText("学号：" + (TextUtils.isEmpty(profile.studentId) ? "-" : profile.studentId));
         }
         if (tvProfileClass != null) {
-            tvProfileClass.setText("班级：" + (TextUtils.isEmpty(profile.className) ? "--" : profile.className));
+            tvProfileClass.setText("班级：" + (TextUtils.isEmpty(profile.className) ? "-" : profile.className));
         }
         if (tvProfileCollege != null) {
-            tvProfileCollege.setText("学院：" + (TextUtils.isEmpty(profile.college) ? "--" : profile.college));
+            tvProfileCollege.setText("学院：" + (TextUtils.isEmpty(profile.college) ? "-" : profile.college));
         }
     }
 
@@ -4888,7 +5089,16 @@ private void extractAllTables(String passedCookie) {
     private void clearCurrentSchedule(boolean includeCookie) {
         allCourses.clear();
         CourseStorageManager.clearCourses(this);
-        getSharedPreferences("course_colors", MODE_PRIVATE).edit().clear().apply();
+        // Only clear current table's colors
+        long tableId = CourseStorageManager.getActiveTableId(this);
+        SharedPreferences colorPrefs = getSharedPreferences("course_colors", MODE_PRIVATE);
+        SharedPreferences.Editor editor = colorPrefs.edit();
+        for (String key : colorPrefs.getAll().keySet()) {
+            if (key.startsWith(tableId + "_")) {
+                editor.remove(key);
+            }
+        }
+        editor.apply();
         clearAppCacheDirs();
         if (includeCookie) {
             CookieManager.getInstance().removeSessionCookies(null);
@@ -4968,36 +5178,9 @@ private void extractAllTables(String passedCookie) {
         drawGrid();
     }
 
-    private void exportTable() {
-        try {
-            String json = buildJson();
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("CourseTable", json));
-            Toast.makeText(this, "课表已导出至剪贴板", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            Toast.makeText(this, "导出失败", Toast.LENGTH_SHORT).show();
-        }
-    }
+   
 
-    private void importTable() {
-        try {
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (clipboard.hasPrimaryClip() && clipboard.getPrimaryClip().getItemCount() > 0) {
-                String json = clipboard.getPrimaryClip().getItemAt(0).getText().toString();
-                parseJson(json);
-                saveCoursesToLocal();
-                calculateCurrentWeek();
-                updateScheduleViewState();
-                updateBackground();
-                drawGrid();
-                Toast.makeText(this, "导入成功", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "剪贴板为空", Toast.LENGTH_SHORT).show();
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "导入失败，数据格式可能不正确", Toast.LENGTH_SHORT).show();
-        }
-    }
+    
 
     private void showCourseDetailSheet(Course c, String colorKey) {
         showCourseDetailSheet(c, colorKey, null);
@@ -5210,10 +5393,21 @@ private void extractAllTables(String passedCookie) {
             endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
         }
 
+        // Capture initial values for dirty check
+        final Calendar initialDateCapture = cloneAsDay(initialDate);
+        final int initialStartMinute = startMinute[0];
+        final int initialEndMinute = endMinute[0];
+
         final int[] priority = {source == null ? Agenda.PRIORITY_LOW : normalizeAgendaPriority(source.priority)};
+        final int initialPriority = priority[0];
         final String[] repeatRule = {source == null ? Agenda.REPEAT_NONE : normalizeAgendaRepeat(source.repeatRule)};
+        final String initialRepeatRule = repeatRule[0];
         final String[] monthlyStrategy = {source == null ? Agenda.MONTHLY_SKIP : normalizeAgendaMonthlyStrategy(source.monthlyStrategy)};
+        final String initialMonthlyStrategy = monthlyStrategy[0];
         final String[] locationValue = {source == null ? "" : normalizeAgendaLocationInput(source.location)};
+        final String initialLocation = locationValue[0];
+        final String initialTitle = source == null ? "" : safeText(source.title).trim();
+        final String initialDesc = source == null ? "" : safeText(source.description).trim();
         final int[] agendaRenderColor = {normalizeAgendaStoredRenderColor(source == null ? 0 : source.renderColor)};
         final int sheetSurfaceColor = UiStyleHelper.resolvePageBackgroundColor(this);
 
@@ -5228,15 +5422,51 @@ private void extractAllTables(String passedCookie) {
 
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
 
+        // Title row with optional delete (trash) icon for editing
+        LinearLayout sheetTitleRow = new LinearLayout(this);
+        sheetTitleRow.setOrientation(LinearLayout.HORIZONTAL);
+        sheetTitleRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams sheetTitleRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sheetTitleRowLp.setMargins(dp(2), 0, dp(2), 0);
+        sheetTitleRow.setLayoutParams(sheetTitleRowLp);
+
         TextView sheetTitle = new TextView(this);
         sheetTitle.setText(source == null ? "新增日程" : "编辑日程");
         sheetTitle.setTextSize(20f);
         sheetTitle.setTypeface(null, Typeface.BOLD);
         sheetTitle.setTextColor(onSurface);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        titleLp.setMargins(dp(2), 0, dp(2), 0);
-        sheetTitle.setLayoutParams(titleLp);
-        layout.addView(sheetTitle);
+        LinearLayout.LayoutParams sheetTitleLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        sheetTitle.setLayoutParams(sheetTitleLp);
+        sheetTitleRow.addView(sheetTitle);
+
+        if (source != null) {
+            ImageButton btnDelete = new ImageButton(this);
+            btnDelete.setImageResource(R.drawable.ic_history_delete);
+            btnDelete.setImageTintList(ColorStateList.valueOf(onSurface));
+            android.util.TypedValue delOutValue = new android.util.TypedValue();
+            getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, delOutValue, true);
+            btnDelete.setBackgroundResource(delOutValue.resourceId);
+            btnDelete.setContentDescription("删除日程");
+            LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(dp(40), dp(40));
+            btnDelete.setLayoutParams(delLp);
+            btnDelete.setOnClickListener(v -> newMaterialYouDialogBuilder()
+                    .setTitle("删除日程")
+                    .setMessage("确定删除该日程吗？")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("删除", (d, which) -> {
+                        if (AgendaStorageManager.deleteAgenda(MainActivity.this, source.id)) {
+                            Toast.makeText(MainActivity.this, "已删除日程", Toast.LENGTH_SHORT).show();
+                            dialog.dismiss();
+                            setSelectedTodayDate(selectedDate[0]);
+                            refreshAgendaDependentViews();
+                        } else {
+                            Toast.makeText(MainActivity.this, "删除失败", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .show());
+            sheetTitleRow.addView(btnDelete);
+        }
+        layout.addView(sheetTitleRow);
 
         MaterialCardView infoCard = createAgendaEditorSectionCard();
         LinearLayout infoBody = new LinearLayout(this);
@@ -5469,35 +5699,42 @@ private void extractAllTables(String passedCookie) {
         actionRowLp.setMargins(0, dp(12), 0, 0);
         actionRow.setLayoutParams(actionRowLp);
 
+        // Cancel button (always shown for editing, also for new)
         if (source != null) {
-            MaterialButton deleteButton = createAgendaActionButton(false);
-            deleteButton.setText("删除日程");
-            LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            deleteLp.setMargins(0, 0, dp(8), 0);
-            deleteButton.setLayoutParams(deleteLp);
-            deleteButton.setOnClickListener(v -> newMaterialYouDialogBuilder()
-                    .setTitle("删除日程")
-                    .setMessage("确定删除该日程吗？")
-                    .setNegativeButton("取消", null)
-                    .setPositiveButton("删除", (d, which) -> {
-                        if (AgendaStorageManager.deleteAgenda(this, source.id)) {
-                            Toast.makeText(this, "已删除日程", Toast.LENGTH_SHORT).show();
-                            dialog.dismiss();
-                            setSelectedTodayDate(selectedDate[0]);
-                            refreshAgendaDependentViews();
-                        } else {
-                            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show();
-                        }
-                    })
-                    .show());
-            actionRow.addView(deleteButton);
+            MaterialButton cancelButton = createAgendaActionButton(false);
+            cancelButton.setText("取消");
+            LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            cancelLp.setMargins(0, 0, dp(8), 0);
+            cancelButton.setLayoutParams(cancelLp);
+            cancelButton.setOnClickListener(v -> {
+                if (isAgendaDirty(source, inputTitle, inputDesc, selectedDate[0], startMinute[0], endMinute[0],
+                        priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0],
+                        initialTitle, initialDesc, initialDateCapture, initialStartMinute, initialEndMinute,
+                        initialPriority, initialRepeatRule, initialMonthlyStrategy, initialLocation)) {
+                    newMaterialYouDialogBuilder()
+                            .setTitle("放弃修改")
+                            .setMessage("日程内容已修改，确定放弃修改吗？")
+                            .setNegativeButton("继续编辑", null)
+                            .setPositiveButton("放弃", (dd, ww) -> dialog.dismiss())
+                            .show();
+                } else {
+                    dialog.dismiss();
+                }
+            });
+            actionRow.addView(cancelButton);
+        } else {
+            MaterialButton cancelButton = createAgendaActionButton(false);
+            cancelButton.setText("取消");
+            LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            cancelLp.setMargins(0, 0, dp(8), 0);
+            cancelButton.setLayoutParams(cancelLp);
+            cancelButton.setOnClickListener(v -> dialog.dismiss());
+            actionRow.addView(cancelButton);
         }
 
         MaterialButton saveButton = createAgendaActionButton(true);
         saveButton.setText("保存");
-        LinearLayout.LayoutParams saveLp = source == null
-                ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                : new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         saveButton.setLayoutParams(saveLp);
         saveButton.setOnClickListener(v -> saveAction.run());
         actionRow.addView(saveButton);
@@ -5506,7 +5743,55 @@ private void extractAllTables(String passedCookie) {
 
         dialog.setContentView(scrollView);
         applyAgendaEditorBottomSheetStyle(dialog, sheetSurfaceColor);
+
+        // Handle system back: prompt dirty check if non-color fields changed
+        if (source != null) {
+            dialog.setCanceledOnTouchOutside(false);
+            dialog.setOnKeyListener((d, keyCode, event) -> {
+                if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.getAction() == android.view.KeyEvent.ACTION_UP) {
+                    if (isAgendaDirty(source, inputTitle, inputDesc, selectedDate[0], startMinute[0], endMinute[0],
+                            priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0],
+                            initialTitle, initialDesc, initialDateCapture, initialStartMinute, initialEndMinute,
+                            initialPriority, initialRepeatRule, initialMonthlyStrategy, initialLocation)) {
+                        newMaterialYouDialogBuilder()
+                                .setTitle("放弃修改")
+                                .setMessage("日程内容已修改，确定放弃修改吗？")
+                                .setNegativeButton("继续编辑", null)
+                                .setPositiveButton("放弃", (dd, ww) -> dialog.dismiss())
+                                .show();
+                    } else {
+                        dialog.dismiss();
+                    }
+                    return true;
+                }
+                return false;
+            });
+        }
+
         dialog.show();
+    }
+
+    private boolean isAgendaDirty(Agenda source, EditText inputTitle, EditText inputDesc,
+                                   Calendar selectedDate, int startMinute, int endMinute,
+                                   int priority, String repeatRule, String monthlyStrategy,
+                                   String locationValue,
+                                   String initialTitle, String initialDesc,
+                                   Calendar initialDate, int initialStartMinute, int initialEndMinute,
+                                   int initialPriority, String initialRepeatRule, String initialMonthlyStrategy,
+                                   String initialLocation) {
+        if (source == null) return false;
+        String newTitle = safeText(inputTitle.getText() == null ? "" : inputTitle.getText().toString()).trim();
+        String newDesc = safeText(inputDesc.getText() == null ? "" : inputDesc.getText().toString()).trim();
+        if (!newTitle.equals(initialTitle)) return true;
+        if (!newDesc.equals(initialDesc)) return true;
+        if (startMinute != initialStartMinute) return true;
+        if (endMinute != initialEndMinute) return true;
+        if (priority != initialPriority) return true;
+        if (!repeatRule.equals(initialRepeatRule)) return true;
+        if (!monthlyStrategy.equals(initialMonthlyStrategy)) return true;
+        if (!locationValue.equals(initialLocation)) return true;
+        if (!AgendaStorageManager.formatDate(selectedDate).equals(AgendaStorageManager.formatDate(initialDate))) return true;
+        return false;
     }
 
     private void refreshAgendaEditorButtons(TextView dateValueView, TextView startTimeValueView, TextView endTimeValueView,
@@ -6557,12 +6842,17 @@ private void extractAllTables(String passedCookie) {
     private void renderColorSlider(LinearLayout container, Course c, String colorKey) {
         container.removeAllViews();
         SharedPreferences prefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
-        boolean hasCustom = prefs.contains(colorKey) || prefs.contains(c.name);
+        // colorKey already includes tableId prefix from buildCourseColorKey
+        boolean hasCustom = prefs.contains(colorKey)
+                || prefs.contains(c.name + (c.isExperimental ? "|EXP" : "|REG"))
+                || prefs.contains(c.name);
         int current = getCourseColor(c.name, c.isExperimental);
         int[] palette = buildColorPalette();
 
         addColorDot(container, Color.TRANSPARENT, !hasCustom, true, v -> {
-            prefs.edit().remove(colorKey).remove(c.name).apply();
+            prefs.edit().remove(colorKey)
+                    .remove(c.name + (c.isExperimental ? "|EXP" : "|REG"))
+                    .remove(c.name).apply();
             saveCoursesToLocal();
             drawGrid();
             renderColorSlider(container, c, colorKey);
@@ -6722,32 +7012,4 @@ private void extractAllTables(String passedCookie) {
         dialog.show();
     }
 
-    private void exportCookie() {
-        String cookie = CookieManager.getInstance().getCookie(TARGET_URL);
-        if (cookie == null || cookie.isEmpty()) {
-            cookie = CookieManager.getInstance().getCookie(BASE_URL);
-        }
-        if (cookie != null && !cookie.isEmpty()) {
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Cookie", cookie));
-            Toast.makeText(this, "Cookie已导出至剪贴板", Toast.LENGTH_SHORT).show();
-        } else {
-            Toast.makeText(this, "暂无Cookie", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void importCookie() {
-        try {
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (clipboard.hasPrimaryClip() && clipboard.getPrimaryClip().getItemCount() > 0) {
-                String cookie = clipboard.getPrimaryClip().getItemAt(0).getText().toString();
-                CookieManager.getInstance().setCookie(BASE_URL, cookie);
-                Toast.makeText(this, "Cookie导入成功", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "剪贴板为空", Toast.LENGTH_SHORT).show();
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "导入失败", Toast.LENGTH_SHORT).show();
-        }
-    }
 }

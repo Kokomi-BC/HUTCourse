@@ -169,7 +169,7 @@
                         style="@style/Widget.MyApplication.SettingsRowTitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="清除本地课表"
+                        android:text="清空当前课表"
                         android:textColor="?attr/colorError" />
 
                     <TextView
@@ -178,7 +178,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="删除本地课表数据" />
+                        android:text="仅清空当前课表，不退出登录" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
