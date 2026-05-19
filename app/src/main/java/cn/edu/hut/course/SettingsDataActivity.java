@@ -1011,6 +1011,8 @@ public class SettingsDataActivity extends AppCompatActivity {
                     com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
                             .setTitleText("选择导出范围")
                             .setSelection(new androidx.core.util.Pair<>(rangeStartMs[0], rangeEndMs[0]))
+                            .setTheme(R.style.ThemeOverlay_MyApplication_MaterialCalendar)
+                            .setInputMode(com.google.android.material.datepicker.MaterialDatePicker.INPUT_MODE_CALENDAR)
                             .build();
             picker.addOnPositiveButtonClickListener(selection -> {
                 if (selection != null) {

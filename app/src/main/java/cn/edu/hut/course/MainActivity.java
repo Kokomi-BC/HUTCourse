@@ -5,12 +5,17 @@ import android.animation.StateListAnimator;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Outline;
+import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.Shader;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Drawable.ConstantState;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.graphics.Typeface;
 import android.os.Bundle;
@@ -323,26 +328,96 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private StateListDrawable buildBottomNavItemBackground(int accentColor) {
-        float radius = dp(26);
-        int checkedFill = ColorUtils.setAlphaComponent(accentColor, 70);
+        final int lineH = dp(3);
+        final int lineW = dp(22);
+        final float lineR = dp(2);
+        final int bottomMargin = dp(8);
 
-        GradientDrawable checked = new GradientDrawable();
-        checked.setShape(GradientDrawable.RECTANGLE);
-        checked.setCornerRadius(radius);
-        checked.setColor(checkedFill);
+        Drawable underline = new BottomTabLineDrawable(accentColor, lineH, lineW, lineR, bottomMargin);
 
-        GradientDrawable normal = new GradientDrawable();
-        normal.setShape(GradientDrawable.RECTANGLE);
-        normal.setCornerRadius(radius);
-        normal.setColor(Color.TRANSPARENT);
-
-        InsetDrawable checkedInset = new InsetDrawable(checked, dp(8), dp(4), dp(8), dp(4));
-        InsetDrawable normalInset = new InsetDrawable(normal, dp(8), dp(4), dp(8), dp(4));
+        ColorDrawable normal = new ColorDrawable(Color.TRANSPARENT);
 
         StateListDrawable stateList = new StateListDrawable();
-        stateList.addState(new int[]{android.R.attr.state_checked}, checkedInset);
-        stateList.addState(new int[]{}, normalInset);
+        stateList.addState(new int[]{android.R.attr.state_checked}, underline);
+        stateList.addState(new int[]{-android.R.attr.state_checked}, normal);
         return stateList;
+    }
+
+    /** 底部 Tab 下划线 Drawable：在 bounds 底部上方 bottomMargin 处居中绘制一条圆角短线 */
+    private static class BottomTabLineDrawable extends Drawable {
+        private final Paint paint;
+        private final int lineH;
+        private final int lineW;
+        private final float lineR;
+        private final int bottomMargin;
+
+        BottomTabLineDrawable(int color, int lineH, int lineW, float lineR, int bottomMargin) {
+            this.lineH = lineH;
+            this.lineW = lineW;
+            this.lineR = lineR;
+            this.bottomMargin = bottomMargin;
+            paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.FILL);
+        }
+
+        @Override
+        public void draw(@NonNull Canvas canvas) {
+            Rect b = getBounds();
+            int w = Math.min(lineW, b.width());
+            int left = b.centerX() - w / 2;
+            int bottom = b.bottom - bottomMargin;
+            int top = bottom - lineH;
+            canvas.drawRoundRect(left, top, left + w, bottom, lineR, lineR, paint);
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            paint.setAlpha(alpha);
+        }
+
+        @Override
+        public void setColorFilter(@Nullable android.graphics.ColorFilter colorFilter) {
+            paint.setColorFilter(colorFilter);
+        }
+
+        @SuppressWarnings("deprecation")
+        @Override
+        public int getOpacity() {
+            return android.graphics.PixelFormat.TRANSLUCENT;
+        }
+
+        @Override
+        public ConstantState getConstantState() {
+            return new BottomTabLineConstantState(paint.getColor(), lineH, lineW, lineR, bottomMargin);
+        }
+    }
+
+    private static final class BottomTabLineConstantState extends ConstantState {
+        private final int color;
+        private final int lineH;
+        private final int lineW;
+        private final float lineR;
+        private final int bottomMargin;
+
+        BottomTabLineConstantState(int color, int lineH, int lineW, float lineR, int bottomMargin) {
+            this.color = color;
+            this.lineH = lineH;
+            this.lineW = lineW;
+            this.lineR = lineR;
+            this.bottomMargin = bottomMargin;
+        }
+
+        @NonNull
+        @Override
+        public Drawable newDrawable() {
+            return new BottomTabLineDrawable(color, lineH, lineW, lineR, bottomMargin);
+        }
+
+        @Override
+        public int getChangingConfigurations() {
+            return 0;
+        }
     }
 
     @Override
@@ -2049,7 +2124,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (entry.type == ScheduleCellEntry.TYPE_COURSE && entry.course != null) {
-            int cardBg = entry.hasCustomColor ? ColorUtils.blendARGB(glassBg, entry.customColor, 0.30f) : glassBg;
+            // 自动分配的调色板颜色也显示在卡片背景上，自定义颜色的 blend 更深
+            float colorBlendRatio = entry.hasCustomColor ? 0.30f : 0.22f;
+            int cardBg = ColorUtils.blendARGB(glassBg, entry.customColor, colorBlendRatio);
             card.setCardBackgroundColor(cardBg);
             if (entry.isCurrentCourse || entry.isSelectedCourse) {
                 card.setStrokeWidth(dp2);

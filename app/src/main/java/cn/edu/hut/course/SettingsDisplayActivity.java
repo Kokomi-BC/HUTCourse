@@ -381,13 +381,25 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(0, 0, 0, 10);
             card.setLayoutParams(lp);
-            UiStyleHelper.styleGlassCard(card, this);
-            card.setRadius(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10, getResources().getDisplayMetrics()));
+            card.setRadius(dp(16));
+            card.setCardElevation(0f);
+            card.setStrokeColor(Color.TRANSPARENT);
+            // 用课程颜色 blend 卡片背景（与 MainActivity 课程块一致）
+            int courseColor = getCourseColor(item.name, item.isExperimental);
+            int glassBg = UiStyleHelper.resolveGlassCardColor(this);
+            String key = buildCourseColorKey(item.name, item.isExperimental);
+            String oldKey = item.name + (item.isExperimental ? "|EXP" : "|REG");
+            SharedPreferences prefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
+            boolean hasCustom = prefs.contains(key) || prefs.contains(oldKey) || prefs.contains(item.name);
+            float ratio = hasCustom ? 0.30f : 0.22f;
+            int cardBg = ColorUtils.blendARGB(glassBg, courseColor, ratio);
+            card.setCardBackgroundColor(cardBg);
+            int textColor = ColorUtils.calculateLuminance(cardBg) < 0.5 ? Color.WHITE : Color.BLACK;
 
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(24, 18, 24, 18);
+            row.setPadding(dp(14), dp(14), dp(14), dp(14));
 
             LinearLayout textCol = new LinearLayout(this);
             textCol.setOrientation(LinearLayout.VERTICAL);
@@ -398,12 +410,23 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             title.setText(item.name + (item.isExperimental ? " [实验]" : ""));
             title.setTextSize(15f);
             title.setTypeface(null, android.graphics.Typeface.BOLD);
-            title.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+            title.setTextColor(textColor);
 
             TextView summary = new TextView(this);
-            summary.setText(item.isExperimental ? "实验课" : "教学课");
+            String teacher = item.course != null && item.course.teacher != null ? item.course.teacher.trim() : "";
+            boolean hasTeacher = !teacher.isEmpty() && !"未定".equals(teacher);
+            String location = item.course != null && item.course.location != null ? item.course.location.trim() : "";
+            boolean hasLocation = !location.isEmpty() && !"未定".equals(location);
+            StringBuilder summaryText = new StringBuilder();
+            if (hasTeacher) summaryText.append(teacher);
+            if (hasLocation) {
+                if (summaryText.length() > 0) summaryText.append(" · ");
+                summaryText.append(location);
+            }
+            if (summaryText.length() == 0) summaryText.append(item.isExperimental ? "实验课" : "教学课");
+            summary.setText(summaryText.toString());
             summary.setTextSize(12f);
-            summary.setTextColor(UiStyleHelper.resolveOnSurfaceVariantColor(this));
+            summary.setTextColor(ColorUtils.setAlphaComponent(textColor, 200));
             summary.setPadding(0, 4, 0, 0);
 
             textCol.addView(title);
@@ -451,12 +474,34 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         layout.setPadding(pad, pad, pad, pad);
         scrollView.addView(layout, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // 标题行：课程名 + 删除按钮
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams titleRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleRowLp.setMargins(0, 0, 0, dp(8));
+        titleRow.setLayoutParams(titleRowLp);
+
         TextView title = new TextView(this);
         title.setText(c.name + (c.isExperimental ? " [实验]" : ""));
         title.setTextSize(20f);
         title.setTypeface(null, Typeface.BOLD);
         title.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
-        layout.addView(title);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        title.setLayoutParams(titleLp);
+        titleRow.addView(title);
+
+        ImageView btnDelete = new ImageView(this);
+        btnDelete.setImageResource(R.drawable.ic_history_delete);
+        btnDelete.setImageTintList(android.content.res.ColorStateList.valueOf(ColorUtils.setAlphaComponent(UiStyleHelper.resolveOnSurfaceColor(this), 200)));
+        btnDelete.setPadding(dp(8), dp(8), dp(8), dp(8));
+        android.util.TypedValue delOut = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, delOut, true);
+        btnDelete.setBackgroundResource(delOut.resourceId);
+        btnDelete.setContentDescription("删除课程");
+        btnDelete.setOnClickListener(v -> showDeleteCourseDialog(c, dialog));
+        titleRow.addView(btnDelete, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        layout.addView(titleRow);
 
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
 
@@ -537,6 +582,31 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         applyBottomSheetSurfaceStyle(dialog, sheetSurfaceColor);
         dialog.setOnDismissListener(d -> loadCoursesForEditor());
         dialog.show();
+    }
+
+    private void showDeleteCourseDialog(Course c, com.google.android.material.bottomsheet.BottomSheetDialog parentSheet) {
+        if (c == null || isFinishing() || isDestroyed()) return;
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(
+                new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+                .setTitle("删除课程")
+                .setMessage("确定要删除课程「" + c.name + (c.isExperimental ? " [实验]" : "") + "」吗？\n此操作不可撤销。")
+                .setPositiveButton("删除", (d, w) -> {
+                    allCourses.remove(c);
+                    // 同时清理该课程的颜色缓存
+                    String colorKey = buildCourseColorKey(c.name, c.isExperimental);
+                    String oldKey = c.name + (c.isExperimental ? "|EXP" : "|REG");
+                    getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE).edit()
+                            .remove(colorKey).remove(oldKey).remove(c.name).apply();
+                    saveCoursesToLocal();
+                    notifyMainToRefresh("reload_courses");
+                    loadCoursesForEditor();
+                    if (parentSheet != null && parentSheet.isShowing()) {
+                        parentSheet.dismiss();
+                    }
+                    Toast.makeText(this, "课程已删除", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private TextView addEditableInfoRow(LinearLayout parent,
@@ -923,7 +993,8 @@ public class SettingsDisplayActivity extends AppCompatActivity {
     }
 
     private String buildCourseColorKey(String courseName, boolean isExperimental) {
-        return courseName + (isExperimental ? "|EXP" : "|REG");
+        long tableId = CourseStorageManager.getActiveTableId(this);
+        return tableId + "_" + courseName + (isExperimental ? "|EXP" : "|REG");
     }
 
     private int getCourseColor(String courseName, boolean isExperimental) {
@@ -932,8 +1003,17 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         if (mPrefs.contains(key)) {
             return mPrefs.getInt(key, 0);
         }
+        // 兼容旧版无 tableId 前缀的 key
+        String oldKey = courseName + (isExperimental ? "|EXP" : "|REG");
+        if (mPrefs.contains(oldKey)) {
+            int color = mPrefs.getInt(oldKey, 0);
+            mPrefs.edit().putInt(key, color).remove(oldKey).apply();
+            return color;
+        }
         if (mPrefs.contains(courseName)) {
-            return mPrefs.getInt(courseName, 0);
+            int color = mPrefs.getInt(courseName, 0);
+            mPrefs.edit().putInt(key, color).remove(courseName).apply();
+            return color;
         }
         int[] palette = buildVibrantPalette();
         int hash = Math.abs(courseName.hashCode());
@@ -947,7 +1027,8 @@ public class SettingsDisplayActivity extends AppCompatActivity {
     private void renderColorSlider(LinearLayout container, Course c, String colorKey) {
         container.removeAllViews();
         SharedPreferences prefs = getSharedPreferences(PREF_COURSE_COLORS, MODE_PRIVATE);
-        boolean hasCustom = prefs.contains(colorKey) || prefs.contains(c.name);
+        String oldKey = c.name + (c.isExperimental ? "|EXP" : "|REG");
+        boolean hasCustom = prefs.contains(colorKey) || prefs.contains(oldKey) || prefs.contains(c.name);
         int current = getCourseColor(c.name, c.isExperimental);
         int[] palette = buildVibrantPalette();
         int selectedStroke = getCurrentThemeColor();
@@ -958,7 +1039,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
                 "⊘",
                 selectedStroke,
                 v -> {
-            prefs.edit().remove(colorKey).remove(c.name).apply();
+            prefs.edit().remove(colorKey).remove(oldKey).remove(c.name).apply();
             notifyMainToRefresh("reload_courses");
             renderColorSlider(container, c, colorKey);
         });

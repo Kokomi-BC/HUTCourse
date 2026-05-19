@@ -33,4 +33,9 @@
         <item name="colorPrimary">?attr/colorPrimary</item>
         <item name="colorSecondary">?attr/colorSecondary</item>
     </style>
+
+    <!-- 悬浮式 MaterialDatePicker：禁止全屏，始终以对话框形式展示 -->
+    <style name="ThemeOverlay.MyApplication.MaterialCalendar" parent="ThemeOverlay.Material3.MaterialCalendar">
+        <item name="materialCalendarFullscreenTheme">@style/ThemeOverlay.Material3.MaterialCalendar</item>
+    </style>
 </resources>
