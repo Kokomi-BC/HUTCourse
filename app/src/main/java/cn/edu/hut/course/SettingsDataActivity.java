@@ -199,7 +199,7 @@ public class SettingsDataActivity extends AppCompatActivity {
 
     private View buildTableCard(CourseTable table, boolean isActive) {
         int colorSurfaceContainer = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurfaceContainer, 0xFFF0F4F8);
-        int colorPrimary = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, 0xFF3366CC);
+        int colorPrimary = MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary, 0xFF3366CC);
         int colorOnSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, 0xFF1A1C1E);
         int colorOnSurfaceVariant = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFF5F6368);
 
@@ -326,7 +326,7 @@ public class SettingsDataActivity extends AppCompatActivity {
 
     private View buildSheetTableRow(CourseTable table, boolean isActive,
                                     Runnable onClick, Runnable onLongClick) {
-        int colorPrimary = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, 0xFF3366CC);
+        int colorPrimary = MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary, 0xFF3366CC);
         int colorOnSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, 0xFF1A1C1E);
         int colorOnSurfaceVariant = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFF5F6368);
 

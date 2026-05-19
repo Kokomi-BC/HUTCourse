@@ -100,7 +100,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String LOGIN_SUCCESS_PATH = "/jsxsd/framework/xsMainV.htmlx";
     private static final String TARGET_URL = BASE_URL + "/jsxsd/xskb/xskb_list.do?viweType=0";
     private static final String EXPERIMENT_URL = BASE_URL + "/jsxsd/syjx/toXskb.do";
-    private static final String PROFILE_URL = BASE_URL + "/jsxsd/framework/xsMainV_new.htmlx?t1=1";
     private static final String PREF_NAME = "course_storage";
     private static final String PREF_COURSE_COLORS = "course_colors";
     private static final String KEY_COURSES_JSON = "courses_json";
@@ -3085,9 +3084,6 @@ public class MainActivity extends AppCompatActivity {
 
         for (TodayTimelineItem item : items) {
             MaterialCardView card = createTodayTimelineCard(item, isOngoing);
-            if (isOngoing) {
-                card.setCardBackgroundColor(ColorUtils.setAlphaComponent(getTimetableThemeColor(), 20));
-            }
             todayCoursesContainer.addView(card);
         }
     }
@@ -3222,7 +3218,7 @@ public class MainActivity extends AppCompatActivity {
         
         // Vertical divider
         View divider = new View(this);
-        divider.setBackground(makeRoundedSolid(getTimetableThemeColor(), dp(2)));
+        divider.setBackground(makeRoundedSolid(accent, dp(2)));
         LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(dp(3), dp(36));
         divLp.setMargins(dp(4), 0, dp(16), 0);
         row.addView(divider, divLp);
@@ -3353,7 +3349,7 @@ public class MainActivity extends AppCompatActivity {
         
         // Vertical divider
         View divider = new View(this);
-        divider.setBackground(makeRoundedSolid(getTimetableThemeColor(), dp(2)));
+        divider.setBackground(makeRoundedSolid(accent, dp(2)));
         LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(dp(3), dp(36));
         divLp.setMargins(dp(4), 0, dp(16), 0);
         row.addView(divider, divLp);
@@ -4182,10 +4178,8 @@ public class MainActivity extends AppCompatActivity {
 private void extractAllTables(String passedCookie) {
         String cookie = passedCookie;
         if (cookie == null || cookie.isEmpty()) {
-            cookie = CookieManager.getInstance().getCookie(TARGET_URL);
-            if (cookie == null || cookie.isEmpty()) {
-                cookie = CookieManager.getInstance().getCookie(BASE_URL);
-            }
+            long activeId = CourseStorageManager.getActiveTableId(this);
+            cookie = CourseStorageManager.getCookieForTable(this, activeId);
         }
         if (cookie == null || cookie.isEmpty()) {
             Toast.makeText(this, "请先进入系统登录", Toast.LENGTH_SHORT).show();
@@ -4220,7 +4214,7 @@ private void extractAllTables(String passedCookie) {
                 long activeTableId = CourseStorageManager.getActiveTableId(MainActivity.this);
                 CourseStorageManager.saveCookieForTable(MainActivity.this, activeTableId, activeCookie);
 
-                StudentProfile refreshedProfile = null;
+                CourseScraper.StudentProfile refreshedProfile = null;
                 try {
                     refreshedProfile = fetchStudentProfile(activeCookie);
                     if (refreshedProfile != null) {
@@ -4230,7 +4224,7 @@ private void extractAllTables(String passedCookie) {
                     Log.w(TAG, "Profile refresh failed", profileEx);
                 }
 
-                final StudentProfile finalProfile = refreshedProfile;
+                final CourseScraper.StudentProfile finalProfile = refreshedProfile;
 
                 runOnUiThread(() -> {
                     allCourses.clear();
@@ -4265,76 +4259,11 @@ private void extractAllTables(String passedCookie) {
         }
     }
 
-    private static class StudentProfile {
-        String name = "";
-        String studentId = "";
-        String className = "";
-        String college = "";
+    private CourseScraper.StudentProfile fetchStudentProfile(String cookie) throws Exception {
+        return CourseScraper.scrapeStudentProfile(cookie);
     }
 
-    private StudentProfile fetchStudentProfile(String cookie) throws Exception {
-        if (cookie == null || cookie.trim().isEmpty()) {
-            throw new IllegalStateException("缺少教务Cookie");
-        }
-        String html = fetch(PROFILE_URL, cookie);
-        Document doc = Jsoup.parse(html);
-
-        Element title = doc.selectFirst(".infoContentTitle");
-        if (title == null || title.text().trim().isEmpty()) {
-            throw new IllegalStateException("未找到个人信息区域");
-        }
-
-        StudentProfile profile = new StudentProfile();
-        parseNameAndStudentId(title.text(), profile);
-
-        Elements detailTexts = doc.select(".infoContentBody .qz-detailtext");
-        for (Element detail : detailTexts) {
-            if (detail == null) continue;
-            String text = detail.text();
-            if (text == null || text.trim().isEmpty()) continue;
-
-            String normalized = text.replace('\u00A0', ' ');
-            String[] parts = normalized.split("[：:]", 2);
-            if (parts.length < 2) continue;
-
-            String rawLabel = parts[0] == null ? "" : parts[0];
-            String label = rawLabel.replace(" ", "").trim();
-            String value = parts[1] == null ? "" : parts[1].trim();
-            if (value.isEmpty()) continue;
-
-            if (label.contains("学院")) {
-                profile.college = value;
-            } else if (label.contains("班级")) {
-                profile.className = value;
-            }
-        }
-        return profile;
-    }
-
-    private void parseNameAndStudentId(String titleText, StudentProfile profile) {
-        String raw = titleText == null ? "" : titleText.trim();
-        if (raw.isEmpty()) return;
-
-        Matcher dashMatcher = Pattern.compile("^(.*?)[-－—]\\s*(\\d{6,})\\s*$").matcher(raw);
-        if (dashMatcher.find()) {
-            profile.name = dashMatcher.group(1).trim();
-            profile.studentId = dashMatcher.group(2).trim();
-            return;
-        }
-
-        Matcher idMatcher = Pattern.compile("(\\d{6,})$").matcher(raw);
-        if (idMatcher.find()) {
-            profile.studentId = idMatcher.group(1).trim();
-            String before = raw.substring(0, idMatcher.start()).trim();
-            before = before.replaceAll("[-－—]+$", "").trim();
-            profile.name = before;
-            return;
-        }
-
-        profile.name = raw;
-    }
-
-    private void saveProfileToLocal(StudentProfile profile) {
+    private void saveProfileToLocal(CourseScraper.StudentProfile profile) {
         if (profile == null) return;
         long activeId = CourseStorageManager.getActiveTableId(this);
         CourseStorageManager.saveProfileForTable(this, activeId,
@@ -4344,9 +4273,9 @@ private void extractAllTables(String passedCookie) {
                 profile.college == null ? "" : profile.college);
     }
 
-    private StudentProfile readProfileFromLocal() {
+    private CourseScraper.StudentProfile readProfileFromLocal() {
         long activeId = CourseStorageManager.getActiveTableId(this);
-        StudentProfile profile = new StudentProfile();
+        CourseScraper.StudentProfile profile = new CourseScraper.StudentProfile();
         profile.name = CourseStorageManager.getProfileName(this, activeId);
         profile.studentId = CourseStorageManager.getProfileStudentId(this, activeId);
         profile.className = CourseStorageManager.getProfileClassName(this, activeId);
@@ -4358,9 +4287,9 @@ private void extractAllTables(String passedCookie) {
         renderProfile(readProfileFromLocal());
     }
 
-    private void renderProfile(StudentProfile profile) {
+    private void renderProfile(CourseScraper.StudentProfile profile) {
         if (profile == null) {
-            profile = new StudentProfile();
+            profile = new CourseScraper.StudentProfile();
         }
 
         if (tvProfileName != null) {
@@ -4807,10 +4736,11 @@ private void extractAllTables(String passedCookie) {
 
     private String trySilentLoginAndGetCookie(String fallbackCookie) {
         HttpURLConnection conn = null;
+        String cookie = fallbackCookie;
         try {
-            String cookie = CookieManager.getInstance().getCookie(BASE_URL);
             if (cookie == null || cookie.isEmpty()) {
-                cookie = fallbackCookie;
+                long activeId = CourseStorageManager.getActiveTableId(this);
+                cookie = CourseStorageManager.getCookieForTable(this, activeId);
             }
             if (cookie == null || cookie.isEmpty()) {
                 return null;
@@ -4825,15 +4755,23 @@ private void extractAllTables(String passedCookie) {
             conn.setRequestProperty("Cookie", cookie);
             conn.connect();
 
+            // 维护局部的 cookie，避免污染全局 CookieManager 或受其污染
+            String updatedCookie = cookie;
             Map<String, List<String>> headers = conn.getHeaderFields();
             for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
                 if (entry.getKey() != null && "Set-Cookie".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
                     for (String one : entry.getValue()) {
-                        CookieManager.getInstance().setCookie(BASE_URL, one);
+                        String[] parts = one.split(";");
+                        if (parts.length > 0) {
+                             if (!updatedCookie.contains(parts[0])) {
+                                  updatedCookie = updatedCookie + "; " + parts[0];
+                             }
+                        }
                     }
                 }
             }
-            CookieManager.getInstance().flush();
+            cookie = updatedCookie;
+
         } catch (Exception e) {
             Log.w(TAG, "Silent login refresh failed", e);
             return null;
@@ -4845,10 +4783,8 @@ private void extractAllTables(String passedCookie) {
 
         HttpURLConnection verifyConn = null;
         try {
-            String newCookie = CookieManager.getInstance().getCookie(BASE_URL);
-            if (newCookie == null || newCookie.isEmpty()) {
-                return null;
-            }
+            // 注意不要回到全局的CookieManager
+            String newCookie = cookie; // 使用上一请求更新后的cookie
 
             verifyConn = (HttpURLConnection) new URL(SUCCESS_URL).openConnection();
             verifyConn.setInstanceFollowRedirects(false);

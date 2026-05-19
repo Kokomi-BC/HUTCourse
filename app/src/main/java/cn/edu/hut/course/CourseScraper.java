@@ -30,6 +30,14 @@ public class CourseScraper {
     public static final String LOGIN_URL = BASE_URL + "/jsxsd/sso.jsp";
     public static final String TARGET_URL = BASE_URL + "/jsxsd/xskb/xskb_list.do?viweType=0";
     public static final String EXPERIMENT_URL = BASE_URL + "/jsxsd/syjx/toXskb.do";
+    public static final String PROFILE_URL = BASE_URL + "/jsxsd/framework/xsMainV_new.htmlx?t1=1";
+
+    public static class StudentProfile {
+        public String name = "";
+        public String studentId = "";
+        public String className = "";
+        public String college = "";
+    }
 
     public interface ScrapeCallback {
         void onSuccess(List<Course> courses);
@@ -407,5 +415,70 @@ public class CourseScraper {
         List<Integer> list = new ArrayList<>(set);
         Collections.sort(list);
         return list;
+    }
+
+    /**
+     * 抓取个人信息（姓名、学号、班级、学院）
+     */
+    public static StudentProfile scrapeStudentProfile(String cookie) throws Exception {
+        if (cookie == null || cookie.trim().isEmpty()) {
+            throw new IllegalStateException("缺少教务Cookie");
+        }
+        String html = fetch(PROFILE_URL, cookie);
+        Document doc = Jsoup.parse(html);
+
+        Element title = doc.selectFirst(".infoContentTitle");
+        if (title == null || title.text().trim().isEmpty()) {
+            throw new IllegalStateException("未找到个人信息区域");
+        }
+
+        StudentProfile profile = new StudentProfile();
+        parseNameAndStudentId(title.text(), profile);
+
+        Elements detailTexts = doc.select(".infoContentBody .qz-detailtext");
+        for (Element detail : detailTexts) {
+            if (detail == null) continue;
+            String text = detail.text();
+            if (text == null || text.trim().isEmpty()) continue;
+
+            String normalized = text.replace('\u00A0', ' ');
+            String[] parts = normalized.split("[：:]", 2);
+            if (parts.length < 2) continue;
+
+            String rawLabel = parts[0] == null ? "" : parts[0];
+            String label = rawLabel.replace(" ", "").trim();
+            String value = parts[1] == null ? "" : parts[1].trim();
+            if (value.isEmpty()) continue;
+
+            if (label.contains("学院")) {
+                profile.college = value;
+            } else if (label.contains("班级")) {
+                profile.className = value;
+            }
+        }
+        return profile;
+    }
+
+    private static void parseNameAndStudentId(String titleText, StudentProfile profile) {
+        String raw = titleText == null ? "" : titleText.trim();
+        if (raw.isEmpty()) return;
+
+        Matcher dashMatcher = Pattern.compile("^(.*?)[-－—]\\s*(\\d{6,})\\s*$").matcher(raw);
+        if (dashMatcher.find()) {
+            profile.name = dashMatcher.group(1).trim();
+            profile.studentId = dashMatcher.group(2).trim();
+            return;
+        }
+
+        Matcher idMatcher = Pattern.compile("(\\d{6,})$").matcher(raw);
+        if (idMatcher.find()) {
+            profile.studentId = idMatcher.group(1).trim();
+            String before = raw.substring(0, idMatcher.start()).trim();
+            before = before.replaceAll("[-－—]+$", "").trim();
+            profile.name = before;
+            return;
+        }
+
+        profile.name = raw;
     }
 }

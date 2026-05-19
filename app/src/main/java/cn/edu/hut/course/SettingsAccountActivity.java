@@ -91,10 +91,13 @@ public class SettingsAccountActivity extends AppCompatActivity {
                 boolean loginSuccess = data.getBooleanExtra("login_success", false);
                 if (loginSuccess) {
                     Toast.makeText(this, "登录成功", Toast.LENGTH_SHORT).show();
+                    String newCookie = data.getStringExtra("cookie");
+                    long activeId = CourseStorageManager.getActiveTableId(this);
+                    CourseStorageManager.saveCookieForTable(this, activeId, newCookie);
                     // 通知主页刷新课表
                     Intent out = new Intent();
                     out.putExtra("action", "extract_after_login");
-                    out.putExtra("cookie", data.getStringExtra("cookie"));
+                    out.putExtra("cookie", newCookie);
                     setResult(RESULT_OK, out);
                     // 不关闭当前界面，留在账号与同步页面
                     updateActionStatusSummaries();
@@ -168,13 +171,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     private boolean hasLocalLoginCookie() {
         long activeId = CourseStorageManager.getActiveTableId(this);
         String savedCookie = CourseStorageManager.getCookieForTable(this, activeId);
-        if (savedCookie != null && !savedCookie.isEmpty()) return true;
-        // Fallback to system CookieManager
-        String cookie = CookieManager.getInstance().getCookie(TARGET_URL);
-        if (cookie == null || cookie.isEmpty()) {
-            cookie = CookieManager.getInstance().getCookie(BASE_URL);
-        }
-        return cookie != null && !cookie.trim().isEmpty();
+        return savedCookie != null && !savedCookie.trim().isEmpty();
     }
 
     private void setExtractSummary(String text) {
@@ -202,7 +199,26 @@ public class SettingsAccountActivity extends AppCompatActivity {
         UiStyleHelper.applyGlassCards(findViewById(android.R.id.content), this);
     }
 
+    private void syncCookieToWebView() {
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        String savedCookie = CourseStorageManager.getCookieForTable(this, activeId);
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.removeSessionCookies(null);
+        cookieManager.removeAllCookies(null);
+        cookieManager.flush();
+        if (savedCookie != null && !savedCookie.trim().isEmpty()) {
+            String[] cookies = savedCookie.split(";");
+            for (String c : cookies) {
+                if (!c.trim().isEmpty()) {
+                    cookieManager.setCookie(BASE_URL, c.trim());
+                }
+            }
+            cookieManager.flush();
+        }
+    }
+
     private void launchBrowserForLogin() {
+        syncCookieToWebView();
         Intent intent = new Intent(this, BrowserActivity.class);
         intent.putExtra("url", CourseScraper.LOGIN_URL);
         intent.putExtra("autoCloseOnLoginSuccess", true);
@@ -215,6 +231,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
             setExtractSummary("正在处理中，请稍候...");
             return;
         }
+        syncCookieToWebView();
         extractInProgress = true;
         Toast.makeText(this, "正在校验教务登录...", Toast.LENGTH_SHORT).show();
         setExtractSummary("正在校验登录状态...");
@@ -401,12 +418,6 @@ public class SettingsAccountActivity extends AppCompatActivity {
             long activeId = CourseStorageManager.getActiveTableId(this);
             cookie = CourseStorageManager.getCookieForTable(this, activeId);
         }
-        if (cookie == null || cookie.isEmpty()) {
-            cookie = CookieManager.getInstance().getCookie(TARGET_URL);
-            if (cookie == null || cookie.isEmpty()) {
-                cookie = CookieManager.getInstance().getCookie(BASE_URL);
-            }
-        }
 
         if (cookie == null || cookie.isEmpty()) {
             showNotLoggedInHint();
@@ -443,6 +454,16 @@ public class SettingsAccountActivity extends AppCompatActivity {
                 // Save cookie per table
                 long activeId = CourseStorageManager.getActiveTableId(SettingsAccountActivity.this);
                 CourseStorageManager.saveCookieForTable(SettingsAccountActivity.this, activeId, finalCookie);
+                // 同时刷新个人信息
+                new Thread(() -> {
+                    try {
+                        CourseScraper.StudentProfile profile = CourseScraper.scrapeStudentProfile(finalCookie);
+                        CourseStorageManager.saveProfileForTable(SettingsAccountActivity.this, activeId,
+                                profile.name, profile.studentId, profile.className, profile.college);
+                    } catch (Exception ignored) {
+                        // 个人信息刷新失败不影响课表刷新结果
+                    }
+                }).start();
                 runOnUiThread(() -> {
                     Intent result = new Intent();
                     result.putExtra("action", "reload_courses");
@@ -483,8 +504,10 @@ public class SettingsAccountActivity extends AppCompatActivity {
 
     private String trySilentLoginAndGetCookie() {
         HttpURLConnection conn = null;
+        String cookie = null;
         try {
-            String cookie = CookieManager.getInstance().getCookie(BASE_URL);
+            long activeId = CourseStorageManager.getActiveTableId(this);
+            cookie = CourseStorageManager.getCookieForTable(this, activeId);
             if (cookie == null || cookie.isEmpty()) {
                 return null;
             }
@@ -498,14 +521,20 @@ public class SettingsAccountActivity extends AppCompatActivity {
             conn.setRequestProperty("Cookie", cookie);
             conn.connect();
 
+            String updatedCookie = cookie;
             Map<String, List<String>> headers = conn.getHeaderFields();
             List<String> setCookies = headers.get("Set-Cookie");
             if (setCookies != null) {
                 for (String one : setCookies) {
-                    CookieManager.getInstance().setCookie(BASE_URL, one);
+                    String[] parts = one.split(";");
+                    if (parts.length > 0) {
+                        if (!updatedCookie.contains(parts[0])) {
+                            updatedCookie = updatedCookie + "; " + parts[0];
+                        }
+                    }
                 }
-                CookieManager.getInstance().flush();
             }
+            cookie = updatedCookie;
         } catch (Exception ignored) {
             return null;
         } finally {
@@ -516,8 +545,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
 
         HttpURLConnection verifyConn = null;
         try {
-            String newCookie = CookieManager.getInstance().getCookie(BASE_URL);
-            if (newCookie == null || newCookie.isEmpty()) {
+            if (cookie == null || cookie.isEmpty()) {
                 return null;
             }
 
@@ -526,21 +554,21 @@ public class SettingsAccountActivity extends AppCompatActivity {
             verifyConn.setConnectTimeout(8000);
             verifyConn.setReadTimeout(8000);
             verifyConn.setRequestProperty("User-Agent", "Mozilla/5.0");
-            verifyConn.setRequestProperty("Cookie", newCookie);
+            verifyConn.setRequestProperty("Cookie", cookie);
             int code = verifyConn.getResponseCode();
             String finalUrl = verifyConn.getURL() != null ? verifyConn.getURL().toString() : "";
             String location = verifyConn.getHeaderField("Location");
 
             if (finalUrl.contains(LOGIN_SUCCESS_PATH)) {
-                return newCookie;
+                return cookie;
             }
             if (location != null && location.contains(LOGIN_SUCCESS_PATH)) {
-                return newCookie;
+                return cookie;
             }
             if (code == HttpURLConnection.HTTP_OK) {
                 String body = readBodyPreview(verifyConn);
                 if (!body.contains("登录") && !body.contains("sso.jsp") && body.contains("xsMain")) {
-                    return newCookie;
+                    return cookie;
                 }
             }
             return null;

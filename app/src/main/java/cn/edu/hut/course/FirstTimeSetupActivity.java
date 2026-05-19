@@ -325,6 +325,18 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
                     return;
                 }
                 saveCourses(courses);
+                // 同时刷新个人信息
+                final String profileCookie = cookie;
+                new Thread(() -> {
+                    try {
+                        CourseScraper.StudentProfile profile = CourseScraper.scrapeStudentProfile(profileCookie);
+                        long activeId = CourseStorageManager.getActiveTableId(FirstTimeSetupActivity.this);
+                        CourseStorageManager.saveProfileForTable(FirstTimeSetupActivity.this, activeId,
+                                profile.name, profile.studentId, profile.className, profile.college);
+                    } catch (Exception ignored) {
+                        // 个人信息刷新失败不影响课表刷新结果
+                    }
+                }).start();
                 final int finalCount = count;
                 runOnUiThread(() -> {
                     Toast.makeText(FirstTimeSetupActivity.this, "刷新成功，共 " + finalCount + " 门课", Toast.LENGTH_SHORT).show();
