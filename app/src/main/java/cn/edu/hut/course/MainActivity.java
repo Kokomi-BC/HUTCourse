@@ -53,6 +53,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.viewpager2.widget.ViewPager2;
@@ -207,7 +208,11 @@ public class MainActivity extends AppCompatActivity {
         int colorOnSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int colorOnSurfaceVariant = UiStyleHelper.resolveOnSurfaceVariantColor(this);
         int colorPrimary = getTimetableThemeColor();
-        int navBackground = ColorUtils.blendARGB(UiStyleHelper.resolvePageBackgroundColor(this), UiStyleHelper.resolveGlassCardColor(this), 0.42f);
+        // 使用毛玻璃色直接作为导航栏背景，保证半透明效果
+        int navBackground = UiStyleHelper.resolveGlassCardColor(this);
+
+        // 允许内容延伸到系统导航栏后方（导航栏颜色已在 theme 中设为透明）
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
         if (tvMainTitle != null) {
             tvMainTitle.setTextColor(colorOnSurface);
@@ -243,10 +248,18 @@ public class MainActivity extends AppCompatActivity {
             ColorStateList tintList = new ColorStateList(states, colors);
             bottomNav.setItemIconTintList(tintList);
             bottomNav.setItemTextColor(tintList);
-            bottomNav.setBackgroundTintList(ColorStateList.valueOf(navBackground));
+
+            // 创建圆角胶囊背景（真正的悬浮胶囊，无矩形遮罩）
+            final int navCorner = dp(40);
+            GradientDrawable capsuleBg = new GradientDrawable();
+            capsuleBg.setShape(GradientDrawable.RECTANGLE);
+            capsuleBg.setCornerRadius(navCorner);
+            capsuleBg.setColor(navBackground);
+            bottomNav.setBackground(capsuleBg);
+            bottomNav.setBackgroundTintList(null);
+
             bottomNav.setItemActiveIndicatorEnabled(false);
             bottomNav.setItemBackground(buildBottomNavItemBackground(colorPrimary));
-            final int navCorner = dp(30);
             bottomNav.setOutlineProvider(new ViewOutlineProvider() {
                 @Override
                 public void getOutline(View view, Outline outline) {

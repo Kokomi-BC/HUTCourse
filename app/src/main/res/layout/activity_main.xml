@@ -4,11 +4,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <LinearLayout
+    <FrameLayout
         android:id="@+id/rootMain"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
 
         <LinearLayout
             android:id="@+id/titleContainer"
@@ -64,13 +68,17 @@
             android:id="@+id/fragment_container"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1">
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:paddingBottom="84dp">
 
             <ScrollView
                 android:id="@+id/pageToday"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:overScrollMode="ifContentScrolls">
+                android:overScrollMode="ifContentScrolls"
+                android:scrollbars="none">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -499,11 +507,16 @@
 
         </FrameLayout>
 
+        </LinearLayout>
+
         <FrameLayout
             android:id="@+id/bottomNavHost"
             android:layout_width="match_parent"
             android:layout_height="84dp"
+            android:layout_gravity="bottom"
             android:background="@android:color/transparent"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             android:paddingHorizontal="12dp"
             android:paddingTop="0dp"
             android:paddingBottom="14dp">
@@ -512,17 +525,18 @@
                 android:id="@+id/bottomNav"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@drawable/bg_bottom_nav_top_rounded"
+                android:clipChildren="false"
                 android:clipToOutline="true"
+                android:clipToPadding="false"
                 app:itemIconSize="22dp"
                 app:itemHorizontalTranslationEnabled="false"
-                app:itemPaddingBottom="12dp"
-                app:itemPaddingTop="12dp"
+                app:itemPaddingBottom="14dp"
+                app:itemPaddingTop="14dp"
                 app:itemTextAppearanceActive="@style/TextAppearance.MyApplication.BottomNav.Active"
                 app:itemTextAppearanceInactive="@style/TextAppearance.MyApplication.BottomNav.Inactive"
                 app:labelVisibilityMode="labeled"
                 app:menu="@menu/bottom_nav_menu" />
         </FrameLayout>
-    </LinearLayout>
+    </FrameLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
