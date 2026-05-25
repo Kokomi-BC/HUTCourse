@@ -39,7 +39,7 @@
                     android:id="@+id/btnBack"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
-                    android:src="@drawable/ic_close_notice"
+                    android:src="@drawable/ic_arrow_back_rounded_24"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="返回上级"
                     app:tint="#666666" />
@@ -64,13 +64,6 @@
                     android:background="?attr/selectableItemBackgroundBorderless"
                     app:tint="#666666" />
 
-                <ImageButton
-                    android:id="@+id/btnClose"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:src="@drawable/ic_close"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    app:tint="#666666" />
             </LinearLayout>
 
             <ProgressBar

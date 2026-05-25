@@ -1,7 +1,8 @@
 package cn.edu.hut.course;
 
-import android.content.DialogInterface;
+import android.content.ContentUris;
 import android.content.ContentValues;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.GradientDrawable;
@@ -447,7 +448,7 @@ public class SettingsDataActivity extends AppCompatActivity {
         input.setPadding(pad, dpToPx(16), pad, dpToPx(16));
         input.setBackground(null); // Simple look
 
-        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("新增课表")
                 .setView(input)
                 .setPositiveButton("创建", (d, w) -> {
@@ -481,7 +482,7 @@ public class SettingsDataActivity extends AppCompatActivity {
         input.setPadding(pad, dpToPx(16), pad, dpToPx(16));
         input.setBackground(null);
 
-        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("重命名课表")
                 .setView(input)
                 .setPositiveButton("确定", (d, w) -> {
@@ -507,7 +508,7 @@ public class SettingsDataActivity extends AppCompatActivity {
             Toast.makeText(this, "至少保留一个课表", Toast.LENGTH_SHORT).show();
             return;
         }
-        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("删除课表")
                 .setMessage("确定要删除课表「" + safeTableName(table) + "」吗？\n该课表中的所有课程和日程数据将被永久删除。")
                 .setPositiveButton("删除", (d, w) -> {
@@ -557,7 +558,7 @@ public class SettingsDataActivity extends AppCompatActivity {
         cbProfile.setChecked(hasProfile);
         container.addView(cbProfile);
 
-        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("分享课表：" + safeTableName(table))
                 .setView(container)
                 .setPositiveButton("导出到文件", (d, w) -> {
@@ -831,7 +832,7 @@ public class SettingsDataActivity extends AppCompatActivity {
             title = "将导入 " + fileAgendas + " 项日程";
         }
 
-        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle(title)
                 .setView(container)
                 .setPositiveButton("新增为新课表", (d, w) -> {
@@ -865,8 +866,11 @@ public class SettingsDataActivity extends AppCompatActivity {
             } else {
                 targetTableId = CourseStorageManager.getActiveTableId(this);
                 if (targetTableId == -1) {
-                    Toast.makeText(this, "无活动课表，无法覆盖", Toast.LENGTH_SHORT).show();
-                    return;
+                    // 无活动课表时自动创建新课表
+                    CourseTable newTable = new CourseTable();
+                    newTable.name = tableName.isEmpty() ? "导入课表" : tableName;
+                    newTable.createTime = System.currentTimeMillis();
+                    targetTableId = CourseStorageManager.insertCourseTable(this, newTable);
                 }
                 CourseTable activeTable = null;
                 for (CourseTable t : CourseStorageManager.readAllCourseTables(this)) {
@@ -1029,10 +1033,10 @@ public class SettingsDataActivity extends AppCompatActivity {
         container.addView(btnPickRange);
 
         final CourseTable finalTable = activeTable;
-        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight))
-                .setTitle("导入到系统日历：" + safeTableName(finalTable))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
+                .setTitle("导出到系统日历：" + safeTableName(finalTable))
                 .setView(container)
-                .setPositiveButton("开始导入", (d, w) -> {
+                .setPositiveButton("开始导出", (d, w) -> {
                     if (!cbCourses.isChecked() && !cbAgendas.isChecked()) {
                         Toast.makeText(this, "请至少选择一项导入内容", Toast.LENGTH_SHORT).show();
                         return;
@@ -1048,6 +1052,7 @@ public class SettingsDataActivity extends AppCompatActivity {
                                         long rangeStartMs, long rangeEndMs, boolean rangeSelected) {
         new Thread(() -> {
             int totalEvents = 0;
+            int skippedEvents = 0;
 
             try {
                 long calId = getOrCreateDefaultCalendarId();
@@ -1063,7 +1068,6 @@ public class SettingsDataActivity extends AppCompatActivity {
                         if (c == null || c.isRemark) continue;
                         if (c.weeks == null) continue;
                         for (int week : c.weeks) {
-                            // Calculate date for this course occurrence
                             java.util.Calendar cal = getSemesterStartCalendar();
                             while (cal.get(java.util.Calendar.DAY_OF_WEEK) != java.util.Calendar.MONDAY) {
                                 cal.add(java.util.Calendar.DAY_OF_MONTH, -1);
@@ -1078,12 +1082,17 @@ public class SettingsDataActivity extends AppCompatActivity {
                             long startMillis = cal.getTimeInMillis() + startMinute * 60000L;
                             long endMillis = cal.getTimeInMillis() + endMinute * 60000L;
 
-                            // Filter by date range
                             if (rangeSelected && (startMillis < rangeStartMs || startMillis > rangeEndMs)) continue;
+
+                            String title = c.name + (c.isExperimental ? " [实验]" : "");
+                            if (isEventExists(calId, title, startMillis, endMillis)) {
+                                skippedEvents++;
+                                continue;
+                            }
 
                             ContentValues values = new ContentValues();
                             values.put(CalendarContract.Events.CALENDAR_ID, calId);
-                            values.put(CalendarContract.Events.TITLE, c.name + (c.isExperimental ? " [实验]" : ""));
+                            values.put(CalendarContract.Events.TITLE, title);
                             values.put(CalendarContract.Events.DESCRIPTION,
                                     "教师：" + (c.teacher != null ? c.teacher : "") +
                                     "\n地点：" + (c.location != null ? c.location : ""));
@@ -1103,19 +1112,23 @@ public class SettingsDataActivity extends AppCompatActivity {
                     List<Agenda> agendas = AgendaStorageManager.loadAllAgendasForTable(this, table.id);
                     for (Agenda a : agendas) {
                         if (a == null) continue;
-                        // Use AgendaStorageManager to parse date properly
                         java.util.Calendar parsedDate = AgendaStorageManager.parseDateOrNull(a.date);
                         if (parsedDate == null) continue;
                         long startMillis = parsedDate.getTimeInMillis() + a.startMinute * 60000L;
-                        long endMillis = parsedDate.getTimeInMillis() + Math.max(a.startMinute, a.endMinute) * 60000L;
+                        long endMillis = parsedDate.getTimeInMillis() + a.endMinute * 60000L;
                         if (endMillis <= startMillis) endMillis = startMillis + 3600000L;
 
-                        // Filter by date range
                         if (rangeSelected && (startMillis < rangeStartMs || startMillis > rangeEndMs)) continue;
+
+                        String title = a.title != null ? a.title : "日程";
+                        if (isEventExists(calId, title, startMillis, endMillis)) {
+                            skippedEvents++;
+                            continue;
+                        }
 
                         ContentValues values = new ContentValues();
                         values.put(CalendarContract.Events.CALENDAR_ID, calId);
-                        values.put(CalendarContract.Events.TITLE, a.title != null ? a.title : "日程");
+                        values.put(CalendarContract.Events.TITLE, title);
                         values.put(CalendarContract.Events.DESCRIPTION, a.description != null ? a.description : "");
                         values.put(CalendarContract.Events.EVENT_LOCATION, a.location != null ? a.location : "");
                         values.put(CalendarContract.Events.DTSTART, startMillis);
@@ -1128,19 +1141,22 @@ public class SettingsDataActivity extends AppCompatActivity {
                     }
                 }
 
-                String resultMsg = "已成功导出 " + totalEvents + " 个事件到系统日历\n范围：" + rangeStr;
+                String resultMsg = "已成功导出 " + totalEvents + " 个事件到系统日历";
+                if (skippedEvents > 0) resultMsg += "\n跳过 " + skippedEvents + " 个已存在的重复事件";
+                resultMsg += "\n范围：" + rangeStr;
 
                 final int finalTotal = totalEvents;
+                final String finalMsg = resultMsg;
                 runOnUiThread(() -> {
-                    new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(SettingsDataActivity.this, com.google.android.material.R.style.Theme_Material3_DayNight))
+                    new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(SettingsDataActivity.this, R.style.Theme_MyApplication_Dialog))
                             .setTitle("导出完成")
-                            .setMessage(resultMsg)
+                            .setMessage(finalMsg)
                             .setPositiveButton("确定", null)
                             .show();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(SettingsDataActivity.this, com.google.android.material.R.style.Theme_Material3_DayNight))
+                    new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(SettingsDataActivity.this, R.style.Theme_MyApplication_Dialog))
                             .setTitle("导出失败")
                             .setMessage("发生错误：" + e.getMessage())
                             .setPositiveButton("确定", null)
@@ -1150,40 +1166,74 @@ public class SettingsDataActivity extends AppCompatActivity {
         }).start();
     }
 
+    /**
+     * 检查系统日历中是否已存在相同标题+时间的日程，防止重复导出。
+     */
+    private boolean isEventExists(long calId, String title, long startMillis, long endMillis) {
+        android.database.Cursor cursor = null;
+        try {
+            // 用 ±5min 窗口匹配 DTSTART，兼容各厂商 CalendarProvider 对时区的不同处理
+            long windowStart = startMillis - 300_000L;
+            long windowEnd = startMillis + 300_000L;
+            String selection = CalendarContract.Events.CALENDAR_ID + " = ? AND "
+                    + CalendarContract.Events.TITLE + " = ? AND "
+                    + CalendarContract.Events.DTSTART + " >= ? AND "
+                    + CalendarContract.Events.DTSTART + " <= ?";
+            String[] selectionArgs = new String[]{
+                    String.valueOf(calId),
+                    title,
+                    String.valueOf(windowStart),
+                    String.valueOf(windowEnd)
+            };
+            cursor = getContentResolver().query(
+                    CalendarContract.Events.CONTENT_URI,
+                    new String[]{CalendarContract.Events._ID},
+                    selection,
+                    selectionArgs,
+                    null);
+            return cursor != null && cursor.getCount() > 0;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+    }
+
+    /** 缓存日历 ID，避免每次导出时查询到不同的日历 */
+    private long mCachedCalendarId = -1;
     private long getOrCreateDefaultCalendarId() {
-        // Try to find an existing local calendar
-        String[] projection = {CalendarContract.Calendars._ID, CalendarContract.Calendars.ACCOUNT_TYPE};
+        if (mCachedCalendarId > 0) return mCachedCalendarId;
         android.database.Cursor cursor = null;
         try {
             cursor = getContentResolver().query(
                     CalendarContract.Calendars.CONTENT_URI,
-                    projection,
+                    new String[]{CalendarContract.Calendars._ID},
                     CalendarContract.Calendars.ACCOUNT_TYPE + " = ?",
                     new String[]{"LOCAL"},
                     null);
             if (cursor != null && cursor.moveToFirst()) {
-                return cursor.getLong(0);
+                mCachedCalendarId = cursor.getLong(0);
+                return mCachedCalendarId;
             }
         } catch (Exception ignored) {
         } finally {
             if (cursor != null) cursor.close();
         }
-
-        // Fallback: try any calendar
         try {
             cursor = getContentResolver().query(
                     CalendarContract.Calendars.CONTENT_URI,
-                    projection,
+                    new String[]{CalendarContract.Calendars._ID},
                     null, null, null);
             if (cursor != null && cursor.moveToFirst()) {
-                return cursor.getLong(0);
+                mCachedCalendarId = cursor.getLong(0);
+                return mCachedCalendarId;
             }
         } catch (Exception ignored) {
         } finally {
             if (cursor != null) cursor.close();
         }
-
-        return 1L; // fallback
+        mCachedCalendarId = 1L;
+        return mCachedCalendarId;
     }
 
     private long getSemesterStartMs() {

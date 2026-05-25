@@ -27,7 +27,7 @@ public class BrowserActivity extends AppCompatActivity {
     private WebView webView;
     private EditText etUrl;
     private ProgressBar progressBar;
-    private ImageButton btnBack, btnRefresh, btnClose;
+    private ImageButton btnBack, btnRefresh;
     private FloatingActionButton fabDone;
     private boolean autoCloseOnLoginSuccess = false;
     private boolean resultSent = false;
@@ -42,7 +42,6 @@ public class BrowserActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.progressBar);
         btnBack = findViewById(R.id.btnBack);
         btnRefresh = findViewById(R.id.btnRefresh);
-        btnClose = findViewById(R.id.btnClose);
         fabDone = findViewById(R.id.fabDone);
         autoCloseOnLoginSuccess = getIntent().getBooleanExtra("autoCloseOnLoginSuccess", false);
 
@@ -62,6 +61,7 @@ public class BrowserActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                if (isFinishing() || isDestroyed()) return;
                 progressBar.setVisibility(View.VISIBLE);
                 etUrl.setText(url);
                 if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
@@ -71,6 +71,7 @@ public class BrowserActivity extends AppCompatActivity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (isFinishing() || isDestroyed()) return;
                 progressBar.setVisibility(View.GONE);
                 if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
                     returnLoginSuccess(url, true);
@@ -79,6 +80,7 @@ public class BrowserActivity extends AppCompatActivity {
             
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (isFinishing() || isDestroyed()) return false;
                 String url = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
                 if (autoCloseOnLoginSuccess && isLoginSuccessUrl(url)) {
                     returnLoginSuccess(url, true);
@@ -91,6 +93,7 @@ public class BrowserActivity extends AppCompatActivity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
+                if (isFinishing() || isDestroyed()) return;
                 progressBar.setProgress(newProgress);
             }
         });
@@ -98,15 +101,19 @@ public class BrowserActivity extends AppCompatActivity {
         // 按钮监听
         // 左上角按钮改为：如果 WebView 能返回则返回，否则退出
         btnBack.setOnClickListener(v -> {
+            if (isFinishing() || isDestroyed()) return;
             if (webView.canGoBack()) webView.goBack();
             else finish();
         });
 
-        btnRefresh.setOnClickListener(v -> webView.reload());
-        btnClose.setOnClickListener(v -> finish());
+        btnRefresh.setOnClickListener(v -> {
+            if (isFinishing() || isDestroyed()) return;
+            webView.reload();
+        });
 
         // 右下角打钩按钮：完成登录并同步
         fabDone.setOnClickListener(v -> {
+            if (isFinishing() || isDestroyed()) return;
             returnLoginSuccess(webView.getUrl(), isLoginSuccessUrl(webView.getUrl()));
         });
 
@@ -132,7 +139,7 @@ public class BrowserActivity extends AppCompatActivity {
     }
 
     private void returnLoginSuccess(String url, boolean loginSuccess) {
-        if (resultSent) return;
+        if (resultSent || isFinishing() || isDestroyed()) return;
         resultSent = true;
         CookieManager.getInstance().flush();
         String cookie = CookieManager.getInstance().getCookie(url);
@@ -144,6 +151,18 @@ public class BrowserActivity extends AppCompatActivity {
         result.putExtra("login_success", loginSuccess);
         setResult(RESULT_OK, result);
         finish();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (webView != null) {
+            webView.stopLoading();
+            webView.setWebChromeClient(null);
+            webView.setWebViewClient(null);
+            webView.destroy();
+            webView = null;
+        }
+        super.onDestroy();
     }
 
 }

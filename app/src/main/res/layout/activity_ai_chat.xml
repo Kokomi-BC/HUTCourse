@@ -10,14 +10,19 @@
         android:id="@+id/rootAiChat"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@android:color/transparent">
+        android:background="@android:color/transparent"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
         <LinearLayout
             android:id="@+id/mainAiChatContent"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="@android:color/transparent"
-            android:orientation="vertical">
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="vertical"
+            android:paddingBottom="6dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -102,6 +107,7 @@
                 android:layout_height="0dp"
                 android:layout_weight="1"
                 android:background="@android:color/transparent"
+                android:clipChildren="false"
                 android:clipToPadding="false"
                 android:paddingStart="14dp"
                 android:paddingTop="4dp"
@@ -120,14 +126,13 @@
                 android:id="@+id/composerCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="14dp"
-                android:layout_marginEnd="14dp"
-                android:layout_marginBottom="10dp"
-                app:cardBackgroundColor="@android:color/transparent"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="12dp"
+                android:layout_marginBottom="6dp"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="26dp"
-                app:cardElevation="0dp"
-                app:strokeColor="#35FFFFFF"
-                app:strokeWidth="1dp">
+                app:cardElevation="6dp"
+                app:strokeWidth="0dp">
 
                 <LinearLayout
                     android:id="@+id/composerInner"

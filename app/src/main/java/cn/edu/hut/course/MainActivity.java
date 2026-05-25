@@ -1,50 +1,97 @@
 package cn.edu.hut.course;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.Manifest;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.animation.ObjectAnimator;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.animation.StateListAnimator;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.Intent;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.SharedPreferences;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.res.ColorStateList;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Canvas;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Color;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.LinearGradient;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Outline;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Paint;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Rect;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Shader;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.drawable.ColorDrawable;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.drawable.Drawable;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.drawable.Drawable.ConstantState;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.drawable.GradientDrawable;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.drawable.StateListDrawable;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Typeface;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.os.Bundle;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.os.Handler;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.os.Looper;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.Layout;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.SpannableString;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.Spanned;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.style.StyleSpan;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.InputType;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.TextUtils;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.util.Log;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.util.TypedValue;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.Gravity;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.MotionEvent;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.View;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.ViewGroup;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.ViewOutlineProvider;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.webkit.CookieManager;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ArrayAdapter;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.EditText;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.FrameLayout;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.GridLayout;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ImageButton;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ImageView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.HorizontalScrollView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.LinearLayout;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ScrollView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.TextView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
@@ -74,6 +121,7 @@ import cn.edu.hut.course.data.CampusBuildingStore;
 import cn.edu.hut.course.data.AgendaStorageManager;
 import cn.edu.hut.course.data.CourseJsonCodec;
 import cn.edu.hut.course.data.CourseStorageManager;
+import cn.edu.hut.course.data.ExamStorageManager;
 import cn.edu.hut.course.data.WeatherSQLiteStore;
 
 import org.jsoup.Jsoup;
@@ -191,7 +239,13 @@ public class MainActivity extends AppCompatActivity {
         boolean scheduleVisible = pageSchedule != null && pageSchedule.getVisibility() == View.VISIBLE;
         boolean titleVisible = scheduleVisible;
         if (tvMainTitle != null) {
-            tvMainTitle.setText(titleVisible ? ("第" + currentWeek + "周课表") : "");
+            String title;
+            if (titleVisible) {
+                title = isHolidayMode() ? ("🏖️ 假期 · 第" + currentWeek + "周") : ("第" + currentWeek + "周课表");
+            } else {
+                title = "";
+            }
+            tvMainTitle.setText(title);
         }
         if (tvScheduleTitleDivider != null) {
             tvScheduleTitleDivider.setVisibility(titleVisible ? View.VISIBLE : View.GONE);
@@ -504,6 +558,10 @@ public class MainActivity extends AppCompatActivity {
         View itemSettingsEntry = findViewById(R.id.itemSettingsEntry);
         if (itemSettingsEntry != null) {
             itemSettingsEntry.setOnClickListener(v -> settingsLauncher.launch(new Intent(this, SettingsHomeActivity.class)));
+        }
+        View itemExamEntry = findViewById(R.id.itemExamEntry);
+        if (itemExamEntry != null) {
+            itemExamEntry.setOnClickListener(v -> startActivity(new Intent(this, ExamActivity.class)));
         }
         browserLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == RESULT_OK) {
@@ -1002,6 +1060,15 @@ public class MainActivity extends AppCompatActivity {
             itemSettingsEntry.setStrokeWidth(dp(1));
             itemSettingsEntry.setStrokeColor(strokeColor);
             itemSettingsEntry.setCardBackgroundColor(glass);
+        }
+
+        MaterialCardView itemExamEntry = findViewById(R.id.itemExamEntry);
+        if (itemExamEntry != null) {
+            itemExamEntry.setCardElevation(0f);
+            itemExamEntry.setRadius(dp(24));
+            itemExamEntry.setStrokeWidth(dp(1));
+            itemExamEntry.setStrokeColor(strokeColor);
+            itemExamEntry.setCardBackgroundColor(glass);
         }
     }
 
@@ -4232,6 +4299,9 @@ public class MainActivity extends AppCompatActivity {
         long diff = now.getTimeInMillis() - weekStart.getTimeInMillis();
         int calculatedWeek = (int) (diff / (7 * 24 * 60 * 60 * 1000.0)) + 1;
         if (calculatedWeek < 1) calculatedWeek = 1;
+        // 假期模式下允许超出 totalWeeks（以便查看假期日程），正常模式下截断
+        if (!isHolidayMode() && calculatedWeek > totalWeeks) calculatedWeek = totalWeeks;
+        // 假期模式下也给一个合理的上限（totalWeeks 已动态计算）
         if (calculatedWeek > totalWeeks) calculatedWeek = totalWeeks;
         return calculatedWeek;
     }
@@ -4314,11 +4384,16 @@ private void extractAllTables(String passedCookie) {
                     Log.w(TAG, "Profile refresh failed", profileEx);
                 }
 
+                // 同步考试安排并自动导入日程
+                final String examCookie = activeCookie;
+                final int[] examResult = syncExamsAndAgenda(examCookie);
+
                 final CourseScraper.StudentProfile finalProfile = refreshedProfile;
 
                 runOnUiThread(() -> {
                     allCourses.clear();
                     allCourses.addAll(finalResult);
+                    refreshTotalWeeks();
                     calculateCurrentWeek();
                     saveCoursesToLocal();
                     updateScheduleViewState();
@@ -4329,7 +4404,10 @@ private void extractAllTables(String passedCookie) {
                     } else {
                         renderProfileFromLocal();
                     }
-                    String toast = "刷新完成，共 " + allCourses.size() + " 门课程";
+                    String toast = "刷新完成：" + allCourses.size() + " 门课程";
+                    if (examResult[0] > 0) {
+                        toast += "，" + examResult[0] + " 门考试";
+                    }
                     Toast.makeText(this, toast, Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
@@ -4337,6 +4415,66 @@ private void extractAllTables(String passedCookie) {
                 runOnUiThread(() -> Toast.makeText(this, "刷新失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
             }
         }).start();
+    }
+
+    /** @return int[2] = {examCount, agendaAddedCount} */
+    private int[] syncExamsAndAgenda(String cookie) {
+        int[] result = new int[]{0, 0};
+        try {
+            List<Exam> exams = ExamScraper.fetchExamSchedule(this, cookie);
+            if (exams.isEmpty()) {
+                Log.w(TAG, "Exam sync: no exams fetched");
+                return result;
+            }
+            result[0] = exams.size();
+            ExamStorageManager.saveExams(this, exams);
+
+            // 自动导入日程（去重）
+            List<Agenda> existingAgendas = AgendaStorageManager.loadAllAgendas(this);
+            int added = 0;
+            for (Exam exam : exams) {
+                String title = "📝 考试：" + exam.courseName;
+                boolean exists = false;
+                for (Agenda a : existingAgendas) {
+                    if (title.equals(a.title) && exam.examDate != null && exam.examDate.equals(a.date)) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (exists) continue;
+
+                Agenda agenda = new Agenda();
+                agenda.title = title;
+                agenda.description = "考场：" + exam.location + "  教师：" + (exam.teacher != null ? exam.teacher : "");
+                agenda.location = exam.location != null ? exam.location : "";
+                agenda.date = exam.examDate != null ? exam.examDate : "";
+                agenda.startMinute = parseExamTimeToMinute(exam.startTime);
+                agenda.endMinute = parseExamTimeToMinute(exam.endTime);
+                agenda.priority = Agenda.PRIORITY_HIGH;
+                agenda.renderColor = UiStyleHelper.resolvePrimaryColor(this);
+                AgendaStorageManager.createAgenda(this, agenda);
+                added++;
+            }
+            if (added > 0) {
+                result[1] = added;
+                Log.i(TAG, "Exam sync: " + exams.size() + " exams, " + added + " added to agenda");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Exam sync failed", e);
+        }
+        return result;
+    }
+
+    private int parseExamTimeToMinute(String time) {
+        if (time == null || time.isEmpty()) return 8 * 60;
+        try {
+            String[] parts = time.split(":");
+            if (parts.length >= 2) {
+                return Integer.parseInt(parts[0].trim()) * 60 + Integer.parseInt(parts[1].trim());
+            }
+        } catch (NumberFormatException ignored) {
+        }
+        return 8 * 60;
     }
 
     private static class ExtractOutcome {
@@ -4394,6 +4532,26 @@ private void extractAllTables(String passedCookie) {
         if (tvProfileCollege != null) {
             tvProfileCollege.setText("学院：" + (TextUtils.isEmpty(profile.college) ? "-" : profile.college));
         }
+        updateExamSummary();
+    }
+
+    private void updateExamSummary() {
+        TextView tvExamSummary = findViewById(R.id.tvExamSummary);
+        if (tvExamSummary == null) return;
+        List<Exam> exams = ExamStorageManager.loadExams(this);
+        if (exams.isEmpty()) {
+            tvExamSummary.setText("暂无考试安排");
+            return;
+        }
+        // 统计剩余考试数
+        String today = AgendaStorageManager.formatDate(Calendar.getInstance());
+        int remaining = 0;
+        for (Exam e : exams) {
+            if (e.examDate != null && e.examDate.compareTo(today) >= 0) {
+                remaining++;
+            }
+        }
+        tvExamSummary.setText("共 " + exams.size() + " 门考试，剩余 " + remaining + " 门");
     }
 
     private ExtractOutcome scrapeAllTablesOnce(String cookie) {
@@ -5091,6 +5249,92 @@ private void extractAllTables(String passedCookie) {
         currentWeek = getActualCurrentWeek();
     }
 
+    /**
+     * 假期模式判定：仅看课程和考试，不看日程。
+     * 假期模式本身就是用来展示日程的，所以日程不能作为排除条件。
+     */
+    private boolean isHolidayMode() {
+        if (!allCourses.isEmpty()) return false;
+        // 有考试安排也视为学期内
+        List<Exam> exams = ExamStorageManager.loadExams(this);
+        return exams.isEmpty();
+    }
+
+    /**
+     * 动态计算课表总周数。
+     * 正常模式：优先用学期结束日期推算；否则取课程最大周数 + 日程日期，至少20周。
+     * 假期模式：从开学日期算到今天 + 8周缓冲，至少20周。
+     * 兼容旧数据：无课程+无日程时退回20周。
+     */
+    private int computeTotalWeeks() {
+        if (isHolidayMode()) {
+            Calendar start = getSemesterStartCalendar();
+            while (start.get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) {
+                start.add(Calendar.DAY_OF_MONTH, -1);
+            }
+            start = cloneAsDay(start);
+            Calendar now = Calendar.getInstance();
+            long diffMs = now.getTimeInMillis() - start.getTimeInMillis();
+            int weeksFromStart = (int) (diffMs / (7.0 * 24 * 3600 * 1000)) + 1;
+            if (weeksFromStart < 1) weeksFromStart = 1;
+            return Math.max(20, weeksFromStart + 8);
+        }
+
+        // 正常模式：优先用学期结束日期
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        long endDateMs = prefs.getLong("semester_end_date", 0);
+        if (endDateMs != 0) {
+            Calendar start = getSemesterStartCalendar();
+            while (start.get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) {
+                start.add(Calendar.DAY_OF_MONTH, -1);
+            }
+            start = cloneAsDay(start);
+            Calendar end = Calendar.getInstance();
+            end.setTimeInMillis(endDateMs);
+            end = cloneAsDay(end);
+            long diffMs = end.getTimeInMillis() - start.getTimeInMillis();
+            int weeksFromEnd = (int) Math.ceil(diffMs / (7.0 * 24 * 3600 * 1000));
+            return Math.max(20, Math.max(weeksFromEnd, 1));
+        }
+
+        // 回退：取课程 + 日程的最大周数
+        int maxWeek = 20;
+        for (Course c : allCourses) {
+            if (c == null || c.weeks == null) continue;
+            for (int w : c.weeks) {
+                if (w > maxWeek) maxWeek = w;
+            }
+        }
+        Calendar semStart = getSemesterStartCalendar();
+        while (semStart.get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) {
+            semStart.add(Calendar.DAY_OF_MONTH, -1);
+        }
+        semStart = cloneAsDay(semStart);
+        List<Agenda> agendas = AgendaStorageManager.loadAllAgendas(this);
+        for (Agenda a : agendas) {
+            if (a == null || a.date == null || a.date.isEmpty()) continue;
+            Calendar agendaDate = AgendaStorageManager.parseDateOrNull(a.date);
+            if (agendaDate == null) continue;
+            long diffMs = agendaDate.getTimeInMillis() - semStart.getTimeInMillis();
+            int weekForAgenda = (int) (diffMs / (7.0 * 24 * 3600 * 1000)) + 1;
+            if (weekForAgenda > maxWeek) maxWeek = weekForAgenda;
+        }
+        return Math.max(20, maxWeek);
+    }
+
+    /**
+     * 刷新 totalWeeks 并在必要时重建 ViewPager。
+     */
+    private void refreshTotalWeeks() {
+        int newTotal = computeTotalWeeks();
+        if (newTotal != totalWeeks) {
+            totalWeeks = newTotal;
+            if (viewPager != null && viewPager.getAdapter() != null) {
+                viewPager.getAdapter().notifyDataSetChanged();
+            }
+        }
+    }
+
 
 
 
@@ -5103,7 +5347,9 @@ private void extractAllTables(String passedCookie) {
     }
 
     private void updateScheduleViewState() {
-        boolean empty = allCourses.isEmpty();
+        boolean coursesEmpty = allCourses.isEmpty();
+        boolean agendasEmpty = AgendaStorageManager.loadAllAgendas(this).isEmpty();
+        boolean empty = coursesEmpty && agendasEmpty;
         tvEmptyHint.setVisibility(empty ? View.VISIBLE : View.GONE);
         viewPager.setVisibility(empty ? View.GONE : View.VISIBLE);
         if (empty && cardNextCourseNotice != null) {
@@ -5130,6 +5376,7 @@ private void extractAllTables(String passedCookie) {
             CookieManager.getInstance().removeSessionCookies(null);
             CookieManager.getInstance().flush();
         }
+        refreshTotalWeeks();
         updateScheduleViewState();
         currentWeek = 1;
         drawGrid();
@@ -5199,6 +5446,7 @@ private void extractAllTables(String passedCookie) {
         sanitizeCourseSectionRange(localCourses);
         allCourses.clear();
         allCourses.addAll(localCourses);
+        refreshTotalWeeks();
         calculateCurrentWeek();
         updateScheduleViewState();
         drawGrid();
@@ -6246,7 +6494,7 @@ private void extractAllTables(String passedCookie) {
 
     private com.google.android.material.dialog.MaterialAlertDialogBuilder newMaterialYouDialogBuilder() {
         // Use the activity's AppCompat/Material3 context directly to satisfy ThemeEnforcement.
-        return new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert));
+        return new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog));
     }
 
 

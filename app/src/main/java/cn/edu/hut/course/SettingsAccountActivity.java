@@ -24,8 +24,10 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.datepicker.MaterialDatePicker;
 import androidx.appcompat.app.AlertDialog;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import cn.edu.hut.course.data.CourseStorageManager;
+import cn.edu.hut.course.data.ExamStorageManager;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -48,7 +50,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     private static final String SUCCESS_URL = BASE_URL + "/jsxsd/framework/xsMainV.htmlx";
     private static final String LOGIN_SUCCESS_PATH = "/jsxsd/framework/xsMainV.htmlx";
     private static final String CAS_LOGIN_PREFIX = "https://mycas.hut.edu.cn/cas";
-    private static final String EXTRACT_SUMMARY_DEFAULT = "从教务同步最新课表";
+    private static final String EXTRACT_SUMMARY_DEFAULT = "从教务同步最新数据";
     private static final long CLICK_GUARD_MS = 700L;
 
     private ActivityResultLauncher<Intent> browserLauncher;
@@ -72,17 +74,24 @@ public class SettingsAccountActivity extends AppCompatActivity {
         toolbar.setNavigationOnClickListener(v -> finish());
 
         TextView tvStartDateSummary = findViewById(R.id.tvStartDateSummary);
+        TextView tvEndDateSummary = findViewById(R.id.tvEndDateSummary);
         tvExtractSummary = findViewById(R.id.tvExtractSummary);
         tvClearSummary = findViewById(R.id.tvClearSummary);
         tvLogoutSummary = findViewById(R.id.tvLogoutSummary);
         resetExtractSummary();
         updateActionStatusSummaries();
         updateStartDateSummary(tvStartDateSummary);
+        updateEndDateSummary(tvEndDateSummary);
         ensureTableSwitcherCard();
 
         findViewById(R.id.itemSetStartDate).setOnClickListener(v -> {
             if (!shouldHandleActionClick()) return;
             showMaterialDatePicker(tvStartDateSummary);
+        });
+
+        findViewById(R.id.itemSetEndDate).setOnClickListener(v -> {
+            if (!shouldHandleActionClick()) return;
+            showEndDatePicker(tvEndDateSummary);
         });
 
         browserLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -94,7 +103,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
                     String newCookie = data.getStringExtra("cookie");
                     long activeId = CourseStorageManager.getActiveTableId(this);
                     CourseStorageManager.saveCookieForTable(this, activeId, newCookie);
-                    // 通知主页刷新课表
+                    // 通知主页刷新数据
                     Intent out = new Intent();
                     out.putExtra("action", "extract_after_login");
                     out.putExtra("cookie", newCookie);
@@ -262,16 +271,23 @@ public class SettingsAccountActivity extends AppCompatActivity {
         final boolean[] finished = {false};
         final Runnable[] timeoutHolder = new Runnable[1];
 
+        Runnable cleanup = () -> {
+            if (isFinishing() || isDestroyed()) return;
+            webView.setWebViewClient(null);
+            webView.setWebChromeClient(null);
+            webView.stopLoading();
+            webView.post(() -> {
+                try { webView.destroy(); } catch (Exception ignored) {}
+            });
+        };
+
         Runnable completeFail = () -> {
             if (finished[0]) return;
             finished[0] = true;
             if (timeoutHolder[0] != null) {
                 webView.removeCallbacks(timeoutHolder[0]);
             }
-            try {
-                webView.stopLoading();
-                webView.destroy();
-            } catch (Exception ignored) {}
+            cleanup.run();
             callback.onResult(null, false);
         };
 
@@ -288,10 +304,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
                     if (cookie == null || cookie.isEmpty()) {
                         cookie = CookieManager.getInstance().getCookie(BASE_URL);
                     }
-                    try {
-                        webView.stopLoading();
-                        webView.destroy();
-                    } catch (Exception ignored) {}
+                    cleanup.run();
                     callback.onResult(cookie, cookie != null && !cookie.isEmpty());
                 }
             }
@@ -303,10 +316,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
                     if (timeoutHolder[0] != null) {
                         webView.removeCallbacks(timeoutHolder[0]);
                     }
-                    try {
-                        webView.stopLoading();
-                        webView.destroy();
-                    } catch (Exception ignored) {}
+                    cleanup.run();
                     callback.onResult(null, false);
                 }
             }
@@ -344,7 +354,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private void showConfirmActionDialog(String title, String message, Runnable onConfirm) {
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle(title)
                 .setMessage(message)
                 .setNegativeButton("取消", null)
@@ -425,8 +435,8 @@ public class SettingsAccountActivity extends AppCompatActivity {
             return;
         }
 
-        Toast.makeText(this, "正在刷新课表...", Toast.LENGTH_SHORT).show();
-        setExtractSummary("刷新课表中...");
+        Toast.makeText(this, "正在刷新数据...", Toast.LENGTH_SHORT).show();
+        setExtractSummary("刷新数据中...");
         final String finalCookie = cookie;
         CourseScraper.extractAllTables(finalCookie, new CourseScraper.ScrapeCallback() {
             @Override
@@ -460,9 +470,16 @@ public class SettingsAccountActivity extends AppCompatActivity {
                         CourseScraper.StudentProfile profile = CourseScraper.scrapeStudentProfile(finalCookie);
                         CourseStorageManager.saveProfileForTable(SettingsAccountActivity.this, activeId,
                                 profile.name, profile.studentId, profile.className, profile.college);
-                    } catch (Exception ignored) {
-                        // 个人信息刷新失败不影响课表刷新结果
-                    }
+                    } catch (Exception ignored) {}
+                }).start();
+                // 同步考试安排
+                new Thread(() -> {
+                    try {
+                        List<Exam> exams = ExamScraper.fetchExamSchedule(SettingsAccountActivity.this, finalCookie);
+                        if (!exams.isEmpty()) {
+                            ExamStorageManager.saveExams(SettingsAccountActivity.this, exams);
+                        }
+                    } catch (Exception ignored) {}
                 }).start();
                 runOnUiThread(() -> {
                     Intent result = new Intent();
@@ -639,7 +656,56 @@ public class SettingsAccountActivity extends AppCompatActivity {
 
         picker.show(getSupportFragmentManager(), "semester_date_picker");
     }
+    private void updateEndDateSummary(TextView tvEndDateSummary) {
+        SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
+        long endMs = prefs.getLong("semester_end_date", 0);
+        if (endMs == 0) {
+            tvEndDateSummary.setText("未设置（自动推算20周）");
+        } else {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+            tvEndDateSummary.setText(sdf.format(endMs));
+        }
+    }
 
+    private void showEndDatePicker(TextView tvEndDateSummary) {
+        SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
+        long currentMs = prefs.getLong("semester_end_date", 0);
+        long startMs = prefs.getLong("semester_start_date", 0);
+        long defaultSel;
+        if (currentMs != 0) {
+            defaultSel = currentMs;
+        } else if (startMs != 0) {
+            Calendar estEnd = Calendar.getInstance();
+            estEnd.setTimeInMillis(startMs);
+            estEnd.add(Calendar.WEEK_OF_YEAR, 20);
+            defaultSel = estEnd.getTimeInMillis();
+        } else {
+            defaultSel = MaterialDatePicker.todayInUtcMilliseconds();
+        }
+
+        MaterialDatePicker<Long> picker = MaterialDatePicker.Builder.datePicker()
+                .setTitleText("选择放假日期")
+                .setSelection(defaultSel)
+                .build();
+
+        picker.addOnPositiveButtonClickListener(selection -> {
+            Calendar selected = Calendar.getInstance();
+            selected.setTimeInMillis(selection);
+            selected.set(Calendar.HOUR_OF_DAY, 0);
+            selected.set(Calendar.MINUTE, 0);
+            selected.set(Calendar.SECOND, 0);
+            selected.set(Calendar.MILLISECOND, 0);
+
+            prefs.edit().putLong("semester_end_date", selected.getTimeInMillis()).apply();
+            updateEndDateSummary(tvEndDateSummary);
+
+            Intent i = new Intent();
+            i.putExtra("action", "refresh_current_week");
+            setResult(RESULT_OK, i);
+        });
+
+        picker.show(getSupportFragmentManager(), "semester_end_date_picker");
+    }
     // ==================== Table Switcher ====================
 
     private void ensureTableSwitcherCard() {

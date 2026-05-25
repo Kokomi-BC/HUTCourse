@@ -12,6 +12,8 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             android:orientation="vertical">
 
         <LinearLayout
@@ -70,7 +72,7 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:clipChildren="false"
-            android:clipToPadding="false"
+            android:clipToPadding="true"
             android:paddingBottom="84dp">
 
             <ScrollView
@@ -294,7 +296,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="60dp"
                     android:gravity="center"
-                    android:text="还没有课表哟\n去设置里爬取或导入吧"
+                    android:text="还没有课表哟\n去设置里导入课表或添加日程吧"
                     android:textSize="18sp"
                     android:visibility="gone" />
 
@@ -381,6 +383,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:background="@android:color/transparent"
+                android:clipChildren="false"
+                android:clipToPadding="false"
                 android:visibility="gone" />
 
             <ScrollView
@@ -463,6 +467,48 @@
                     </com.google.android.material.card.MaterialCardView>
 
                     <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/itemExamEntry"
+                        style="@style/Widget.MyApplication.SettingsCard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?attr/selectableItemBackground"
+                        app:cardCornerRadius="24dp"
+                        app:cardElevation="0dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:padding="16dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    style="@style/Widget.MyApplication.SettingsRowTitle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="考试安排" />
+
+                                <TextView
+                                    android:id="@+id/tvExamSummary"
+                                    style="@style/Widget.MyApplication.SettingsRowSummary"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="查看考试日程" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <com.google.android.material.card.MaterialCardView
                         android:id="@+id/itemSettingsEntry"
                         style="@style/Widget.MyApplication.SettingsCard"
                         android:layout_width="match_parent"
@@ -518,8 +564,8 @@
             android:clipChildren="false"
             android:clipToPadding="false"
             android:paddingHorizontal="12dp"
-            android:paddingTop="0dp"
-            android:paddingBottom="14dp">
+            android:paddingTop="4dp"
+            android:paddingBottom="10dp">
 
             <com.google.android.material.bottomnavigation.BottomNavigationView
                 android:id="@+id/bottomNav"
@@ -530,8 +576,8 @@
                 android:clipToPadding="false"
                 app:itemIconSize="22dp"
                 app:itemHorizontalTranslationEnabled="false"
-                app:itemPaddingBottom="14dp"
-                app:itemPaddingTop="14dp"
+                app:itemPaddingBottom="10dp"
+                app:itemPaddingTop="18dp"
                 app:itemTextAppearanceActive="@style/TextAppearance.MyApplication.BottomNav.Active"
                 app:itemTextAppearanceInactive="@style/TextAppearance.MyApplication.BottomNav.Inactive"
                 app:labelVisibilityMode="labeled"

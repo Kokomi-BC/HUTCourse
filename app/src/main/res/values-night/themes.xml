@@ -16,4 +16,20 @@
         <item name="colorSurfaceVariant">#2B313C</item>
         <item name="materialAlertDialogTheme">@style/ThemeOverlay.MyApplication.MaterialAlertDialog</item>
     </style>
+
+    <!-- AppCompat 兼容的完整对话框主题（夜间），用于 MaterialAlertDialogBuilder -->
+    <style name="Theme.MyApplication.Dialog" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">#9DB8E8</item>
+        <item name="colorOnPrimary">#0A2244</item>
+        <item name="colorPrimaryContainer">#1C3B66</item>
+        <item name="colorOnPrimaryContainer">#D6E3FF</item>
+        <item name="colorSecondary">#B4C7E5</item>
+        <item name="colorOnSecondary">#1E314D</item>
+        <item name="colorSecondaryContainer">#334864</item>
+        <item name="colorOnSecondaryContainer">#D4E4FF</item>
+        <item name="colorSurface">#0F131A</item>
+        <item name="colorOnSurface">#E9EEF7</item>
+        <item name="colorSurfaceVariant">#2B313C</item>
+        <item name="colorOnSurfaceVariant">#C3C7CF</item>
+    </style>
 </resources>

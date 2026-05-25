@@ -28,6 +28,7 @@ import androidx.core.graphics.ColorUtils;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import androidx.appcompat.app.AlertDialog;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.card.MaterialCardView;
 
@@ -286,8 +287,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             }
         });
 
-        AlertDialog dialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(
-                new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        AlertDialog dialog = new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("自定义主题色")
                 .setView(content)
                 .setNegativeButton("取消", null)
@@ -586,8 +586,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
 
     private void showDeleteCourseDialog(Course c, com.google.android.material.bottomsheet.BottomSheetDialog parentSheet) {
         if (c == null || isFinishing() || isDestroyed()) return;
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(
-                new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("删除课程")
                 .setMessage("确定要删除课程「" + c.name + (c.isExperimental ? " [实验]" : "") + "」吗？\n此操作不可撤销。")
                 .setPositiveButton("删除", (d, w) -> {
@@ -870,7 +869,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             checked = options.size() - 1;
         }
         final int[] picked = {checked};
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("选择教师")
                 .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
                 .setNeutralButton("自定义", (dialog, which) -> showCustomTeacherInputDialog(c, afterPick))
@@ -895,7 +894,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         if (checked < 0) checked = 0;
 
         final int[] picked = {checked};
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("选择上课地点")
                 .setSingleChoiceItems(options.toArray(new String[0]), checked, (dialog, which) -> picked[0] = which)
                 .setNegativeButton("取消", null)
@@ -927,7 +926,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         input.setText(c.teacher == null ? "" : c.teacher);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
 
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("自定义教师")
                 .setView(input)
                 .setNegativeButton("取消", null)
@@ -944,7 +943,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setText(currentRoom == null ? "" : currentRoom);
 
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("设置教室位置 - " + buildingName)
                 .setView(input)
                 .setNegativeButton("取消", null)
@@ -972,7 +971,7 @@ public class SettingsDisplayActivity extends AppCompatActivity {
             checked[i] = weekSet.contains(weekNo);
         }
 
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("选择上课周数")
                 .setMultiChoiceItems(labels, checked, (dialog, which, isChecked) -> checked[which] = isChecked)
                 .setNegativeButton("取消", null)

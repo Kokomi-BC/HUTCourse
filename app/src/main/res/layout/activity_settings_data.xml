@@ -156,7 +156,7 @@
                             style="@style/Widget.MyApplication.SettingsRowTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="导入到系统日历" />
+                            android:text="导出到系统日历" />
 
                         <TextView
                             android:id="@+id/tvCalendarImportSummary"

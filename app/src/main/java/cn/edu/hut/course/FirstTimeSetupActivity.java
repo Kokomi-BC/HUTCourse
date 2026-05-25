@@ -45,6 +45,7 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
     private static final String PREF_COURSE_STORAGE = "course_storage";
     private static final String PREF_COURSE_COLORS = "course_colors";
     private static final String KEY_SEMESTER_START_DATE = "semester_start_date";
+    private static final String KEY_SEMESTER_END_DATE = "semester_end_date";
     private static final String KEY_SHOW_GRID_LINES = "show_grid_lines";
     private static final String KEY_TIMETABLE_THEME_COLOR = "timetable_theme_color";
     private static final String KEY_TIMETABLE_FONT_SCALE = "timetable_font_scale";
@@ -60,6 +61,7 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
     private TextView tvLoginStatus;
     private TextView tvFetchStatus;
     private TextView tvSemesterDateSummary;
+    private TextView tvSemesterEndDateSummary;
     private TextView tvFontPercent;
     private TextView tvFontPreview;
     private SeekBar seekFontSize;
@@ -84,6 +86,7 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
         tvLoginStatus = findViewById(R.id.tvLoginStatus);
         tvFetchStatus = findViewById(R.id.tvFetchStatus);
         tvSemesterDateSummary = findViewById(R.id.tvSemesterDateSummary);
+        tvSemesterEndDateSummary = findViewById(R.id.tvSemesterEndDateSummary);
         tvFontPercent = findViewById(R.id.tvFontPercent);
         tvFontPreview = findViewById(R.id.tvFontPreview);
         seekFontSize = findViewById(R.id.seekFontSize);
@@ -109,7 +112,7 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
             launchBrowserForLogin();
         });
 
-        // 刷新课表
+        // 刷新数据
         findViewById(R.id.cardFetchSchedule).setOnClickListener(v -> {
             if (!shouldHandleClick()) return;
             fetchCourseFromJwxt();
@@ -119,6 +122,12 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
         findViewById(R.id.cardSemesterDate).setOnClickListener(v -> {
             if (!shouldHandleClick()) return;
             showSemesterDatePicker();
+        });
+
+        // 放假日期
+        findViewById(R.id.cardSemesterEndDate).setOnClickListener(v -> {
+            if (!shouldHandleClick()) return;
+            showSemesterEndDatePicker();
         });
 
         // 主题色
@@ -183,6 +192,7 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
         updateLoginStatus();
         updateFetchStatus();
         updateSemesterDateSummary();
+        updateSemesterEndDateSummary();
         renderThemePaletteRow();
         refreshFontSizeControls();
     }
@@ -303,8 +313,8 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
     }
 
     private void doExtractCourses(String cookie, boolean allowSilentRetry) {
-        Toast.makeText(this, "正在刷新课表...", Toast.LENGTH_SHORT).show();
-        tvFetchStatus.setText("刷新课表中...");
+        Toast.makeText(this, "正在刷新数据...", Toast.LENGTH_SHORT).show();
+        tvFetchStatus.setText("刷新数据中...");
 
         CourseScraper.extractAllTables(cookie, new CourseScraper.ScrapeCallback() {
             @Override
@@ -458,10 +468,61 @@ public class FirstTimeSetupActivity extends AppCompatActivity {
             cal.set(Calendar.MINUTE, 0);
             cal.set(Calendar.SECOND, 0);
             cal.set(Calendar.MILLISECOND, 0);
+            long oldStart = prefs.getLong(KEY_SEMESTER_START_DATE, 0);
             prefs.edit().putLong(KEY_SEMESTER_START_DATE, cal.getTimeInMillis()).apply();
             updateSemesterDateSummary();
+            if (oldStart != 0 && oldStart != cal.getTimeInMillis()) {
+                Toast.makeText(this, "开学日期已更新，返回课表后将自动适配新学期的周数范围", Toast.LENGTH_LONG).show();
+            }
         });
         picker.show(getSupportFragmentManager(), "semester_date_picker");
+    }
+
+    // ==================== 放假日期 ====================
+
+    private void updateSemesterEndDateSummary() {
+        if (tvSemesterEndDateSummary == null) return;
+        SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
+        long ms = prefs.getLong(KEY_SEMESTER_END_DATE, 0);
+        if (ms == 0) {
+            tvSemesterEndDateSummary.setText("未设置（自动推算20周）");
+        } else {
+            SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd", Locale.CHINA);
+            tvSemesterEndDateSummary.setText(fmt.format(ms));
+        }
+    }
+
+    private void showSemesterEndDatePicker() {
+        SharedPreferences prefs = getSharedPreferences(PREF_COURSE_STORAGE, MODE_PRIVATE);
+        long currentMs = prefs.getLong(KEY_SEMESTER_END_DATE, 0);
+        long startMs = prefs.getLong(KEY_SEMESTER_START_DATE, 0);
+        long defaultSel;
+        if (currentMs != 0) {
+            defaultSel = currentMs;
+        } else if (startMs != 0) {
+            Calendar estEnd = Calendar.getInstance();
+            estEnd.setTimeInMillis(startMs);
+            estEnd.add(Calendar.WEEK_OF_YEAR, 20);
+            defaultSel = estEnd.getTimeInMillis();
+        } else {
+            defaultSel = MaterialDatePicker.todayInUtcMilliseconds();
+        }
+
+        MaterialDatePicker<Long> picker = MaterialDatePicker.Builder.datePicker()
+                .setTitleText("选择放假日期")
+                .setSelection(defaultSel)
+                .build();
+        picker.addOnPositiveButtonClickListener(selection -> {
+            Calendar cal = Calendar.getInstance();
+            cal.setTimeInMillis(selection);
+            cal.set(Calendar.HOUR_OF_DAY, 0);
+            cal.set(Calendar.MINUTE, 0);
+            cal.set(Calendar.SECOND, 0);
+            cal.set(Calendar.MILLISECOND, 0);
+            prefs.edit().putLong(KEY_SEMESTER_END_DATE, cal.getTimeInMillis()).apply();
+            updateSemesterEndDateSummary();
+        });
+        picker.show(getSupportFragmentManager(), "semester_end_date_picker");
     }
 
     // ==================== 课表主题色 ====================

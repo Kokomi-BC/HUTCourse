@@ -1444,7 +1444,7 @@ public class AgendaOverviewActivity extends AppCompatActivity {
 
     @NonNull
     private MaterialAlertDialogBuilder newMaterialYouDialogBuilder() {
-        return new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert));
+        return new MaterialAlertDialogBuilder(this);
     }
 
     private void showAgendaLocationPicker(@Nullable String currentLocation, @Nullable OnAgendaLocationPick callback) {

@@ -548,8 +548,7 @@ public class SettingsAiActivity extends AppCompatActivity {
     private void showDeleteConfirmDialog(AiConfigStore.AiModelConfig item) {
         String title = item == null ? "该模型" : resolveDisplayName(item);
         new MaterialAlertDialogBuilder(
-                new ContextThemeWrapper(this, com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert)
-        )
+                new ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle("删除模型")
                 .setMessage("确认删除 \"" + title + "\" ?")
                 .setNegativeButton("取消", null)

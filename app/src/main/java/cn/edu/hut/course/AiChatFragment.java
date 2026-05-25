@@ -1,50 +1,96 @@
 package cn.edu.hut.course;
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.app.Activity;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.Context;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.Intent;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.SharedPreferences;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.res.ColorStateList;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Bitmap;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.BitmapFactory;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Color;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.ImageDecoder;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.Rect;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.drawable.ColorDrawable;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.graphics.drawable.GradientDrawable;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.net.Uri;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.os.Build;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.os.Bundle;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.os.Handler;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.os.Looper;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.os.SystemClock;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.provider.MediaStore;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.Editable;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.TextWatcher;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.text.TextUtils;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.util.Log;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.util.TypedValue;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.Gravity;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.LayoutInflater;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.MotionEvent;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.View;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.ViewTreeObserver;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.ViewGroup;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.ViewParent;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.WindowManager;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.view.inputmethod.InputMethodManager;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ArrayAdapter;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ImageView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.AdapterView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.BaseAdapter;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.EditText;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.FrameLayout;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ImageButton;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.LinearLayout;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ListView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.PopupWindow;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.ScrollView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.TextView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResult;
@@ -1323,17 +1369,8 @@ public class AiChatFragment extends Fragment {
 
     private int computeComposerLiftForIme(@NonNull View root, int imeBottom) {
         int keyboard = Math.max(0, imeBottom);
-        if (keyboard == 0) {
-            return 0;
-        }
+        if (keyboard == 0) return 0;
         int reservedBottom = getMainBottomNavEffectiveHeight();
-        if (reservedBottom <= 0) {
-            reservedBottom = computeRootBottomInsetToWindow(root);
-        }
-        // Android 12 及以下常见 IME 高度包含系统底栏，需额外扣减避免输入框上方留白。
-        if (shouldPreferFallbackImeDriver()) {
-            reservedBottom += resolveSystemBottomInsetForIme(root);
-        }
         return Math.max(0, keyboard - reservedBottom);
     }
 
@@ -2289,19 +2326,17 @@ public class AiChatFragment extends Fragment {
         int fullscreenBg = ColorUtils.blendARGB(UiStyleHelper.resolvePageBackgroundColor(ctx()), Color.WHITE, isDarkMode() ? 0.10f : 0.92f);
 
         if (composerCard != null) {
-            composerCard.setCardBackgroundColor(Color.TRANSPARENT);
-            composerCard.setStrokeColor(Color.TRANSPARENT);
-            composerCard.setStrokeWidth(0);
+            int cardBg = UiStyleHelper.resolvePageBackgroundColor(ctx());
+            composerCard.setCardBackgroundColor(cardBg);
+            composerCard.setStrokeColor(outline);
+            composerCard.setStrokeWidth(dp(2));
+            composerCard.setCardElevation(0);
             composerCard.setClipToOutline(true);
             composerCard.setClipChildren(true);
         }
         if (composerInner != null) {
-            GradientDrawable composerBg = new GradientDrawable();
-            composerBg.setCornerRadius(dp(28));
-            composerBg.setColor(fieldBg);
-            composerBg.setStroke(dp(1), outline);
-            composerInner.setBackground(composerBg);
-            composerInner.setClipToOutline(true);
+            composerInner.setBackground(null);
+            composerInner.setClipToOutline(false);
         }
         if (etPrompt != null) {
             etPrompt.setTextColor(onSurface);
@@ -2540,7 +2575,7 @@ public class AiChatFragment extends Fragment {
         input.setHint("请输入对话名称");
         input.setSelection(input.getText() == null ? 0 : input.getText().length());
 
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(ctx(), com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(ctx(), R.style.Theme_MyApplication_Dialog))
                 .setTitle("重命名对话")
                 .setView(input)
                 .setNegativeButton("取消", null)
@@ -2560,7 +2595,7 @@ public class AiChatFragment extends Fragment {
 
     private void confirmDeleteDialog(int position) {
         if (position < 0 || position >= sessions.size()) return;
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(ctx(), com.google.android.material.R.style.Theme_Material3_DayNight_Dialog_Alert))
+        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(ctx(), R.style.Theme_MyApplication_Dialog))
                 .setTitle("删除对话")
                 .setMessage("删除后不可恢复，确认删除？")
                 .setNegativeButton("取消", null)

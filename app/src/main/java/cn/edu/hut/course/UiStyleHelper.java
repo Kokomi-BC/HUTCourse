@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.util.TypedValue;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.view.View;
@@ -53,6 +54,14 @@ public final class UiStyleHelper {
     public static int resolveAccentColor(Context context) {
         return context.getSharedPreferences(PREF_COURSE_STORAGE, Context.MODE_PRIVATE)
                 .getInt(KEY_TIMETABLE_THEME_COLOR, ColorPaletteProvider.defaultThemeColor());
+    }
+
+    public static int resolvePrimaryColor(Context context) {
+        TypedValue tv = new TypedValue();
+        if (context.getTheme().resolveAttribute(android.R.attr.colorPrimary, tv, true)) {
+            return tv.data;
+        }
+        return Color.parseColor("#2A5D9F");
     }
 
     public static void hideStatusBar(AppCompatActivity activity) {
