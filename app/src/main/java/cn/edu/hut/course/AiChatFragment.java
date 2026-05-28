@@ -2321,7 +2321,7 @@ public class AiChatFragment extends Fragment {
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(ctx());
         int outline = UiStyleHelper.resolveOutlineColor(ctx());
         int accent = UiStyleHelper.resolveAccentColor(ctx());
-        int accentFill = ColorUtils.blendARGB(accent, Color.WHITE, 0.08f);
+        int accentFill = ColorUtils.blendARGB(accent, Color.WHITE, 0.18f);
         int fieldBg = ColorUtils.blendARGB(UiStyleHelper.resolveGlassCardColor(ctx()), UiStyleHelper.resolvePageBackgroundColor(ctx()), 0.12f);
         int fullscreenBg = ColorUtils.blendARGB(UiStyleHelper.resolvePageBackgroundColor(ctx()), Color.WHITE, isDarkMode() ? 0.10f : 0.92f);
 
@@ -3288,7 +3288,8 @@ public class AiChatFragment extends Fragment {
         if (conversationId.isEmpty()) {
             conversationId = "local-" + System.currentTimeMillis();
         }
-        String cacheSeed = safe(model) + "|" + safe(contextAwarePrompt);
+        // 使用稳定的 system prompt 哈希作为缓存键，不依赖于每次变化的用户输入
+        String cacheSeed = safe(model);
         String digest = sha256Hex(cacheSeed);
         if (digest.length() > 24) {
             digest = digest.substring(0, 24);
@@ -4723,8 +4724,6 @@ public class AiChatFragment extends Fragment {
                 }
                 return new ReplyWithTitle(title, rest.toString().trim());
             }
-            // 首个非空行不匹配则停止，避免误伤正文中类似格式的行
-            break;
         }
         return new ReplyWithTitle("", raw);
     }

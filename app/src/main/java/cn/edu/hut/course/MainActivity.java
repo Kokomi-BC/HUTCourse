@@ -124,6 +124,8 @@ import cn.edu.hut.course.data.CourseStorageManager;
 import cn.edu.hut.course.data.ExamStorageManager;
 import cn.edu.hut.course.data.WeatherSQLiteStore;
 
+import androidx.core.splashscreen.SplashScreen;
+
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -489,6 +491,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
 
         // 首次进入：跳转到初始设置页

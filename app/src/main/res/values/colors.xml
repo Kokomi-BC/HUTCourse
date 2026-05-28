@@ -16,4 +16,7 @@
     <color name="ai_close_button_icon">#B3535963</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- 启动屏 -->
+    <color name="splash_background">#FCFCFF</color>
 </resources>

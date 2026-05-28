@@ -7,7 +7,7 @@ import java.util.Locale;
 
 public final class AiPromptCenter {
 
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss EEEE", Locale.CHINA);
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm EEEE", Locale.CHINA);
 
     private AiPromptCenter() {
     }

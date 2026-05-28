@@ -18,6 +18,13 @@
         <item name="materialAlertDialogTheme">@style/ThemeOverlay.MyApplication.MaterialAlertDialog</item>
     </style>
 
+    <!-- Material You 启动屏主题（浅色模式） -->
+    <style name="Theme.MyApplication.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_icon</item>
+        <item name="postSplashScreenTheme">@style/Theme.MyApplication</item>
+    </style>
+
     <!-- AppCompat 兼容的完整对话框主题，用于 MaterialAlertDialogBuilder 避免 ThemeEnforcement 崩溃 -->
     <style name="Theme.MyApplication.Dialog" parent="Theme.Material3.DayNight">
         <item name="colorPrimary">@color/brand_primary</item>
