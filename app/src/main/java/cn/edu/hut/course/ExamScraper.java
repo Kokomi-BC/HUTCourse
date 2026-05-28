@@ -5,11 +5,14 @@ import android.text.TextUtils;
 
 import org.jsoup.Jsoup;
 
-import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import cn.edu.hut.course.data.CourseStorageManager;
 import cn.edu.hut.course.data.ExamStorageManager;
@@ -22,37 +25,63 @@ public final class ExamScraper {
     private ExamScraper() {
     }
 
-    public static List<Exam> fetchExamSchedule(Context context, String cookie) throws IOException {
+    /**
+     * 根据当前日期动态计算教务系统 xnxqid（学年学期ID）。
+     * 格式：YYYY-YYYY-X，第1学期 9月~次年2月，第2学期 3月~8月。
+     * 经 Playwright 实测，教务系统使用的正是此字面量格式，如 "2025-2026-2"。
+     */
+    private static String resolveCurrentXnxqid() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        int year = cal.get(java.util.Calendar.YEAR);
+        int month = cal.get(java.util.Calendar.MONTH) + 1; // 1-12
+        if (month >= 9) {
+            return year + "-" + (year + 1) + "-1";
+        } else if (month <= 2) {
+            return (year - 1) + "-" + year + "-1";
+        } else {
+            return (year - 1) + "-" + year + "-2";
+        }
+    }
+
+    /**
+     * 调用教务考试安排 API（LayUI 表格 AJAX 接口）。
+     * 使用 HttpURLConnection（与 CourseScraper.fetch 一致），避免 Jsoup cookie 解析差异。
+     */
+    public static List<Exam> fetchExamSchedule(Context context, String cookie) throws Exception {
         if (TextUtils.isEmpty(cookie)) {
             android.util.Log.w("ExamScraper", "No cookie");
             return new ArrayList<>();
         }
 
-        Map<String, String> cookies = new HashMap<>();
-        for (String pair : cookie.split(";")) {
-            String[] kv = pair.trim().split("=", 2);
-            if (kv.length == 2) {
-                cookies.put(kv[0].trim(), kv[1].trim());
+        String xnxqid = resolveCurrentXnxqid();
+        String query = "pageNum=1&pageSize=20&xnxqid=" + URLEncoder.encode(xnxqid, "UTF-8") + "&xqlb=";
+        String fullUrl = EXAM_API_URL + "?" + query;
+        android.util.Log.d("ExamScraper", "Requesting: " + fullUrl);
+
+        HttpURLConnection conn = (HttpURLConnection) new URL(fullUrl).openConnection();
+        conn.setRequestProperty("Cookie", cookie);
+        conn.setRequestProperty("Accept", "application/json, text/javascript, */*; q=0.01");
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+        conn.setRequestProperty("Referer", EXAM_REFERER);
+        conn.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(15000);
+
+        int code = conn.getResponseCode();
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(
+                new InputStreamReader(
+                        code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream(),
+                        StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                sb.append(line).append("\n");
             }
         }
-
-        // LayUI 表格 AJAX 接口：GET 带查询参数
-        String response = Jsoup.connect(EXAM_API_URL)
-                .cookies(cookies)
-                .header("User-Agent", "Mozilla/5.0")
-                .header("Referer", EXAM_REFERER)
-                .header("X-Requested-With", "XMLHttpRequest")
-                .data("pageNum", "1")
-                .data("pageSize", "20")
-                .data("xnxqid", "2025-2026-2")
-                .data("xqlb", "")
-                .timeout(15000)
-                .ignoreContentType(true)
-                .get()
-                .text();
-
-        android.util.Log.d("ExamScraper", "Resp len=" + response.length() + " preview=" +
-                (response.length() > 200 ? response.substring(0, 200) : response));
+        String response = sb.toString();
+        android.util.Log.d("ExamScraper", "HTTP " + code
+                + " bodyLen=" + response.length()
+                + " preview=" + (response.length() > 200 ? response.substring(0, 200) : response));
         return parseExamResponse(response);
     }
 
@@ -121,9 +150,28 @@ public final class ExamScraper {
         try {
             android.util.Log.d("ExamScraper", "Raw exam response: " + (json.length() > 500 ? json.substring(0, 500) : json));
             org.json.JSONObject root = new org.json.JSONObject(json);
+
+            // 尝试多种常见的 LayUI table 返回格式
             org.json.JSONArray data = root.optJSONArray("data");
+            if (data == null) {
+                data = root.optJSONArray("rows");
+            }
+            if (data == null) {
+                data = root.optJSONArray("list");
+            }
+            if (data == null) {
+                // 尝试 {"data": {"rows": [...]}}
+                org.json.JSONObject dataObj = root.optJSONObject("data");
+                if (dataObj != null) {
+                    data = dataObj.optJSONArray("rows");
+                    if (data == null) {
+                        data = dataObj.optJSONArray("list");
+                    }
+                }
+            }
             if (data == null || data.length() == 0) {
-                android.util.Log.w("ExamScraper", "No data array, root keys: " + root.keys());
+                android.util.Log.w("ExamScraper", "No recognizable data array. root keys: " + root.keys().toString()
+                        + " raw_preview=" + (json.length() > 300 ? json.substring(0, 300) : json));
                 return exams;
             }
             for (int i = 0; i < data.length(); i++) {

@@ -212,9 +212,8 @@ public class SettingsAccountActivity extends AppCompatActivity {
         long activeId = CourseStorageManager.getActiveTableId(this);
         String savedCookie = CourseStorageManager.getCookieForTable(this, activeId);
         CookieManager cookieManager = CookieManager.getInstance();
-        cookieManager.removeSessionCookies(null);
-        cookieManager.removeAllCookies(null);
-        cookieManager.flush();
+        // 不能在这里 removeAllCookies()，否则会清空 CAS 的 TGC (单点登录凭证)！
+        // 只将当前课表记录的 JSESSIONID 同步到 jwxt 即可
         if (savedCookie != null && !savedCookie.trim().isEmpty()) {
             String[] cookies = savedCookie.split(";");
             for (String c : cookies) {
@@ -222,8 +221,11 @@ public class SettingsAccountActivity extends AppCompatActivity {
                     cookieManager.setCookie(BASE_URL, c.trim());
                 }
             }
-            cookieManager.flush();
+        } else {
+            // 新表无 cookie：直接清除 session cookies，防止残留旧表登录态
+            cookieManager.removeSessionCookies(null);
         }
+        cookieManager.flush();
     }
 
     private void launchBrowserForLogin() {
@@ -242,16 +244,24 @@ public class SettingsAccountActivity extends AppCompatActivity {
         }
         syncCookieToWebView();
         extractInProgress = true;
-        Toast.makeText(this, "正在校验教务登录...", Toast.LENGTH_SHORT).show();
-        setExtractSummary("正在校验登录状态...");
-        checkLoginByWebView((cookie, success) -> {
-            if (success && cookie != null && !cookie.isEmpty()) {
-                extractCourseWithFallback(cookie, true);
-            } else {
-                showNotLoggedInHint();
-                extractInProgress = false;
-            }
-        });
+
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        String savedCookie = CourseStorageManager.getCookieForTable(this, activeId);
+
+        if (savedCookie != null && !savedCookie.trim().isEmpty()) {
+            extractCourseWithFallback(savedCookie, true);
+        } else {
+            Toast.makeText(this, "正在校验教务登录...", Toast.LENGTH_SHORT).show();
+            setExtractSummary("正在校验登录状态...");
+            checkLoginByWebView((cookie, success) -> {
+                if (success && cookie != null && !cookie.isEmpty()) {
+                    extractCourseWithFallback(cookie, true);
+                } else {
+                    showNotLoggedInHint();
+                    extractInProgress = false;
+                }
+            });
+        }
     }
 
     private interface LoginCheckCallback {
@@ -324,7 +334,6 @@ public class SettingsAccountActivity extends AppCompatActivity {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 tryComplete(url);
-                tryFailIfStillAtLogin(url);
             }
 
             @Override
@@ -340,7 +349,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
         });
 
         timeoutHolder[0] = completeFail;
-        webView.postDelayed(timeoutHolder[0], 3000L);
+        webView.postDelayed(timeoutHolder[0], 8000L); // 给隐藏 WebView 足够的时间去经历各种 SSO 重定向
         webView.loadUrl(LOGIN_URL);
     }
 
@@ -354,7 +363,8 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private void showConfirmActionDialog(String title, String message, Runnable onConfirm) {
-        new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
+        new
+                MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog))
                 .setTitle(title)
                 .setMessage(message)
                 .setNegativeButton("取消", null)
@@ -472,21 +482,29 @@ public class SettingsAccountActivity extends AppCompatActivity {
                                 profile.name, profile.studentId, profile.className, profile.college);
                     } catch (Exception ignored) {}
                 }).start();
-                // 同步考试安排
-                new Thread(() -> {
-                    try {
-                        List<Exam> exams = ExamScraper.fetchExamSchedule(SettingsAccountActivity.this, finalCookie);
-                        if (!exams.isEmpty()) {
-                            ExamStorageManager.saveExams(SettingsAccountActivity.this, exams);
-                        }
-                    } catch (Exception ignored) {}
-                }).start();
+                 // 同步考试安排（在 onSuccess 回调线程内同步执行，确保拿到结果后再刷新 UI）
+                int fetchedExamCount = 0;
+                try {
+                    List<Exam> exams = ExamScraper.fetchExamSchedule(SettingsAccountActivity.this, finalCookie);
+                    if (!exams.isEmpty()) {
+                        ExamStorageManager.saveExams(SettingsAccountActivity.this, exams);
+                        fetchedExamCount = exams.size();
+                    }
+                } catch (Exception e) {
+                    android.util.Log.w("SettingsAccount", "Exam sync failed", e);
+                }
+
+                final int finalExamCount = fetchedExamCount;
                 runOnUiThread(() -> {
                     Intent result = new Intent();
                     result.putExtra("action", "reload_courses");
                     setResult(RESULT_OK, result);
-                    Toast.makeText(SettingsAccountActivity.this, "刷新成功，共" + finalCourseCount + "门课", Toast.LENGTH_SHORT).show();
-                    setExtractSummary("刷新成功，共" + finalCourseCount + "门课");
+                    String toast = "刷新成功：课程 " + finalCourseCount + " 门";
+                    if (finalExamCount > 0) {
+                        toast += "，考试 " + finalExamCount + " 门";
+                    }
+                    Toast.makeText(SettingsAccountActivity.this, toast, Toast.LENGTH_SHORT).show();
+                    setExtractSummary(toast);
                     extractInProgress = false;
                 });
             }
@@ -506,17 +524,18 @@ public class SettingsAccountActivity extends AppCompatActivity {
     }
 
     private void attemptSilentLoginAndRetry() {
-        runOnUiThread(() -> Toast.makeText(SettingsAccountActivity.this, "正在尝试自动校验登录...", Toast.LENGTH_SHORT).show());
-        setExtractSummary("正在重新校验登录...");
-        new Thread(() -> {
-            String refreshedCookie = trySilentLoginAndGetCookie();
-            if (refreshedCookie != null && !refreshedCookie.isEmpty()) {
-                runOnUiThread(() -> extractCourseWithFallback(refreshedCookie, false));
-            } else {
-                showNotLoggedInHint();
-                extractInProgress = false;
-            }
-        }).start();
+        runOnUiThread(() -> {
+            Toast.makeText(SettingsAccountActivity.this, "正在尝试自动校验登录...", Toast.LENGTH_SHORT).show();
+            setExtractSummary("正在重新校验登录...");
+            checkLoginByWebView((refreshedCookie, success) -> {
+                if (success && refreshedCookie != null && !refreshedCookie.isEmpty()) {
+                    extractCourseWithFallback(refreshedCookie, false);
+                } else {
+                    showNotLoggedInHint();
+                    extractInProgress = false;
+                }
+            });
+        });
     }
 
     private String trySilentLoginAndGetCookie() {
@@ -836,6 +855,7 @@ public class SettingsAccountActivity extends AppCompatActivity {
                 sheet.dismiss();
                 if (tableId != activeId) {
                     CourseStorageManager.setActiveTableId(SettingsAccountActivity.this, tableId);
+                    syncCookieToWebView();
                     Toast.makeText(SettingsAccountActivity.this, "已切换到：" + (t.name != null && !t.name.trim().isEmpty() ? t.name.trim() : "未命名课表"), Toast.LENGTH_SHORT).show();
                     updateActionStatusSummaries();
                     ensureTableSwitcherCard();
@@ -852,3 +872,4 @@ public class SettingsAccountActivity extends AppCompatActivity {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 }
+

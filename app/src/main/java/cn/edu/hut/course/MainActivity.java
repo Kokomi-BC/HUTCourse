@@ -1076,20 +1076,33 @@ public class MainActivity extends AppCompatActivity {
 
     private void ensureTableSwitcherCardInProfile() {
         if (pageProfile == null) return;
-        // The profile page is a ScrollView containing a LinearLayout
         ScrollView sv = (ScrollView) pageProfile;
         if (sv.getChildCount() == 0) return;
         View profileContent = sv.getChildAt(0);
         if (!(profileContent instanceof LinearLayout)) return;
         LinearLayout profileList = (LinearLayout) profileContent;
 
-        // Remove old switcher card if exists
-        View oldCard = profileList.findViewWithTag("table_switcher_card");
-        if (oldCard != null) {
-            profileList.removeView(oldCard);
+        // 通过遍历直接移除旧卡片（比 findViewWithTag 更可靠）
+        for (int i = 0; i < profileList.getChildCount(); i++) {
+            View child = profileList.getChildAt(i);
+            if ("table_switcher_card".equals(child.getTag())) {
+                profileList.removeViewAt(i);
+                break;
+            }
         }
 
-        // Build table switcher card
+        // 读取当前课表名称
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        String activeName = "未命名课表";
+        List<CourseTable> tables = CourseStorageManager.readAllCourseTables(this);
+        for (CourseTable t : tables) {
+            if (t.id == activeId) {
+                activeName = (t.name != null && !t.name.trim().isEmpty()) ? t.name.trim() : "未命名课表";
+                break;
+            }
+        }
+
+        // 重建卡片
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
         int strokeColor = ColorUtils.setAlphaComponent(onSurface, 24);
         int glass = UiStyleHelper.resolveGlassCardColor(this);
@@ -1117,16 +1130,6 @@ public class MainActivity extends AppCompatActivity {
         cardTitle.setTypeface(null, Typeface.BOLD);
         cardContent.addView(cardTitle);
 
-        long activeId = CourseStorageManager.getActiveTableId(this);
-        String activeName = "未命名课表";
-        List<CourseTable> tables = CourseStorageManager.readAllCourseTables(this);
-        for (CourseTable t : tables) {
-            if (t.id == activeId) {
-                activeName = (t.name != null && !t.name.trim().isEmpty()) ? t.name.trim() : "未命名课表";
-                break;
-            }
-        }
-
         TextView cardSummary = new TextView(this);
         cardSummary.setText("当前：" + activeName + "  ›");
         cardSummary.setTextSize(12f);
@@ -1137,8 +1140,6 @@ public class MainActivity extends AppCompatActivity {
         switcherCard.addView(cardContent);
         switcherCard.setOnClickListener(v -> showTableSwitcherInProfile());
 
-        // Insert after cardProfileInfo, before itemSettingsEntry
-        View itemSettings = profileList.findViewWithTag(null); // not used
         int settingsIndex = -1;
         for (int i = 0; i < profileList.getChildCount(); i++) {
             View child = profileList.getChildAt(i);
@@ -1147,7 +1148,6 @@ public class MainActivity extends AppCompatActivity {
                 break;
             }
         }
-        // Add margin
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -1185,8 +1185,10 @@ public class MainActivity extends AppCompatActivity {
                 sheet.dismiss();
                 if (t.id != activeId) {
                     CourseStorageManager.setActiveTableId(this, t.id);
+                    syncCurrentTableCookieToWebView();
                     loadCoursesFromLocal();
                     renderProfileFromLocal();
+                    ensureTableSwitcherCardInProfile();
                     updateNextCourseNotice();
                     drawGrid();
                     Toast.makeText(this, "已切换到：" + safeTableName(t), Toast.LENGTH_SHORT).show();
@@ -1256,6 +1258,33 @@ public class MainActivity extends AppCompatActivity {
         String name = table.name;
         if (name == null || name.trim().isEmpty()) return "未命名课表";
         return name.trim();
+    }
+
+    /**
+     * 将当前课表的 Cookie 同步到系统 WebView CookieManager，
+     * 确保切换课表后 BrowserActivity / ClassroomSkillManager 等使用系统 CookieManager 的组件拿到正确的登录态。
+     * 新表有 cookie 则写入，无 cookie 则过期 jwxt 域的 JSESSIONID（不清除 CAS TGC）。
+     */
+    private void syncCurrentTableCookieToWebView() {
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        String savedCookie = CourseStorageManager.getCookieForTable(this, activeId);
+        android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
+        String jwxtDomain = "http://jwxt.hut.edu.cn";
+
+        if (savedCookie != null && !savedCookie.trim().isEmpty()) {
+            // 新表有 cookie：写入 jwxt 域
+            String[] cookies = savedCookie.split(";");
+            for (String c : cookies) {
+                String trimmed = c.trim();
+                if (!trimmed.isEmpty()) {
+                    cookieManager.setCookie(jwxtDomain, trimmed);
+                }
+            }
+        } else {
+            // 新表无 cookie：直接清除 session cookies，防止残留旧表登录态
+            cookieManager.removeSessionCookies(null);
+        }
+        cookieManager.flush();
     }
 
     private void ensureAiFragmentAttached() {
@@ -4404,10 +4433,7 @@ private void extractAllTables(String passedCookie) {
                     } else {
                         renderProfileFromLocal();
                     }
-                    String toast = "刷新完成：" + allCourses.size() + " 门课程";
-                    if (examResult[0] > 0) {
-                        toast += "，" + examResult[0] + " 门考试";
-                    }
+                    String toast = "刷新成功，共同步 " + examResult[0] + " 门考试安排";
                     Toast.makeText(this, toast, Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
@@ -4451,7 +4477,7 @@ private void extractAllTables(String passedCookie) {
                 agenda.startMinute = parseExamTimeToMinute(exam.startTime);
                 agenda.endMinute = parseExamTimeToMinute(exam.endTime);
                 agenda.priority = Agenda.PRIORITY_HIGH;
-                agenda.renderColor = UiStyleHelper.resolvePrimaryColor(this);
+                agenda.renderColor = UiStyleHelper.resolveAccentColor(this);
                 AgendaStorageManager.createAgenda(this, agenda);
                 added++;
             }

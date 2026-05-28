@@ -430,11 +430,32 @@ public class SettingsDataActivity extends AppCompatActivity {
 
     private void switchToTable(long tableId) {
         CourseStorageManager.setActiveTableId(this, tableId);
+        syncCurrentTableCookieToWebView();
         refreshAll();
         Intent i = new Intent();
         i.putExtra("action", "reload_courses");
         setResult(RESULT_OK, i);
         Toast.makeText(this, "已切换课表", Toast.LENGTH_SHORT).show();
+    }
+
+    /** 将当前课表 Cookie 同步到系统 WebView CookieManager */
+    private void syncCurrentTableCookieToWebView() {
+        long activeId = CourseStorageManager.getActiveTableId(this);
+        String savedCookie = CourseStorageManager.getCookieForTable(this, activeId);
+        android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
+        String domain = "http://jwxt.hut.edu.cn";
+        if (savedCookie != null && !savedCookie.trim().isEmpty()) {
+            String[] cookies = savedCookie.split(";");
+            for (String c : cookies) {
+                if (!c.trim().isEmpty()) {
+                    cookieManager.setCookie(domain, c.trim());
+                }
+            }
+        } else {
+            // 新表无 cookie：直接清除 session cookies，防止残留
+            cookieManager.removeSessionCookies(null);
+        }
+        cookieManager.flush();
     }
 
     // ==================== Rename ====================
@@ -461,6 +482,7 @@ public class SettingsDataActivity extends AppCompatActivity {
                     long newId = CourseStorageManager.insertCourseTable(this, newTable);
                     if (newId != -1) {
                         CourseStorageManager.setActiveTableId(this, newId);
+                        syncCurrentTableCookieToWebView();
                         refreshAll();
                         Intent i = new Intent();
                         i.putExtra("action", "reload_courses");
@@ -928,6 +950,7 @@ public class SettingsDataActivity extends AppCompatActivity {
 
             if (isNewTable) {
                 CourseStorageManager.setActiveTableId(this, targetTableId);
+                syncCurrentTableCookieToWebView();
             }
             refreshAll();
 
@@ -956,6 +979,9 @@ public class SettingsDataActivity extends AppCompatActivity {
     }
 
     // ==================== Calendar Import ====================
+
+    /** 写入系统日历事件时，在 DESCRIPTION 开头插入此标记，用于识别本 App 创建的事件。 */
+    private static final String CALENDAR_MARKER = "[course_app]";
 
     private void checkCalendarPermissionAndImport() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_CALENDAR)
@@ -1053,6 +1079,7 @@ public class SettingsDataActivity extends AppCompatActivity {
         new Thread(() -> {
             int totalEvents = 0;
             int skippedEvents = 0;
+            int deletedEvents = 0;
 
             try {
                 long calId = getOrCreateDefaultCalendarId();
@@ -1061,6 +1088,11 @@ public class SettingsDataActivity extends AppCompatActivity {
                 String rangeStr = rangeSelected
                         ? (sdf.format(new java.util.Date(rangeStartMs)) + " — " + sdf.format(new java.util.Date(rangeEndMs)))
                         : "全部时间";
+
+                // 如果选择了时间范围，先删除该范围内本 App 创建的事件，再重新导入，避免重复
+                if (rangeSelected) {
+                    deletedEvents = deleteAppEventsInRange(calId, rangeStartMs, rangeEndMs);
+                }
 
                 if (importCourses) {
                     List<Course> courses = CourseStorageManager.loadCoursesForTable(this, table.id);
@@ -1085,7 +1117,8 @@ public class SettingsDataActivity extends AppCompatActivity {
                             if (rangeSelected && (startMillis < rangeStartMs || startMillis > rangeEndMs)) continue;
 
                             String title = c.name + (c.isExperimental ? " [实验]" : "");
-                            if (isEventExists(calId, title, startMillis, endMillis)) {
+                            // 未选择范围时仍需去重检查；已选择范围时前面已统一删除，无需再检查
+                            if (!rangeSelected && isEventExists(calId, title, startMillis, endMillis)) {
                                 skippedEvents++;
                                 continue;
                             }
@@ -1094,7 +1127,7 @@ public class SettingsDataActivity extends AppCompatActivity {
                             values.put(CalendarContract.Events.CALENDAR_ID, calId);
                             values.put(CalendarContract.Events.TITLE, title);
                             values.put(CalendarContract.Events.DESCRIPTION,
-                                    "教师：" + (c.teacher != null ? c.teacher : "") +
+                                    CALENDAR_MARKER + "教师：" + (c.teacher != null ? c.teacher : "") +
                                     "\n地点：" + (c.location != null ? c.location : ""));
                             values.put(CalendarContract.Events.EVENT_LOCATION, c.location != null ? c.location : "");
                             values.put(CalendarContract.Events.DTSTART, startMillis);
@@ -1121,7 +1154,8 @@ public class SettingsDataActivity extends AppCompatActivity {
                         if (rangeSelected && (startMillis < rangeStartMs || startMillis > rangeEndMs)) continue;
 
                         String title = a.title != null ? a.title : "日程";
-                        if (isEventExists(calId, title, startMillis, endMillis)) {
+                        // 未选择范围时仍需去重检查；已选择范围时前面已统一删除，无需再检查
+                        if (!rangeSelected && isEventExists(calId, title, startMillis, endMillis)) {
                             skippedEvents++;
                             continue;
                         }
@@ -1129,7 +1163,8 @@ public class SettingsDataActivity extends AppCompatActivity {
                         ContentValues values = new ContentValues();
                         values.put(CalendarContract.Events.CALENDAR_ID, calId);
                         values.put(CalendarContract.Events.TITLE, title);
-                        values.put(CalendarContract.Events.DESCRIPTION, a.description != null ? a.description : "");
+                        values.put(CalendarContract.Events.DESCRIPTION,
+                                CALENDAR_MARKER + (a.description != null ? a.description : ""));
                         values.put(CalendarContract.Events.EVENT_LOCATION, a.location != null ? a.location : "");
                         values.put(CalendarContract.Events.DTSTART, startMillis);
                         values.put(CalendarContract.Events.DTEND, endMillis);
@@ -1142,6 +1177,7 @@ public class SettingsDataActivity extends AppCompatActivity {
                 }
 
                 String resultMsg = "已成功导出 " + totalEvents + " 个事件到系统日历";
+                if (deletedEvents > 0) resultMsg += "\n已清理 " + deletedEvents + " 个旧事件";
                 if (skippedEvents > 0) resultMsg += "\n跳过 " + skippedEvents + " 个已存在的重复事件";
                 resultMsg += "\n范围：" + rangeStr;
 
@@ -1164,6 +1200,50 @@ public class SettingsDataActivity extends AppCompatActivity {
                 });
             }
         }).start();
+    }
+
+    /**
+     * 删除指定时间范围内由本 App 创建的系统日历事件（通过 DESCRIPTION 中的 CALENDAR_MARKER 识别）。
+     * @return 删除的事件数量
+     */
+    private int deleteAppEventsInRange(long calId, long rangeStartMs, long rangeEndMs) {
+        int deleted = 0;
+        android.database.Cursor cursor = null;
+        try {
+            String selection = CalendarContract.Events.CALENDAR_ID + " = ? AND "
+                    + CalendarContract.Events.DTSTART + " >= ? AND "
+                    + CalendarContract.Events.DTSTART + " <= ?";
+            String[] selectionArgs = new String[]{
+                    String.valueOf(calId),
+                    String.valueOf(rangeStartMs),
+                    String.valueOf(rangeEndMs)
+            };
+            cursor = getContentResolver().query(
+                    CalendarContract.Events.CONTENT_URI,
+                    new String[]{CalendarContract.Events._ID, CalendarContract.Events.DESCRIPTION},
+                    selection,
+                    selectionArgs,
+                    null);
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    String desc = cursor.getString(1);
+                    if (desc != null && desc.startsWith(CALENDAR_MARKER)) {
+                        long eventId = cursor.getLong(0);
+                        Uri deleteUri = ContentUris.withAppendedId(
+                                CalendarContract.Events.CONTENT_URI, eventId);
+                        try {
+                            int rows = getContentResolver().delete(deleteUri, null, null);
+                            if (rows > 0) deleted++;
+                        } catch (Exception ignored) {}
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // 删除失败不阻塞导入流程
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return deleted;
     }
 
     /**

@@ -56,6 +56,7 @@ public class ExamActivity extends AppCompatActivity {
         toolbar.inflateMenu(R.menu.menu_exam);
 
         tvExamCount = findViewById(R.id.tvExamCount);
+        tvExamCount.setTextColor(UiStyleHelper.resolveAccentColor(this));
         rvExams = findViewById(R.id.rvExams);
         rvExams.setLayoutManager(new LinearLayoutManager(this));
         adapter = new ExamAdapter(this, examList);
@@ -106,7 +107,7 @@ public class ExamActivity extends AppCompatActivity {
                 agenda.startMinute = parseTimeToMinute(exam.startTime);
                 agenda.endMinute = parseTimeToMinute(exam.endTime);
                 agenda.priority = Agenda.PRIORITY_HIGH;
-                agenda.renderColor = UiStyleHelper.resolvePrimaryColor(this);
+                agenda.renderColor = UiStyleHelper.resolveAccentColor(this);
                 AgendaStorageManager.createAgenda(this, agenda);
                 added++;
             }
@@ -154,7 +155,7 @@ public class ExamActivity extends AppCompatActivity {
                 agenda.startMinute = parseTimeToMinute(exam.startTime);
             agenda.endMinute = parseTimeToMinute(exam.endTime);
             agenda.priority = Agenda.PRIORITY_HIGH;
-            agenda.renderColor = UiStyleHelper.resolvePrimaryColor(this);
+            agenda.renderColor = UiStyleHelper.resolveAccentColor(this);
             AgendaStorageManager.createAgenda(this, agenda);
             added++;
         }
@@ -194,7 +195,7 @@ public class ExamActivity extends AppCompatActivity {
         ExamAdapter(Context context, List<Exam> exams) {
             this.context = context;
             this.exams = exams;
-            this.primaryColor = UiStyleHelper.resolvePrimaryColor(context);
+            this.primaryColor = UiStyleHelper.resolveAccentColor(context);
             this.onSurfaceColor = UiStyleHelper.resolveOnSurfaceColor(context);
             this.onSurfaceVariantColor = UiStyleHelper.resolveOnSurfaceVariantColor(context);
         }
@@ -235,9 +236,13 @@ public class ExamActivity extends AppCompatActivity {
                     " ~ " + (exam.endTime != null ? exam.endTime : "--"));
             holder.tvExamLocation.setText(exam.location != null ? exam.location : "--");
 
-            // 日期标签：浅灰底 + 深色字，中性风格
-            holder.tvExamDate.setBackgroundTintList(ColorStateList.valueOf(0xFFF0F0F0));
-            holder.tvExamDate.setTextColor(onSurfaceColor);
+            // 日期标签：主题色弱化背景 + 主题色文字
+            int accentBg = android.graphics.Color.argb(38, 
+                    android.graphics.Color.red(primaryColor), 
+                    android.graphics.Color.green(primaryColor), 
+                    android.graphics.Color.blue(primaryColor));
+            holder.tvExamDate.setBackgroundTintList(ColorStateList.valueOf(accentBg));
+            holder.tvExamDate.setTextColor(primaryColor);
 
             // 卡片：玻璃风格（RecyclerView item 无法被 applyGlassCards 遍历到，需在此显式设置背景色）
             if (holder.itemView instanceof MaterialCardView) {
