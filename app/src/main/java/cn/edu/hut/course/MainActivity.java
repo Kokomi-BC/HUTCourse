@@ -140,6 +140,7 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1670,6 +1671,24 @@ public class MainActivity extends AppCompatActivity {
                         entries = new ArrayList<>();
                         entries.add(merged.entry);
                         rowSpan = merged.rowSpan;
+                        // 收集跨行区间内出现的非课程条目（如中途日程），
+                        // 使其与长课程在同一单元格内并排显示，避免课程被分割
+                        if (rowSpan > 1) {
+                            for (int r = row + 1; r < row + rowSpan; r++) {
+                                List<ScheduleCellEntry> rowEntries = getSortedScheduleCellEntries(cellEntries, r, col);
+                                for (ScheduleCellEntry e : rowEntries) {
+                                    if (e.type == ScheduleCellEntry.TYPE_COURSE) continue;
+                                    boolean dup = false;
+                                    for (ScheduleCellEntry existing : entries) {
+                                        if (isSameScheduleEntryIdentity(existing, e)) {
+                                            dup = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!dup) entries.add(e);
+                                }
+                            }
+                        }
                     } else {
                         rowSpan = computeAgendaRenderRowSpan(cellEntries, row, col, onlyEntry);
                         if (rowSpan > 1) {
@@ -1677,7 +1696,37 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                 } else {
-                    rowSpan = computeMultiEntryRenderRowSpan(cellEntries, row, col, entries);
+                    // 多条目冲突时：分别垂直合并每个条目（课程 + 日程），取最大 rowSpan，
+                    // 确保跨多节的课程和长时间日程在冲突单元格中不被分割
+                    List<ScheduleCellEntry> mergedEntries = new ArrayList<>();
+                    for (ScheduleCellEntry entry : entries) {
+                        if (entry.type == ScheduleCellEntry.TYPE_COURSE || entry.type == ScheduleCellEntry.TYPE_AGENDA) {
+                            ScheduleVerticalMergeResult merged = tryMergeScheduleEntriesVertically(cellEntries, row, col, entry);
+                            mergedEntries.add(merged.entry);
+                            rowSpan = Math.max(rowSpan, merged.rowSpan);
+                        } else {
+                            mergedEntries.add(entry);
+                            rowSpan = Math.max(rowSpan, 1);
+                        }
+                    }
+                    entries = mergedEntries;
+                    // 收集跨行区间内出现但未被合并的条目（如中途日程），使其与课程在同一单元格内并排显示
+                    if (rowSpan > 1) {
+                        for (int r = row + 1; r < row + rowSpan; r++) {
+                            List<ScheduleCellEntry> rowEntries = getSortedScheduleCellEntries(cellEntries, r, col);
+                            for (ScheduleCellEntry e : rowEntries) {
+                                if (e.type == ScheduleCellEntry.TYPE_COURSE) continue; // 课程已在合并中处理
+                                boolean dup = false;
+                                for (ScheduleCellEntry existing : entries) {
+                                    if (isSameScheduleEntryIdentity(existing, e)) {
+                                        dup = true;
+                                        break;
+                                    }
+                                }
+                                if (!dup) entries.add(e);
+                            }
+                        }
+                    }
                 }
 
                 View cellView = createScheduleGridCellView(entries, week, col, themeColor, glassBg, showGridLines, dp2, darkMode, row, rowSpan, timetableFontScale);
@@ -1875,14 +1924,18 @@ public class MainActivity extends AppCompatActivity {
         int nextRow = startRow + 1;
         while (nextRow <= 5) {
             List<ScheduleCellEntry> nextEntries = getSortedScheduleCellEntries(cellEntries, nextRow, col);
-            if (nextEntries.size() != 1) {
+            // 在多条目行中查找可合并的匹配条目，而非整体跳过
+            ScheduleCellEntry matchingEntry = null;
+            for (ScheduleCellEntry candidate : nextEntries) {
+                if (canMergeScheduleEntries(mergedEntry, candidate)) {
+                    matchingEntry = candidate;
+                    break;
+                }
+            }
+            if (matchingEntry == null) {
                 break;
             }
-            ScheduleCellEntry nextEntry = nextEntries.get(0);
-            if (!canMergeScheduleEntries(mergedEntry, nextEntry)) {
-                break;
-            }
-            mergedEntry = mergeScheduleEntries(mergedEntry, nextEntry);
+            mergedEntry = mergeScheduleEntries(mergedEntry, matchingEntry);
             rowSpan++;
             nextRow++;
         }
@@ -2086,15 +2139,54 @@ public class MainActivity extends AppCompatActivity {
             return createScheduleEntryView(entries.get(0), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan, timetableFontScale);
         }
 
-        if (!hasOverlappingScheduleEntries(entries)) {
+        // 有课程时：仅1门课程或存在日程条目 → 叠加模式（日程始终可见）；
+        // 多门课程且无日程 → 原始重叠检测，课程并排显示
+        boolean useSplit;
+        if (hasCourseInCell) {
+            int courseCount = 0;
+            int agendaCount = 0;
+            for (ScheduleCellEntry e : entries) {
+                if (e.type == ScheduleCellEntry.TYPE_COURSE) courseCount++;
+                else agendaCount++;
+            }
+            if (courseCount <= 1 || agendaCount > 0) {
+                useSplit = false; // 单课程或有日程：叠加，日程可见
+            } else {
+                useSplit = hasOverlappingScheduleEntries(entries); // 多课程无日程：并排
+            }
+        } else {
+            useSplit = hasOverlappingScheduleEntries(entries);
+        }
+
+        if (!useSplit) {
             FrameLayout layered = new FrameLayout(this);
-            for (int i = 0; i < entries.size(); i++) {
-                View entryView = createScheduleEntryView(entries.get(i), week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan, timetableFontScale);
-                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                );
-                layered.addView(entryView, lp);
+            layered.setClipChildren(false);
+            layered.setClipToPadding(false);
+            int cellBaseHeight = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 110, getResources().getDisplayMetrics());
+            int cellGap = dp(8);
+            int totalCellHeight = cellBaseHeight * Math.max(1, cellRowSpan) + cellGap * Math.max(0, cellRowSpan - 1);
+            int spanStartMinute = SLOT_START_SECONDS[Math.max(0, cellStartRow - 1)] / 60;
+            int spanEndMinute = SLOT_END_SECONDS[Math.min(SLOT_END_SECONDS.length - 1, cellStartRow + Math.max(1, cellRowSpan) - 2)] / 60;
+            int spanDuration = Math.max(1, spanEndMinute - spanStartMinute);
+
+            // 课程：填满背景；日程：各自按时间位置定位显示
+            for (ScheduleCellEntry e : entries) {
+                if (e.type == ScheduleCellEntry.TYPE_COURSE) {
+                    View courseView = createScheduleEntryView(e, week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, cellStartRow, cellRowSpan, timetableFontScale);
+                    layered.addView(courseView, new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                } else {
+                    int segStart = Math.max(spanStartMinute, e.startMinute);
+                    int segEnd = Math.min(spanEndMinute, Math.max(segStart + 1, e.endMinute));
+                    int topMargin = Math.round(totalCellHeight * (segStart - spanStartMinute) / (float) spanDuration);
+                    int cardHeight = Math.max(dp(22), Math.round(totalCellHeight * (segEnd - segStart) / (float) spanDuration));
+                    if (topMargin + cardHeight > totalCellHeight) cardHeight = Math.max(dp(20), totalCellHeight - topMargin);
+                    MaterialCardView card = createScheduleEntryCard(e, week, dayOfWeek, themeColor, glassBg, showGridLines, dp2, hasCourseInCell, darkMode, timetableFontScale);
+                    FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, cardHeight);
+                    lp.topMargin = topMargin;
+                    layered.addView(card, lp);
+                }
             }
             return layered;
         }
@@ -2364,7 +2456,13 @@ public class MainActivity extends AppCompatActivity {
 
         if (agenda != null) {
             Calendar targetDate = buildDateInAcademicWeek(week, dayOfWeek);
-            card.setOnClickListener(v -> showAgendaEditorSheet(agenda, targetDate));
+            // 有课程背景时：点击日程打开当日安排页（日程在课程上方叠加，避免拦截课程点击后无响应）
+            // 无课程背景时：直接打开日程编辑页
+            if (hasCourseInCell) {
+                card.setOnClickListener(v -> showScheduleDayArrangementSheet(targetDate, week));
+            } else {
+                card.setOnClickListener(v -> showAgendaEditorSheet(agenda, targetDate));
+            }
         }
         return card;
     }
@@ -2544,35 +2642,54 @@ public class MainActivity extends AppCompatActivity {
             int slot = Math.max(0, Math.min(SLOT_LABELS.length - 1, (c.startSection - 1) / 2));
             raw.add(new TodayCourseItem(c, slot));
         }
-        Collections.sort(raw, (a, b) -> Integer.compare(SLOT_START_SECONDS[a.slotIndex], SLOT_START_SECONDS[b.slotIndex]));
+
+        // 按课程身份分组，每组独立合并连续节次，
+        // 避免同节有不同课程时打断同课程跨节合并
+        Map<String, List<TodayCourseItem>> byCourse = new LinkedHashMap<>();
+        for (TodayCourseItem item : raw) {
+            String key = buildCourseMergeKey(item.course);
+            List<TodayCourseItem> list = byCourse.get(key);
+            if (list == null) {
+                list = new ArrayList<>();
+                byCourse.put(key, list);
+            }
+            list.add(item);
+        }
 
         List<TodayCourseItem> merged = new ArrayList<>();
-        int index = 0;
-        while (index < raw.size()) {
-            TodayCourseItem seed = raw.get(index);
-            List<Course> mergeCourses = new ArrayList<>();
-            mergeCourses.add(seed.course);
-
-            int startSlot = seed.slotIndex;
-            int endSlot = seed.slotIndex;
-            int next = index + 1;
-            while (next < raw.size()) {
-                TodayCourseItem candidate = raw.get(next);
-                if (candidate.slotIndex != endSlot + 1) {
-                    break;
+        for (List<TodayCourseItem> items : byCourse.values()) {
+            items.sort((a, b) -> Integer.compare(a.slotIndex, b.slotIndex));
+            int i = 0;
+            while (i < items.size()) {
+                TodayCourseItem seed = items.get(i);
+                List<Course> mergeCourses = new ArrayList<>();
+                mergeCourses.add(seed.course);
+                int startSlot = seed.slotIndex;
+                int endSlot = seed.slotIndex;
+                int j = i + 1;
+                while (j < items.size()) {
+                    TodayCourseItem next = items.get(j);
+                    if (next.slotIndex != endSlot + 1) break;
+                    mergeCourses.add(next.course);
+                    endSlot = next.slotIndex;
+                    j++;
                 }
-                if (!isSameCourseMergeTarget(seed.course, candidate.course)) {
-                    break;
-                }
-                mergeCourses.add(candidate.course);
-                endSlot = candidate.slotIndex;
-                next++;
+                merged.add(new TodayCourseItem(seed.course, startSlot, endSlot, mergeCourses));
+                i = j;
             }
-
-            merged.add(new TodayCourseItem(seed.course, startSlot, endSlot, mergeCourses));
-            index = next;
         }
+
+        merged.sort((a, b) -> Integer.compare(
+                SLOT_START_SECONDS[a.startSlotIndex],
+                SLOT_START_SECONDS[b.startSlotIndex]));
         return merged;
+    }
+
+    private String buildCourseMergeKey(Course c) {
+        return safeText(c.name) + "|" + c.isExperimental + "|"
+                + safeText(c.teacher).trim() + "|"
+                + safeText(c.location).trim() + "|"
+                + c.dayOfWeek;
     }
 
     private void styleTodayOverviewCard() {
