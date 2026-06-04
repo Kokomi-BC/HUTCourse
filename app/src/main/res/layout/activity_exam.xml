@@ -50,6 +50,7 @@
                     android:textColor="?attr/colorPrimary" />
 
                 <TextView
+                    android:id="@+id/tvExamSummaryLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
@@ -58,17 +59,6 @@
                     android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="8dp"
-            android:text="考试列表"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="?attr/colorOnSurface" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvExams"

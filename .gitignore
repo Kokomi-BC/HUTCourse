@@ -28,3 +28,5 @@ gradle/wrapper/gradle-wrapper.properties
 .vscode/
 
 CLAUDE.md
+docs/APPLICATION_MANUAL.md
+docs/DEVELOPMENT_DOCUMENT.md

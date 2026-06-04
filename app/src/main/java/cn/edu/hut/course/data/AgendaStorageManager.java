@@ -190,6 +190,18 @@ public final class AgendaStorageManager {
         AgendaSQLiteStore.deleteAgendasByTable(context, tableId);
     }
 
+    /** 考试日程标题前缀，用于关联考试与日程 */
+    public static final String EXAM_AGENDA_PREFIX = "考试：";
+
+    /** 删除当前课表下所有考试类型的日程 */
+    public static synchronized int deleteExamAgendas(Context context) {
+        long tableId = CourseStorageManager.getActiveTableId(context);
+        int deleted = AgendaSQLiteStore.deleteAgendasByTitlePrefix(context, tableId, EXAM_AGENDA_PREFIX);
+        // 兼容旧版带 emoji 前缀的考试日程
+        deleted += AgendaSQLiteStore.deleteAgendasByTitlePrefix(context, tableId, "\uD83D\uDCDD 考试：");
+        return deleted;
+    }
+
     private static Agenda normalizeForPersist(Agenda agenda, boolean forInsert) {
         agenda.title = safe(agenda.title).trim();
         agenda.description = safe(agenda.description).trim();

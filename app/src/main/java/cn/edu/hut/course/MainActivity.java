@@ -4563,7 +4563,7 @@ private void extractAllTables(String passedCookie) {
         }).start();
     }
 
-    /** @return int[2] = {examCount, agendaAddedCount} */
+    /** @return int[2] = {examCount, agendaSyncedCount} */
     private int[] syncExamsAndAgenda(String cookie) {
         int[] result = new int[]{0, 0};
         try {
@@ -4575,19 +4575,26 @@ private void extractAllTables(String passedCookie) {
             result[0] = exams.size();
             ExamStorageManager.saveExams(this, exams);
 
-            // 自动导入日程（去重）
-            List<Agenda> existingAgendas = AgendaStorageManager.loadAllAgendas(this);
-            int added = 0;
-            for (Exam exam : exams) {
-                String title = "📝 考试：" + exam.courseName;
-                boolean exists = false;
-                for (Agenda a : existingAgendas) {
-                    if (title.equals(a.title) && exam.examDate != null && exam.examDate.equals(a.date)) {
-                        exists = true;
-                        break;
+            // 删除前保存旧日程的颜色映射
+            java.util.Map<String, Integer> savedColors = new java.util.HashMap<>();
+            List<Agenda> oldAgendas = AgendaStorageManager.loadAllAgendas(this);
+            if (oldAgendas != null) {
+                for (Agenda a : oldAgendas) {
+                    if (a != null && a.title != null && a.title.startsWith(AgendaStorageManager.EXAM_AGENDA_PREFIX)) {
+                        String courseName = a.title.substring(AgendaStorageManager.EXAM_AGENDA_PREFIX.length());
+                        if (a.renderColor != 0 && a.renderColor != Color.TRANSPARENT
+                                && a.renderColor != Color.WHITE && a.renderColor != Color.BLACK) {
+                            savedColors.put(courseName, a.renderColor);
+                        }
                     }
                 }
-                if (exists) continue;
+            }
+
+            // 全量同步：先删除旧的考试日程，再重建（确保日期/时间变动自动更新）
+            int deleted = AgendaStorageManager.deleteExamAgendas(this);
+            int added = 0;
+            for (Exam exam : exams) {
+                String title = AgendaStorageManager.EXAM_AGENDA_PREFIX + exam.courseName;
 
                 Agenda agenda = new Agenda();
                 agenda.title = title;
@@ -4598,13 +4605,17 @@ private void extractAllTables(String passedCookie) {
                 agenda.endMinute = parseExamTimeToMinute(exam.endTime);
                 agenda.priority = Agenda.PRIORITY_HIGH;
                 agenda.renderColor = UiStyleHelper.resolveAccentColor(this);
+                agenda.readOnly = true;  // 考试日程自动设为只读
+                // 恢复用户之前设置的颜色
+                Integer savedColor = savedColors.get(exam.courseName);
+                if (savedColor != null) {
+                    agenda.renderColor = savedColor;
+                }
                 AgendaStorageManager.createAgenda(this, agenda);
                 added++;
             }
-            if (added > 0) {
-                result[1] = added;
-                Log.i(TAG, "Exam sync: " + exams.size() + " exams, " + added + " added to agenda");
-            }
+            result[1] = added;
+            Log.i(TAG, "Exam sync: " + exams.size() + " exams, deleted " + deleted + " old agendas, added " + added);
         } catch (Exception e) {
             Log.e(TAG, "Exam sync failed", e);
         }
@@ -5806,6 +5817,8 @@ private void extractAllTables(String passedCookie) {
             initialDate = preferredDate == null ? cloneAsDay(Calendar.getInstance()) : cloneAsDay(preferredDate);
         }
 
+        final boolean isReadOnly = source != null && source.readOnly;
+
         final Calendar[] selectedDate = {cloneAsDay(initialDate)};
         final int[] startMinute = {source == null ? 8 * 60 : Math.max(0, source.startMinute)};
         final int[] endMinute = {source == null ? 9 * 60 : Math.min(24 * 60, source.endMinute)};
@@ -5851,7 +5864,7 @@ private void extractAllTables(String passedCookie) {
         sheetTitleRow.setLayoutParams(sheetTitleRowLp);
 
         TextView sheetTitle = new TextView(this);
-        sheetTitle.setText(source == null ? "新增日程" : "编辑日程");
+        sheetTitle.setText(isReadOnly ? "日程信息" : (source == null ? "新增日程" : "编辑日程"));
         sheetTitle.setTextSize(20f);
         sheetTitle.setTypeface(null, Typeface.BOLD);
         sheetTitle.setTextColor(onSurface);
@@ -5859,7 +5872,7 @@ private void extractAllTables(String passedCookie) {
         sheetTitle.setLayoutParams(sheetTitleLp);
         sheetTitleRow.addView(sheetTitle);
 
-        if (source != null) {
+        if (source != null && !isReadOnly) {
             ImageButton btnDelete = new ImageButton(this);
             btnDelete.setImageResource(R.drawable.ic_history_delete);
             btnDelete.setImageTintList(ColorStateList.valueOf(onSurface));
@@ -5898,6 +5911,11 @@ private void extractAllTables(String passedCookie) {
         inputTitle.setHint("待办标题");
         inputTitle.setText(source == null ? "" : safeText(source.title));
         styleAgendaEditorInlineInput(inputTitle, false);
+        if (isReadOnly) {
+            inputTitle.setEnabled(false);
+            inputTitle.setFocusable(false);
+            inputTitle.setKeyListener(null);
+        }
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -5915,6 +5933,11 @@ private void extractAllTables(String passedCookie) {
         inputDesc.setHint("详细描述（可选）");
         inputDesc.setText(source == null ? "" : safeText(source.description));
         styleAgendaEditorInlineInput(inputDesc, true);
+        if (isReadOnly) {
+            inputDesc.setEnabled(false);
+            inputDesc.setFocusable(false);
+            inputDesc.setKeyListener(null);
+        }
 
         LinearLayout descRow = new LinearLayout(this);
         descRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -6000,78 +6023,98 @@ private void extractAllTables(String passedCookie) {
         layout.addView(colorCard);
         renderAgendaColorSlider(colorRow, agendaRenderColor);
 
-        rowDate.setOnClickListener(v -> showAgendaDatePicker(selectedDate[0], pickedDate -> {
-            selectedDate[0] = cloneAsDay(pickedDate);
-            refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
-                    monthlyContainer,
-                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-        }));
+        if (!isReadOnly) {
+            rowDate.setOnClickListener(v -> showAgendaDatePicker(selectedDate[0], pickedDate -> {
+                selectedDate[0] = cloneAsDay(pickedDate);
+                refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
+                        monthlyContainer,
+                        selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+            }));
 
-        startTimeValueView.setOnClickListener(v -> showMinutePicker(startMinute[0], minute -> {
-            startMinute[0] = minute;
-            if (endMinute[0] <= startMinute[0]) {
-                endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
-            }
-            refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
-                monthlyContainer,
-                selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-        }));
-
-        endTimeValueView.setOnClickListener(v -> showMinutePicker(endMinute[0], minute -> {
-            endMinute[0] = minute;
-            if (endMinute[0] <= startMinute[0]) {
-                endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
-                Toast.makeText(this, "结束时间已自动调整为开始后30分钟", Toast.LENGTH_SHORT).show();
-            }
-            refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
-                    monthlyContainer,
-                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-        }));
-
-        priorityDropdownView.setOnItemClickListener((parent, view, position, id) -> {
-            int index = clampIndex(position, AGENDA_PRIORITY_VALUES.length);
-            priority[0] = AGENDA_PRIORITY_VALUES[index];
+            startTimeValueView.setOnClickListener(v -> showMinutePicker(startMinute[0], minute -> {
+                startMinute[0] = minute;
+                if (endMinute[0] <= startMinute[0]) {
+                    endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
+                }
                 refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
                     monthlyContainer,
                     selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-        });
+            }));
 
-        repeatDropdownView.setOnItemClickListener((parent, view, position, id) -> {
-            int index = clampIndex(position, AGENDA_REPEAT_VALUES.length);
-            repeatRule[0] = AGENDA_REPEAT_VALUES[index];
+            endTimeValueView.setOnClickListener(v -> showMinutePicker(endMinute[0], minute -> {
+                endMinute[0] = minute;
+                if (endMinute[0] <= startMinute[0]) {
+                    endMinute[0] = Math.min(24 * 60, startMinute[0] + 30);
+                    Toast.makeText(this, "结束时间已自动调整为开始后30分钟", Toast.LENGTH_SHORT).show();
+                }
                 refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
-                    monthlyContainer,
-                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-        });
+                        monthlyContainer,
+                        selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+            }));
 
-        rowMonthlyStrategy.setOnClickListener(v -> {
-            try {
-                final int[] picked = {clampIndex(indexOfString(AGENDA_MONTHLY_VALUES, monthlyStrategy[0]), AGENDA_MONTHLY_VALUES.length)};
-                newMaterialYouDialogBuilder()
-                        .setTitle("短月策略")
-                        .setSingleChoiceItems(AGENDA_MONTHLY_LABELS, picked[0], (d, which) -> picked[0] = which)
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("确定", (d, which) -> {
-                            int index = clampIndex(picked[0], AGENDA_MONTHLY_VALUES.length);
-                            monthlyStrategy[0] = AGENDA_MONTHLY_VALUES[index];
-                                refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
-                                    monthlyContainer,
-                                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-                        })
-                        .show();
-            } catch (Exception e) {
-                Toast.makeText(this, "打开短月策略失败", Toast.LENGTH_SHORT).show();
-            }
-        });
+            priorityDropdownView.setOnItemClickListener((parent, view, position, id) -> {
+                int index = clampIndex(position, AGENDA_PRIORITY_VALUES.length);
+                priority[0] = AGENDA_PRIORITY_VALUES[index];
+                    refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
+                        monthlyContainer,
+                        selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+            });
 
-        rowLocation.setOnClickListener(v -> showAgendaLocationPicker(locationValue[0], picked -> {
-            locationValue[0] = normalizeAgendaLocationInput(picked);
-                refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
-                    monthlyContainer,
-                    selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
-        }));
+            repeatDropdownView.setOnItemClickListener((parent, view, position, id) -> {
+                int index = clampIndex(position, AGENDA_REPEAT_VALUES.length);
+                repeatRule[0] = AGENDA_REPEAT_VALUES[index];
+                    refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
+                        monthlyContainer,
+                        selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+            });
+
+            rowMonthlyStrategy.setOnClickListener(v -> {
+                try {
+                    final int[] picked = {clampIndex(indexOfString(AGENDA_MONTHLY_VALUES, monthlyStrategy[0]), AGENDA_MONTHLY_VALUES.length)};
+                    newMaterialYouDialogBuilder()
+                            .setTitle("短月策略")
+                            .setSingleChoiceItems(AGENDA_MONTHLY_LABELS, picked[0], (d, which) -> picked[0] = which)
+                            .setNegativeButton("取消", null)
+                            .setPositiveButton("确定", (d, which) -> {
+                                int index = clampIndex(picked[0], AGENDA_MONTHLY_VALUES.length);
+                                monthlyStrategy[0] = AGENDA_MONTHLY_VALUES[index];
+                                    refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
+                                        monthlyContainer,
+                                        selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+                            })
+                            .show();
+                } catch (Exception e) {
+                    Toast.makeText(this, "打开短月策略失败", Toast.LENGTH_SHORT).show();
+                }
+            });
+
+            rowLocation.setOnClickListener(v -> showAgendaLocationPicker(locationValue[0], picked -> {
+                locationValue[0] = normalizeAgendaLocationInput(picked);
+                    refreshAgendaEditorButtons(dateValueView, startTimeValueView, endTimeValueView, priorityDropdownView, repeatDropdownView, monthlyValueView, locationValueView,
+                        monthlyContainer,
+                        selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
+            }));
+        } else {
+            // 只读模式：禁用下拉框交互
+            priorityDropdownView.setEnabled(false);
+            priorityDropdownView.setFocusable(false);
+            priorityDropdownView.setClickable(false);
+            repeatDropdownView.setEnabled(false);
+            repeatDropdownView.setFocusable(false);
+            repeatDropdownView.setClickable(false);
+        }
 
         Runnable saveAction = () -> {
+            if (isReadOnly) {
+                // 只读模式：仅允许更新颜色
+                Agenda agenda = source.copy();
+                agenda.renderColor = normalizeAgendaStoredRenderColor(agendaRenderColor[0]);
+                AgendaStorageManager.updateAgenda(this, agenda);
+                dialog.dismiss();
+                setSelectedTodayDate(selectedDate[0]);
+                refreshAgendaDependentViews();
+                return;
+            }
             String title = safeText(inputTitle.getText() == null ? "" : inputTitle.getText().toString()).trim();
             if (title.isEmpty()) {
                 Toast.makeText(this, "请输入日程标题", Toast.LENGTH_SHORT).show();
@@ -6119,8 +6162,27 @@ private void extractAllTables(String passedCookie) {
         actionRowLp.setMargins(0, dp(12), 0, 0);
         actionRow.setLayoutParams(actionRowLp);
 
-        // Cancel button (always shown for editing, also for new)
-        if (source != null) {
+        if (isReadOnly) {
+            // 只读模式：仅显示"关闭"按钮，且无论何种方式关闭都自动保存颜色
+            dialog.setCanceledOnTouchOutside(true);
+            dialog.setOnDismissListener(d -> {
+                int newColor = normalizeAgendaStoredRenderColor(agendaRenderColor[0]);
+                if (newColor != normalizeAgendaStoredRenderColor(source.renderColor)) {
+                    Agenda agenda = source.copy();
+                    agenda.renderColor = newColor;
+                    AgendaStorageManager.updateAgenda(MainActivity.this, agenda);
+                }
+                setSelectedTodayDate(selectedDate[0]);
+                refreshAgendaDependentViews();
+            });
+
+            MaterialButton closeButton = createAgendaActionButton(true);
+            closeButton.setText("关闭");
+            LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            closeButton.setLayoutParams(closeLp);
+            closeButton.setOnClickListener(v -> dialog.dismiss());
+            actionRow.addView(closeButton);
+        } else if (source != null) {
             MaterialButton cancelButton = createAgendaActionButton(false);
             cancelButton.setText("取消");
             LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -6152,20 +6214,22 @@ private void extractAllTables(String passedCookie) {
             actionRow.addView(cancelButton);
         }
 
-        MaterialButton saveButton = createAgendaActionButton(true);
-        saveButton.setText("保存");
-        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        saveButton.setLayoutParams(saveLp);
-        saveButton.setOnClickListener(v -> saveAction.run());
-        actionRow.addView(saveButton);
+        if (!isReadOnly) {
+            MaterialButton saveButton = createAgendaActionButton(true);
+            saveButton.setText("保存");
+            LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            saveButton.setLayoutParams(saveLp);
+            saveButton.setOnClickListener(v -> saveAction.run());
+            actionRow.addView(saveButton);
+        }
 
         layout.addView(actionRow);
 
         dialog.setContentView(scrollView);
         applyAgendaEditorBottomSheetStyle(dialog, sheetSurfaceColor);
 
-        // Handle system back: prompt dirty check if non-color fields changed
-        if (source != null) {
+        // Handle system back: prompt dirty check for non-readOnly edits
+        if (!isReadOnly && source != null) {
             dialog.setCanceledOnTouchOutside(false);
             dialog.setOnKeyListener((d, keyCode, event) -> {
                 if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.getAction() == android.view.KeyEvent.ACTION_UP) {

@@ -37,6 +37,7 @@ public class SettingsHomeActivity extends AppCompatActivity {
         findViewById(R.id.itemAccountSync).setOnClickListener(v -> subPageLauncher.launch(new Intent(this, SettingsAccountActivity.class)));
         findViewById(R.id.itemDisplaySettings).setOnClickListener(v -> subPageLauncher.launch(new Intent(this, SettingsDisplayActivity.class)));
         findViewById(R.id.itemDataManagement).setOnClickListener(v -> subPageLauncher.launch(new Intent(this, SettingsDataActivity.class)));
+        findViewById(R.id.itemAgendaSettings).setOnClickListener(v -> startActivity(new Intent(this, AgendaOverviewActivity.class)));
         findViewById(R.id.itemAiAccess).setOnClickListener(v -> subPageLauncher.launch(new Intent(this, SettingsAiActivity.class)));
     }
 

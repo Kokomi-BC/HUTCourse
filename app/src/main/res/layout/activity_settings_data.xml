@@ -15,7 +15,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:title="数据管理" />
+            app:title="课表信息管理" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView

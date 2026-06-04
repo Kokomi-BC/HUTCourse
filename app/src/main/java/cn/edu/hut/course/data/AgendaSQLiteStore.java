@@ -14,7 +14,7 @@ import java.util.List;
 public final class AgendaSQLiteStore {
 
     private static final String DB_NAME = "agenda_store.db";
-    private static final int DB_VERSION = 4;
+    private static final int DB_VERSION = 5;
 
     private static final String TABLE_AGENDAS = "agendas";
 
@@ -32,6 +32,7 @@ public final class AgendaSQLiteStore {
     private static final String COL_MONTHLY_STRATEGY = "monthly_strategy";
     private static final String COL_CREATED_AT = "created_at";
     private static final String COL_UPDATED_AT = "updated_at";
+    private static final String COL_READ_ONLY = "read_only";
 
     private AgendaSQLiteStore() {
     }
@@ -151,6 +152,19 @@ public final class AgendaSQLiteStore {
         }
     }
 
+    public static synchronized int deleteAgendasByTitlePrefix(Context context, long tableId, String prefix) {
+        if (prefix == null || prefix.isEmpty()) return 0;
+        DbHelper helper = new DbHelper(context.getApplicationContext());
+        SQLiteDatabase db = helper.getWritableDatabase();
+        try {
+            return db.delete(TABLE_AGENDAS,
+                    COL_TABLE_ID + "=? AND " + COL_TITLE + " LIKE ?",
+                    new String[]{String.valueOf(tableId), prefix + "%"});
+        } finally {
+            db.close();
+        }
+    }
+
     private static ContentValues toValues(Agenda agenda, long tableId, boolean forUpdate) {
         ContentValues values = new ContentValues();
         if (!forUpdate && tableId > 0) {
@@ -167,6 +181,7 @@ public final class AgendaSQLiteStore {
         values.put(COL_REPEAT_RULE, safe(agenda.repeatRule));
         values.put(COL_MONTHLY_STRATEGY, safe(agenda.monthlyStrategy));
         values.put(COL_UPDATED_AT, agenda.updatedAt);
+        values.put(COL_READ_ONLY, agenda.readOnly ? 1 : 0);
         if (!forUpdate) {
             values.put(COL_CREATED_AT, agenda.createdAt);
         }
@@ -189,6 +204,8 @@ public final class AgendaSQLiteStore {
         agenda.monthlyStrategy = safe(cursor.getString(cursor.getColumnIndexOrThrow(COL_MONTHLY_STRATEGY)));
         agenda.createdAt = cursor.getLong(cursor.getColumnIndexOrThrow(COL_CREATED_AT));
         agenda.updatedAt = cursor.getLong(cursor.getColumnIndexOrThrow(COL_UPDATED_AT));
+        int readOnlyIndex = cursor.getColumnIndex(COL_READ_ONLY);
+        agenda.readOnly = readOnlyIndex >= 0 && cursor.getInt(readOnlyIndex) == 1;
         return agenda;
     }
 
@@ -218,7 +235,8 @@ public final class AgendaSQLiteStore {
                     + COL_REPEAT_RULE + " TEXT NOT NULL,"
                     + COL_MONTHLY_STRATEGY + " TEXT NOT NULL,"
                     + COL_CREATED_AT + " INTEGER,"
-                    + COL_UPDATED_AT + " INTEGER"
+                    + COL_UPDATED_AT + " INTEGER,"
+                    + COL_READ_ONLY + " INTEGER NOT NULL DEFAULT 0"
                     + ")");
         }
 
@@ -239,6 +257,12 @@ public final class AgendaSQLiteStore {
             if (oldVersion < 4) {
                 try {
                     db.execSQL("ALTER TABLE " + TABLE_AGENDAS + " ADD COLUMN " + COL_TABLE_ID + " INTEGER NOT NULL DEFAULT 1");
+                } catch (Exception ignored) {
+                }
+            }
+            if (oldVersion < 5) {
+                try {
+                    db.execSQL("ALTER TABLE " + TABLE_AGENDAS + " ADD COLUMN " + COL_READ_ONLY + " INTEGER NOT NULL DEFAULT 0");
                 } catch (Exception ignored) {
                 }
             }

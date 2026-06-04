@@ -79,7 +79,7 @@ HUTCourse 是一款面向湖南工业大学学生的 Android 原生应用，核�
 - 导航技能：`NavigationSkillManager`
 - 空教室技能：`ClassroomSkillManager`
 - 联网搜索技能：`TavilySearchSkillManager`
-- 数据管理：`CourseStorageManager` / `AgendaStorageManager` / `CampusBuildingStore`
+- 课表信息管理：`CourseStorageManager` / `AgendaStorageManager` / `CampusBuildingStore`
 
 ### 4.3 架构关系图（逻辑）
 
@@ -187,13 +187,13 @@ flowchart TD
 2. 支持 JSON 返回解析与 HTML 回退解析双路径。
 3. 仅返回公共教室，结果数量受控（最多 10 条）。
 
-## 5.6 系统设置与数据管理
+## 5.6 系统设置与课表信息管理
 
 ### 功能点
 
 1. 账号与教务同步：登录、课表刷新、清空、退出。
 2. 显示设置：网格线、主题色、字体比例、课程颜色/信息编辑。
-3. 数据管理：课表与 Cookie 导入导出（剪贴板）。
+3. 课表信息管理：课表与 Cookie 导入导出（剪贴板）。
 4. AI 设置：模型配置、技能开关、Tavily 配置。
 
 ---

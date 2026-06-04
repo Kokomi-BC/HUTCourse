@@ -43,6 +43,7 @@ import java.util.Locale;
 
 import cn.edu.hut.course.data.AgendaStorageManager;
 import cn.edu.hut.course.data.CampusBuildingStore;
+import cn.edu.hut.course.data.ExamStorageManager;
 
 public class AgendaOverviewActivity extends AppCompatActivity {
 
@@ -65,6 +66,7 @@ public class AgendaOverviewActivity extends AppCompatActivity {
     private boolean agendaOngoingCollapsed = false;
     private boolean agendaUpcomingCollapsed = false;
     private boolean agendaEndedCollapsed = true;
+    private boolean pendingEditIntentHandled = false;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -97,6 +99,19 @@ public class AgendaOverviewActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         renderAgendaOverviewPage();
+
+        // 处理从考试页面跳转来的编辑请求
+        if (!pendingEditIntentHandled) {
+            pendingEditIntentHandled = true;
+            long editAgendaId = getIntent().getLongExtra("edit_agenda_id", -1L);
+            if (editAgendaId > 0) {
+                Agenda agenda = AgendaStorageManager.getAgenda(this, editAgendaId);
+                if (agenda != null) {
+                    Calendar date = AgendaStorageManager.parseDateOrNull(agenda.date);
+                    showAgendaEditorDialog(agenda, date);
+                }
+            }
+        }
     }
 
     private void setupAgendaAddEntryResultListeners() {
@@ -638,6 +653,7 @@ public class AgendaOverviewActivity extends AppCompatActivity {
         final int[] priority = {normalizeAgendaPriorityValue(source == null ? Agenda.PRIORITY_LOW : source.priority)};
         final String[] repeatRule = {source == null ? Agenda.REPEAT_NONE : normalizeAgendaRepeat(source.repeatRule)};
         final String[] monthlyStrategy = {source == null ? Agenda.MONTHLY_SKIP : normalizeAgendaMonthlyStrategy(source.monthlyStrategy)};
+        final boolean[] readOnly = {source != null && source.readOnly};
         final String[] locationValue = {source == null ? "" : normalizeAgendaLocationInput(source.location)};
         final int[] agendaRenderColor = {normalizeAgendaStoredRenderColor(source == null ? 0 : source.renderColor)};
         final int sheetSurfaceColor = UiStyleHelper.resolvePageBackgroundColor(this);
@@ -655,15 +671,50 @@ public class AgendaOverviewActivity extends AppCompatActivity {
 
         int onSurface = UiStyleHelper.resolveOnSurfaceColor(this);
 
+        // Title row with optional delete (trash) icon for editing
+        LinearLayout sheetTitleRow = new LinearLayout(this);
+        sheetTitleRow.setOrientation(LinearLayout.HORIZONTAL);
+        sheetTitleRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams sheetTitleRowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sheetTitleRowLp.setMargins(dp(2), 0, dp(2), 0);
+        sheetTitleRow.setLayoutParams(sheetTitleRowLp);
+
         TextView sheetTitle = new TextView(this);
         sheetTitle.setText(source == null ? "新增日程" : "编辑日程");
         sheetTitle.setTextSize(20f);
         sheetTitle.setTypeface(null, Typeface.BOLD);
         sheetTitle.setTextColor(onSurface);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        titleLp.setMargins(dp(2), 0, dp(2), 0);
-        sheetTitle.setLayoutParams(titleLp);
-        layout.addView(sheetTitle);
+        LinearLayout.LayoutParams sheetTitleLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        sheetTitle.setLayoutParams(sheetTitleLp);
+        sheetTitleRow.addView(sheetTitle);
+
+        if (source != null) {
+            ImageButton btnDelete = new ImageButton(this);
+            btnDelete.setImageResource(R.drawable.ic_history_delete);
+            btnDelete.setImageTintList(ColorStateList.valueOf(onSurface));
+            android.util.TypedValue delOutValue = new android.util.TypedValue();
+            getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, delOutValue, true);
+            btnDelete.setBackgroundResource(delOutValue.resourceId);
+            btnDelete.setContentDescription("删除日程");
+            LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(dp(40), dp(40));
+            btnDelete.setLayoutParams(delLp);
+            btnDelete.setOnClickListener(v -> newMaterialYouDialogBuilder()
+                    .setTitle("删除日程")
+                    .setMessage("确定删除该日程吗？")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("删除", (confirmDialog, which) -> {
+                        if (AgendaStorageManager.deleteAgenda(AgendaOverviewActivity.this, source.id)) {
+                            Toast.makeText(AgendaOverviewActivity.this, "已删除日程", Toast.LENGTH_SHORT).show();
+                            dialog.dismiss();
+                            renderAgendaOverviewPage();
+                        } else {
+                            Toast.makeText(AgendaOverviewActivity.this, "删除失败", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .show());
+            sheetTitleRow.addView(btnDelete);
+        }
+        layout.addView(sheetTitleRow);
 
         MaterialCardView infoCard = createAgendaEditorSectionCard();
         LinearLayout infoBody = new LinearLayout(this);
@@ -830,6 +881,55 @@ public class AgendaOverviewActivity extends AppCompatActivity {
                 selectedDate[0], startMinute[0], endMinute[0], priority[0], repeatRule[0], monthlyStrategy[0], locationValue[0]);
         }));
 
+        // 只读开关
+        if (source != null) {
+            LinearLayout readOnlyRow = new LinearLayout(this);
+            readOnlyRow.setOrientation(LinearLayout.HORIZONTAL);
+            readOnlyRow.setGravity(Gravity.CENTER_VERTICAL);
+            readOnlyRow.setMinimumHeight(dp(56));
+            readOnlyRow.setPadding(dp(14), dp(7), dp(12), dp(7));
+
+            ImageView lockIcon = createAgendaRowIcon(R.drawable.ic_lock_24);
+            lockIcon.setImageTintList(ColorStateList.valueOf(readOnly[0]
+                    ? UiStyleHelper.resolveAccentColor(this)
+                    : UiStyleHelper.resolveOnSurfaceVariantColor(this)));
+            readOnlyRow.addView(lockIcon);
+
+            TextView lockLabel = new TextView(this);
+            lockLabel.setText("只读模式");
+            lockLabel.setTextSize(17f);
+            lockLabel.setTextColor(UiStyleHelper.resolveOnSurfaceColor(this));
+            lockLabel.setSingleLine(true);
+            LinearLayout.LayoutParams lockLabelLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lockLabelLp.setMargins(dp(10), 0, dp(10), 0);
+            lockLabel.setLayoutParams(lockLabelLp);
+            readOnlyRow.addView(lockLabel);
+
+            com.google.android.material.materialswitch.MaterialSwitch readOnlySwitch = new com.google.android.material.materialswitch.MaterialSwitch(this);
+            readOnlySwitch.setChecked(readOnly[0]);
+            LinearLayout.LayoutParams switchLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            switchLp.gravity = Gravity.END;
+            readOnlyRow.addView(readOnlySwitch, switchLp);
+
+            // 让整行可点击切换
+            readOnlyRow.setOnClickListener(v -> {
+                readOnly[0] = !readOnly[0];
+                readOnlySwitch.setChecked(readOnly[0]);
+                lockIcon.setImageTintList(ColorStateList.valueOf(readOnly[0]
+                        ? UiStyleHelper.resolveAccentColor(this)
+                        : UiStyleHelper.resolveOnSurfaceVariantColor(this)));
+            });
+            readOnlySwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                readOnly[0] = isChecked;
+                lockIcon.setImageTintList(ColorStateList.valueOf(isChecked
+                        ? UiStyleHelper.resolveAccentColor(this)
+                        : UiStyleHelper.resolveOnSurfaceVariantColor(this)));
+            });
+
+            settingsBody.addView(createAgendaEditorDivider());
+            settingsBody.addView(readOnlyRow);
+        }
+
         MaterialCardView colorCard = createAgendaEditorSectionCard();
         LinearLayout colorBody = new LinearLayout(this);
         colorBody.setOrientation(LinearLayout.VERTICAL);
@@ -878,6 +978,7 @@ public class AgendaOverviewActivity extends AppCompatActivity {
                 agenda.renderColor = normalizeAgendaStoredRenderColor(agendaRenderColor[0]);
                 agenda.repeatRule = repeatRule[0];
                 agenda.monthlyStrategy = Agenda.REPEAT_MONTHLY.equals(repeatRule[0]) ? monthlyStrategy[0] : Agenda.MONTHLY_SKIP;
+                agenda.readOnly = readOnly[0];
 
                 boolean success;
                 if (source == null) {
@@ -891,6 +992,9 @@ public class AgendaOverviewActivity extends AppCompatActivity {
                     return;
                 }
 
+                // 如果是考试日程，同步更新考试数据
+                syncExamIfLinked(agenda);
+
                 Toast.makeText(this, source == null ? "已新增日程" : "已保存日程", Toast.LENGTH_SHORT).show();
                 dialog.dismiss();
                 renderAgendaOverviewPage();
@@ -903,26 +1007,13 @@ public class AgendaOverviewActivity extends AppCompatActivity {
         actionRow.setLayoutParams(actionRowLp);
 
         if (source != null) {
-            MaterialButton deleteButton = createAgendaActionButton(false);
-            deleteButton.setText("删除日程");
-            LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            deleteLp.setMargins(0, 0, dp(8), 0);
-            deleteButton.setLayoutParams(deleteLp);
-            deleteButton.setOnClickListener(v -> newMaterialYouDialogBuilder()
-                    .setTitle("删除日程")
-                    .setMessage("确定删除该日程吗？")
-                    .setNegativeButton("取消", null)
-                    .setPositiveButton("删除", (confirmDialog, which) -> {
-                        if (AgendaStorageManager.deleteAgenda(this, source.id)) {
-                            Toast.makeText(this, "已删除日程", Toast.LENGTH_SHORT).show();
-                            dialog.dismiss();
-                            renderAgendaOverviewPage();
-                        } else {
-                            Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show();
-                        }
-                    })
-                    .show());
-            actionRow.addView(deleteButton);
+            MaterialButton cancelButton = createAgendaActionButton(false);
+            cancelButton.setText("取消");
+            LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            cancelLp.setMargins(0, 0, dp(8), 0);
+            cancelButton.setLayoutParams(cancelLp);
+            cancelButton.setOnClickListener(v -> dialog.dismiss());
+            actionRow.addView(cancelButton);
         }
 
         MaterialButton saveButton = createAgendaActionButton(true);
@@ -1444,7 +1535,7 @@ public class AgendaOverviewActivity extends AppCompatActivity {
 
     @NonNull
     private MaterialAlertDialogBuilder newMaterialYouDialogBuilder() {
-        return new MaterialAlertDialogBuilder(this);
+        return new MaterialAlertDialogBuilder(new androidx.appcompat.view.ContextThemeWrapper(this, R.style.Theme_MyApplication_Dialog));
     }
 
     private void showAgendaLocationPicker(@Nullable String currentLocation, @Nullable OnAgendaLocationPick callback) {
@@ -1773,6 +1864,33 @@ public class AgendaOverviewActivity extends AppCompatActivity {
     @NonNull
     private String safeText(@Nullable String text) {
         return text == null ? "" : text;
+    }
+
+    /** 如果日程是考试关联的，同步更新考试存储中的日期、地点和内容 */
+    private void syncExamIfLinked(@NonNull Agenda agenda) {
+        if (agenda.title == null || !agenda.title.startsWith(AgendaStorageManager.EXAM_AGENDA_PREFIX)) {
+            return;
+        }
+        String courseName = agenda.title.substring(AgendaStorageManager.EXAM_AGENDA_PREFIX.length());
+        List<Exam> exams = ExamStorageManager.loadExams(this);
+        boolean updated = false;
+        for (Exam e : exams) {
+            if (courseName.equals(e.courseName)) {
+                e.examDate = agenda.date;
+                if (agenda.startMinute > 0) {
+                    e.startTime = String.format(Locale.getDefault(), "%02d:%02d", agenda.startMinute / 60, agenda.startMinute % 60);
+                }
+                if (agenda.endMinute > 0) {
+                    e.endTime = String.format(Locale.getDefault(), "%02d:%02d", agenda.endMinute / 60, agenda.endMinute % 60);
+                }
+                e.location = agenda.location;
+                updated = true;
+                break;
+            }
+        }
+        if (updated) {
+            ExamStorageManager.saveExams(this, exams);
+        }
     }
 
     private static final class AgendaOccurrenceItem {

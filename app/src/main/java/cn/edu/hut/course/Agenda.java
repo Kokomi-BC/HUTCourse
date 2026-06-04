@@ -29,6 +29,7 @@ public class Agenda implements Serializable {
     public String monthlyStrategy = MONTHLY_SKIP;
     public long createdAt;
     public long updatedAt;
+    public boolean readOnly = false;
 
     public Agenda copy() {
         Agenda agenda = new Agenda();
@@ -45,6 +46,7 @@ public class Agenda implements Serializable {
         agenda.monthlyStrategy = monthlyStrategy;
         agenda.createdAt = createdAt;
         agenda.updatedAt = updatedAt;
+        agenda.readOnly = readOnly;
         return agenda;
     }
 }
