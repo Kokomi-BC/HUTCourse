@@ -19,8 +19,13 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("flutter_ui_module/build/host/outputs/repo") }
+        maven { url = uri("https://storage.flutter-io.cn/download.flutter.io") }
     }
 }
 
 rootProject.name = "My Application"
 include(":app")
+
+// Flutter模块（取消注释以启用Flutter UI）
+// include(":flutter_ui_module")

@@ -1,0 +1,25 @@
+name: flutter_ui_module
+description: Flutter UI module for HUT Course App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  flutter_markdown: ^0.7.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  module:
+    androidX: true
+    androidPackage: cn.edu.hut.course.flutter
+    iosBundleIdentifier: cn.edu.hut.course.flutterUiModule
