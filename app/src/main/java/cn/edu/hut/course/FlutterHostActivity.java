@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -17,6 +18,8 @@ import cn.edu.hut.course.data.AgendaStorageManager;
 import cn.edu.hut.course.data.CourseStorageManager;
 import cn.edu.hut.course.data.ExamStorageManager;
 import cn.edu.hut.course.data.WeatherSQLiteStore;
+import cn.edu.hut.course.glass.GlassBottomBarFactory;
+import cn.edu.hut.course.glass.LifecycleInjector;
 import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodChannel;
@@ -43,6 +46,13 @@ public class FlutterHostActivity extends FlutterActivity {
     }
 
     @Override
+    protected void onPostCreate(@Nullable Bundle savedInstanceState) {
+        super.onPostCreate(savedInstanceState);
+        // DecorView 此时已初始化，注入 Compose 所需的 ViewTreeOwners
+        LifecycleInjector.inject(this);
+    }
+
+    @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
         Log.d("FlutterHost", "configureFlutterEngine called, engine=" + flutterEngine);
@@ -50,6 +60,18 @@ public class FlutterHostActivity extends FlutterActivity {
         _channel = new MethodChannel(
                 flutterEngine.getDartExecutor().getBinaryMessenger(),
                 CHANNEL);
+
+        // 注册玻璃底栏 PlatformView（使用 AndroidLiquidGlass backdrop 库）
+        flutterEngine
+                .getPlatformViewsController()
+                .getRegistry()
+                .registerViewFactory(
+                        "cn.edu.hut.course/glass_bottom_bar",
+                        new GlassBottomBarFactory(index -> {
+                            _channel.invokeMethod("tabSelected", index);
+                            return kotlin.Unit.INSTANCE;
+                        }));
+
         _channel.setMethodCallHandler((call, result) -> {
                     Log.d("FlutterHost", "MethodChannel call: " + call.method);
                     switch (call.method) {

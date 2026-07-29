@@ -15,6 +15,10 @@ class NativeBridge {
   static Stream<String> get aiChunks => _aiChunkController.stream;
   static Stream<void> get aiDone => _aiDoneController.stream;
 
+  // 原生底栏标签切换
+  static final _tabSelectedController = StreamController<int>.broadcast();
+  static Stream<int> get tabSelected => _tabSelectedController.stream;
+
   static void initialize() {
     if (_initialized) return;
     _initialized = true;
@@ -29,6 +33,10 @@ class NativeBridge {
           return null;
         case 'aiDone':
           _aiDoneController.add(null);
+          return null;
+        case 'tabSelected':
+          final index = call.arguments as int? ?? 0;
+          _tabSelectedController.add(index);
           return null;
         default:
           throw MissingPluginException('Unknown method: ${call.method}');

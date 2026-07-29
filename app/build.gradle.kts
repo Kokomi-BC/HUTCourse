@@ -1,10 +1,12 @@
 plugins {
-    alias(libs.plugins.android.application)
+    id("com.android.application") version "9.1.1"
+    // AGP 9.0+ 已内置 Kotlin 支持，不再需要 kotlin-android 插件
+    id("org.jetbrains.kotlin.plugin.compose") version "2.1.0"
 }
 
 android {
     namespace = "cn.edu.hut.course"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "cn.edu.hut.course"
@@ -39,12 +41,6 @@ android {
     }
 }
 
-// Android Studio 需要 testClasses 任务，但 AGP 不自动生成（项目暂无单测）
-tasks.register("testClasses") {
-    group = "verification"
-    description = "Placeholder for Android Studio test runner compatibility"
-}
-
 dependencies {
     implementation(libs.appcompat)
     implementation(libs.material)
@@ -54,6 +50,25 @@ dependencies {
     implementation("io.noties.markwon:core:4.6.2")
     implementation("androidx.core:core-splashscreen:1.0.1")
 
-    // Flutter module（引擎JAR已缓存在本地Gradle，正常解析即可）
+    // JetBrains Compose 运行时（backdrop 库依赖 org.jetbrains.compose.*）
+    implementation("org.jetbrains.compose.runtime:runtime:1.8.0")
+    implementation("org.jetbrains.compose.foundation:foundation:1.8.0")
+    implementation("org.jetbrains.compose.ui:ui:1.8.0")
+    implementation("org.jetbrains.compose.material3:material3:1.8.0")
+
+    // Material Icons（使用 AndroidX 坐标，core 图标已足够）
+    implementation("androidx.compose.material:material-icons-core:1.7.6")
+
+    // AndroidX Activity Compose（ComposeView 支持）
+    implementation(libs.activity.compose)
+
+    // Lifecycle + SavedState — ComposeView 在 PlatformView 中需要
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+    implementation("androidx.savedstate:savedstate-ktx:1.2.1")
+
+    // Android Liquid Glass (backdrop) Maven 依赖
+    implementation(libs.backdrop)
+
+    // Flutter module
     implementation("cn.edu.hut.course.flutter:flutter_debug:1.0")
 }
