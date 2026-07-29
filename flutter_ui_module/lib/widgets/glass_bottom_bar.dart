@@ -80,9 +80,9 @@ class _GlassBottomBarState extends State<GlassBottomBar>
   void _onDragUpdate(DragUpdateDetails d) {
     if (_tabWidth <= 0) return;
     _dragOffset += d.delta.dx;
-    // 指示器严格跟手，限制在胶囊内 0..2
+    // 指示器严格跟手，限制在 0..3（含个人按钮）
     final raw = _dragStartIndex.toDouble() + _dragOffset / _tabWidth;
-    final clamped = raw.clamp(0.0, 2.0);
+    final clamped = raw.clamp(0.0, 3.0);
     _dragOffset = (clamped - _dragStartIndex.toDouble()) * _tabWidth;
     _dragProgress = (_dragOffset.abs() / _tabWidth).clamp(0.0, 1.0);
     setState(() {});
@@ -142,43 +142,70 @@ class _GlassBottomBarState extends State<GlassBottomBar>
               final capsuleWidth = totalWidth - circleSize - gap;
               final tabW = (capsuleWidth - 8) / barItems.length;
               _tabWidth = tabW;
+              // 各标签指示器中心 X 坐标（相对于 Row 内部）
+              final posTab0 = 4.0;
+              final posTab1 = tabW + 4;
+              final posTab2 = tabW * 2 + 4;
+              final posTab3 = capsuleWidth + gap + 4;
+              final tabPositions = [posTab0, posTab1, posTab2, posTab3];
+              // 指示器宽度：胶囊内用 tabW-8，个人按钮用 circleSize
+              final indicatorW = tabW - 8;
 
-              // 拖动时指示器相对于 dragStartIndex 偏移
-              final baseLeft = _dragStartIndex.toDouble() * tabW;
-              final dragPx = _dragOffset;
+              // 当前指示器位置（支持拖动到个人按钮）
+              double indicatorX;
+              if (_isDragging) {
+                final raw = _dragStartIndex.toDouble() +
+                    _dragOffset / _tabWidth;
+                final clamped = raw.clamp(0.0, 3.0);
+                indicatorX = tabPositions[clamped.round()] +
+                    (clamped - clamped.round()) * tabPositions[1];
+              } else {
+                indicatorX = tabPositions[widget.currentIndex];
+              }
 
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              return Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  SizedBox(
-                    width: capsuleWidth,
-                    height: 64,
-                    child: _GlassCapsule(
-                      barItems: barItems,
-                      currentIndex: widget.currentIndex,
-                      tabWidth: tabW,
-                      isDragging: _isDragging,
-                      dragStartIndex: _dragStartIndex,
-                      dragPx: _dragOffset,
-                      dragProgress: _dragProgress,
-                      isDark: isDark,
-                      accentColor: accentColor,
-                      glassColor: glassColor,
-                      indicatorColor: indicatorColor,
-                      slideAnimation: _slideAnimation,
-                      onTap: (i) => widget.onTap(i),
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: capsuleWidth,
+                        height: 64,
+                        child: _GlassCapsule(
+                          barItems: barItems,
+                          currentIndex: widget.currentIndex,
+                          tabWidth: tabW,
+                          isDark: isDark,
+                          glassColor: glassColor,
+                          onTap: (i) => widget.onTap(i),
+                        ),
+                      ),
+                      const SizedBox(width: gap),
+                      SizedBox(
+                        width: circleSize,
+                        height: 64,
+                        child: _PersonCircle(
+                          item: widget.items.last,
+                          isSelected: widget.currentIndex == 3,
+                          accentColor: accentColor,
+                          size: circleSize,
+                          onTap: () => widget.onTap(3),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: gap),
-                  SizedBox(
-                    width: circleSize,
-                    height: 64,
-                    child: _PersonCircle(
-                      item: widget.items.last,
-                      isSelected: widget.currentIndex == 3,
-                      accentColor: accentColor,
-                      size: circleSize,
-                      onTap: () => widget.onTap(3),
+                  // 指示器（覆盖在底栏上方，可移动到个人按钮）
+                  Positioned(
+                    left: indicatorX,
+                    top: 4,
+                    child: _IndicatorBar(
+                      width: widget.currentIndex == 3 && !_isDragging
+                          ? circleSize - 8
+                          : indicatorW,
+                      isDark: isDark,
+                      indicatorColor: indicatorColor,
+                      dragProgress: _dragProgress,
                     ),
                   ),
                 ],
@@ -197,30 +224,16 @@ class _GlassCapsule extends StatelessWidget {
   final List<GlassBottomBarItem> barItems;
   final int currentIndex;
   final double tabWidth;
-  final bool isDragging;
-  final int dragStartIndex;
-  final double dragPx;
-  final double dragProgress;
   final bool isDark;
-  final Color accentColor;
   final Color glassColor;
-  final Color indicatorColor;
-  final Animation<double> slideAnimation;
   final ValueChanged<int> onTap;
 
   const _GlassCapsule({
     required this.barItems,
     required this.currentIndex,
     required this.tabWidth,
-    required this.isDragging,
-    required this.dragStartIndex,
-    required this.dragPx,
-    required this.dragProgress,
     required this.isDark,
-    required this.accentColor,
     required this.glassColor,
-    required this.indicatorColor,
-    required this.slideAnimation,
     required this.onTap,
   });
 
@@ -228,79 +241,54 @@ class _GlassCapsule extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
-      clipBehavior: Clip.hardEdge, // 裁剪背景但允许子元素溢出
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // 毛玻璃背景
-          Positioned.fill(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: glassColor,
-                  borderRadius: BorderRadius.circular(32),
-                  border: Border.all(
-                    color: Colors.white
-                        .withValues(alpha: isDark ? 0.12 : 0.75),
-                    width: 0.8,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black
-                          .withValues(alpha: isDark ? 0.4 : 0.12),
-                      blurRadius: 28,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                foregroundDecoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(32),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      const Color(0x08FFFFFF),
-                      Colors.transparent,
-                      isDark
-                          ? const Color(0x081A237E)
-                          : const Color(0x08FF8A65),
-                    ],
-                  ),
-                ),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          decoration: BoxDecoration(
+            color: glassColor,
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(
+              color: Colors.white
+                  .withValues(alpha: isDark ? 0.12 : 0.75),
+              width: 0.8,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black
+                    .withValues(alpha: isDark ? 0.4 : 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, 6),
               ),
+            ],
+          ),
+          foregroundDecoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(32),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0x08FFFFFF),
+                Colors.transparent,
+                isDark
+                    ? const Color(0x081A237E)
+                    : const Color(0x08FF8A65),
+              ],
             ),
           ),
-          // 指示器（可溢出胶囊）
-          if (currentIndex < 3)
-            Positioned(
-              left: (isDragging
-                      ? dragStartIndex * tabWidth + dragPx
-                      : currentIndex.toDouble() * tabWidth) +
-                  4,
-              top: 4,
-              child: _IndicatorBar(
-                width: tabWidth - 8,
+          child: Row(
+            children: List.generate(barItems.length, (i) {
+              return _CapsuleTab(
+                item: barItems[i],
+                selected: currentIndex == i,
+                accentColor: isDark
+                    ? const Color(0xFF0091FF)
+                    : const Color(0xFF0088FF),
                 isDark: isDark,
-                indicatorColor: indicatorColor,
-                dragProgress: dragProgress,
-              ),
-            ),
-          // 标签行
-          Positioned.fill(
-            child: Row(
-              children: List.generate(barItems.length, (i) {
-                return _CapsuleTab(
-                  item: barItems[i],
-                  selected: currentIndex == i,
-                  accentColor: accentColor,
-                  isDark: isDark,
-                  onTap: () => onTap(i),
-                );
-              }),
-            ),
+                onTap: () => onTap(i),
+              );
+            }),
           ),
-        ],
+        ),
       ),
     );
   }

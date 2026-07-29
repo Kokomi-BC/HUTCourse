@@ -58,6 +58,7 @@ class _MainScaffoldState extends State<MainScaffold> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBody: true, // 允许底栏玻璃效果采样背后的页面内容
       body: IndexedStack(
         index: _currentIndex,
         children: _pages,
