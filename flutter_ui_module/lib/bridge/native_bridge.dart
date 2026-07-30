@@ -149,10 +149,23 @@ class NativeBridge {
     }
   }
 
+  /// 获取全部日程 — 通过 JSON 字符串传输，绕过 MethodChannel List<Map> 序列化问题
   static Future<List<Map<String, dynamic>>> getAgendaItems() async {
     try {
-      final result = await _channel.invokeMethod('getAgendaItems');
-      return List<Map<String, dynamic>>.from(result);
+      final rawJson = await _channel.invokeMethod('getAgendaItemsJson');
+      final jsonStr = rawJson as String? ?? '[]';
+      final List<dynamic> parsed = json.decode(jsonStr);
+      final result = <Map<String, dynamic>>[];
+      for (final item in parsed) {
+        if (item is! Map) continue;
+        final map = Map<String, dynamic>.from(item);
+        // 确保 monthlyStrategy 有默认值
+        if (map['monthlyStrategy'] is! String || (map['monthlyStrategy'] as String).isEmpty) {
+          map['monthlyStrategy'] = 'skip';
+        }
+        result.add(map);
+      }
+      return result;
     } catch (e) {
       print('Error getting agenda items: $e');
       return [];
@@ -242,7 +255,7 @@ class NativeBridge {
     }
   }
 
-  /// 加载对话历史
+  /// 加载对话历史摘要列表
   static Future<List<dynamic>?> loadChatHistory() async {
     try {
       final result = await _channel.invokeMethod('loadChatHistory');
@@ -250,6 +263,52 @@ class NativeBridge {
     } catch (e) {
       print('Error loading chat history: $e');
       return null;
+    }
+  }
+
+  /// 保存单条消息到会话历史
+  static Future<bool> saveChatMessage(
+      String sessionId, String role, String content) async {
+    try {
+      final result = await _channel.invokeMethod('saveChatMessage', {
+        'sessionId': sessionId,
+        'role': role,
+        'content': content,
+      });
+      return result == true;
+    } catch (e) {
+      print('Error saving chat message: $e');
+      return false;
+    }
+  }
+
+  /// 加载指定会话的完整消息列表
+  static Future<List<Map<String, dynamic>>> loadSessionMessages(
+      String sessionId) async {
+    try {
+      final result =
+          await _channel.invokeMethod('loadSessionMessages', {'sessionId': sessionId});
+      if (result is List) {
+        return result.cast<Map<dynamic, dynamic>>().map((m) {
+          return Map<String, dynamic>.from(m);
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error loading session messages: $e');
+      return [];
+    }
+  }
+
+  /// 删除指定会话
+  static Future<bool> deleteSession(String sessionId) async {
+    try {
+      final result =
+          await _channel.invokeMethod('deleteSession', {'sessionId': sessionId});
+      return result == true;
+    } catch (e) {
+      print('Error deleting session: $e');
+      return false;
     }
   }
 

@@ -2,7 +2,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../bridge/native_bridge.dart';
-import '../widgets/glass_card.dart';
+
+/// 生成简单的 UUID（不依赖外部包）
+String _generateUuid() {
+  final now = DateTime.now().microsecondsSinceEpoch;
+  final r = (now ^ 0x5A7F).toString();
+  final buf = StringBuffer();
+  for (int i = 0; i < r.length && buf.length < 12; i++) {
+    buf.write(r[i]);
+  }
+  return '${now.toRadixString(36)}-${buf.toString()}';
+}
 
 /// AI 对话页面 - 支持 Markdown 渲染和历史记录
 class AiChatPage extends StatefulWidget {
@@ -15,13 +25,16 @@ class AiChatPage extends StatefulWidget {
 class _AiChatPageState extends State<AiChatPage> {
   final List<ChatMessage> _messages = [];
   final TextEditingController _inputController = TextEditingController();
+  final FocusNode _inputFocus = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _isLoading = false;
+  bool _isSwitchingSession = false;
   List<ChatHistoryItem> _history = [];
   StreamSubscription<String>? _chunkSub;
   StreamSubscription<void>? _doneSub;
   int _streamingIndex = -1;
+  String? _currentSessionId;
 
   @override
   void initState() {
@@ -41,6 +54,7 @@ class _AiChatPageState extends State<AiChatPage> {
   @override
   void dispose() {
     _inputController.dispose();
+    _inputFocus.dispose();
     _scrollController.dispose();
     _chunkSub?.cancel();
     _doneSub?.cancel();
@@ -76,7 +90,17 @@ class _AiChatPageState extends State<AiChatPage> {
 
   Future<void> _sendMessage() async {
     final text = _inputController.text.trim();
-    if (text.isEmpty || _isLoading) return;
+    if (text.isEmpty || _isLoading || _isSwitchingSession) return;
+
+    // 首次发送时分配会话 ID
+    final sessionId = _currentSessionId ?? _generateUuid();
+    if (_currentSessionId == null) {
+      _currentSessionId = sessionId;
+      // 持久化用户消息
+      NativeBridge.saveChatMessage(sessionId, 'user', text);
+    } else {
+      NativeBridge.saveChatMessage(sessionId, 'user', text);
+    }
 
     setState(() {
       _messages.add(ChatMessage(text: text, isUser: true));
@@ -115,10 +139,15 @@ class _AiChatPageState extends State<AiChatPage> {
       _chunkSub?.cancel();
       _doneSub?.cancel();
       final sanitized = _sanitizeMarkdown(buf.toString());
+      final displayText = sanitized.isEmpty ? '收到回复，但内容为空' : sanitized;
+      // 持久化 AI 回复
+      NativeBridge.saveChatMessage(sessionId, 'assistant', displayText);
+      // 刷新历史列表
+      _loadHistory();
       if (mounted && _streamingIndex >= 0 && _streamingIndex < _messages.length) {
         setState(() {
           _messages[_streamingIndex] = ChatMessage(
-            text: sanitized.isEmpty ? '收到回复，但内容为空' : sanitized,
+            text: displayText,
             isUser: false,
           );
           _isLoading = false;
@@ -155,7 +184,41 @@ class _AiChatPageState extends State<AiChatPage> {
         text: '新对话已开始，有什么可以帮助你的吗？',
         isUser: false,
       ));
+      _currentSessionId = null;
     });
+  }
+
+  Future<void> _loadSession(String sessionId) async {
+    if (sessionId.isEmpty) return;
+    setState(() => _isSwitchingSession = true);
+    try {
+      final msgs = await NativeBridge.loadSessionMessages(sessionId);
+      if (!mounted) return;
+      final loaded = msgs.map((m) {
+        final role = m['role'] as String? ?? '';
+        final content = m['content'] as String? ?? '';
+        final isUser = role == 'user';
+        return ChatMessage(text: content, isUser: isUser);
+      }).toList();
+      setState(() {
+        _messages.clear();
+        if (loaded.isEmpty) {
+          _messages.add(ChatMessage(
+            text: '你好！我是课程助手 AI，有什么可以帮助你的吗？',
+            isUser: false,
+          ));
+        } else {
+          _messages.addAll(loaded);
+        }
+        _currentSessionId = sessionId;
+        _isSwitchingSession = false;
+      });
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSwitchingSession = false);
+      }
+    }
   }
 
   bool _isPlainText(String text) {
@@ -175,27 +238,43 @@ class _AiChatPageState extends State<AiChatPage> {
 
     return Scaffold(
       key: _scaffoldKey,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            _buildTitleBar(theme),
-            Expanded(
-              child: GestureDetector(
-                onHorizontalDragEnd: (details) {
-                  if (details.primaryVelocity != null &&
-                      details.primaryVelocity! > 300) {
-                    _scaffoldKey.currentState?.openDrawer();
-                  }
-                },
-                child: _buildMessageList(theme, isDark),
-              ),
+            Column(
+              children: [
+                // 标题栏 + 消息列表：有背景色
+                _buildTitleBar(theme),
+                Expanded(
+                  child: Container(
+                    color: theme.scaffoldBackgroundColor,
+                    child: GestureDetector(
+                      onHorizontalDragEnd: (details) {
+                        if (details.primaryVelocity != null &&
+                            details.primaryVelocity! > 300) {
+                          _scaffoldKey.currentState?.openDrawer();
+                        }
+                      },
+                      child: _buildMessageList(theme, isDark),
+                    ),
+                  ),
+                ),
+                // 输入栏（玻璃背景已含底栏间距）
+                _buildInputArea(theme, isDark),
+              ],
             ),
-            _buildInputArea(theme),
+            if (_isSwitchingSession)
+              Container(
+                color: theme.scaffoldBackgroundColor.withValues(alpha: 0.7),
+                child: const Center(child: CircularProgressIndicator()),
+              ),
           ],
         ),
       ),
-      drawer: _buildHistoryDrawer(theme),
-    );
+
+    drawer: _buildHistoryDrawer(theme),
+  );
   }
 
   Widget _buildTitleBar(ThemeData theme) {
@@ -436,8 +515,35 @@ class _AiChatPageState extends State<AiChatPage> {
                               style: const TextStyle(fontSize: 14)),
                           subtitle: Text(item.date,
                               style: const TextStyle(fontSize: 11)),
-                          onTap: () {
+                          onTap: () async {
                             Navigator.pop(context);
+                            await _loadSession(item.id);
+                          },
+                          onLongPress: () async {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('删除对话'),
+                                content: Text('确定要删除「${item.title}」吗？'),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () => Navigator.pop(ctx, false),
+                                      child: const Text('取消')),
+                                  TextButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      child: const Text('删除',
+                                          style: TextStyle(color: Colors.red))),
+                                ],
+                              ),
+                            );
+                            if (confirm == true) {
+                              await NativeBridge.deleteSession(item.id);
+                              _loadHistory();
+                              // 如果删除的是当前会话，新建一个
+                              if (_currentSessionId == item.id) {
+                                _startNewChat();
+                              }
+                            }
                           },
                         );
                       },
@@ -449,26 +555,54 @@ class _AiChatPageState extends State<AiChatPage> {
     );
   }
 
-  Widget _buildInputArea(ThemeData theme) {
+  // ---- 半透明输入栏 ----
+  Widget _buildInputArea(ThemeData theme, bool isDark) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    // 键盘隐藏时底栏间距并入玻璃底部 padding
+    final bottomBarSpace = bottomInset > 0 ? 0.0 : 8.0;
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + bottomInset + bottomBarSpace),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.white.withValues(alpha: 0.28),
         border: Border(
           top: BorderSide(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+            color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.10),
+            width: 0.8,
           ),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, -3),
+          ),
+        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            child: GlassCard(
-              borderRadius: 24,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 40),
+              padding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : Colors.white.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : Colors.white.withValues(alpha: 0.18),
+                  width: 0.5,
+                ),
+              ),
               child: TextField(
                 controller: _inputController,
+                focusNode: _inputFocus,
                 style: TextStyle(
                     fontSize: 14, color: theme.colorScheme.onSurface),
                 maxLines: 4,
@@ -480,7 +614,8 @@ class _AiChatPageState extends State<AiChatPage> {
                     fontSize: 14,
                   ),
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 8),
                 ),
                 onSubmitted: (_) => _sendMessage(),
                 textInputAction: TextInputAction.newline,
@@ -489,18 +624,20 @@ class _AiChatPageState extends State<AiChatPage> {
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: _isLoading ? null : _sendMessage,
+            onTap: (_isLoading || _isSwitchingSession)
+                ? null
+                : _sendMessage,
             child: Container(
               width: 42,
               height: 42,
               margin: const EdgeInsets.only(bottom: 2),
               decoration: BoxDecoration(
-                color: _isLoading
+                color: (_isLoading || _isSwitchingSession)
                     ? theme.colorScheme.primary.withValues(alpha: 0.3)
                     : theme.colorScheme.primary,
                 shape: BoxShape.circle,
               ),
-              child: _isLoading
+              child: (_isLoading || _isSwitchingSession)
                   ? const Padding(
                       padding: EdgeInsets.all(10),
                       child: CircularProgressIndicator(

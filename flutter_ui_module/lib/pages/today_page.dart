@@ -23,6 +23,7 @@ class _TodayPageState extends State<TodayPage> {
   TodayCourseItem? _nextCourse;
   bool _noticeDismissed = false;
   String _weatherLine = '';
+  String _weatherBrief = '';
   String _todayEmoji = '\u2600\ufe0f';
   IconData _weatherIcon = Icons.wb_sunny;
   List<String> _dailyEmojis = [];
@@ -127,6 +128,9 @@ class _TodayPageState extends State<TodayPage> {
       if (wWind.isNotEmpty) parts.add(wWind);
       if (wHum.isNotEmpty) parts.add('$wHum%');
       final weatherLine = parts.join(' \u00b7 ');
+      // 右上角简短显示: 取高温部分 (如 "28°" 来自 "28/18")
+      final tempParts = wTemp.split('/');
+      final brief = tempParts.isNotEmpty ? '${tempParts[0]}°' : (wFeel.isNotEmpty ? '$wFeel°' : '');
 
       // 解析每日预报 emoji
       final forecasts = weather?['forecasts'] as List<dynamic>? ?? [];
@@ -139,13 +143,47 @@ class _TodayPageState extends State<TodayPage> {
         dailyEmojis.add('\u2600\ufe0f');
       }
 
-      // --- agendas ---
+      // --- agendas（含 repeatRule 展开） ---
       final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
       final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final todayAgendas = agendas.where((a) {
-        final d = a['date'] as String? ?? '';
-        return d == todayStr;
-      }).toList()
+      bool _occursToday(Map<String, dynamic> a) {
+        final ad = a['date'] as String? ?? '';
+        final rr = a['repeatRule'] as String? ?? '';
+        DateTime? anchor;
+        try {
+          final p = ad.split('-');
+          if (p.length == 3) anchor = DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+        } catch (_) {}
+        if (rr.isEmpty || rr == 'none') {
+          return ad == todayStr;
+        }
+        if (anchor == null) return false;
+        if (rr == 'daily') {
+          return !anchor.isAfter(today);
+        }
+        if (rr == 'weekly') {
+          if (anchor.isAfter(today)) return false;
+          return anchor.weekday == today.weekday;
+        }
+        if (rr == 'monthly') {
+          if (anchor.isAfter(today)) return false;
+          final anchorDay = anchor.day;
+          final maxDay = DateTime(today.year, today.month + 1, 0).day;
+          final ms = a['monthlyStrategy'] as String? ?? 'skip';
+          if (anchorDay <= maxDay) {
+            return today.day == anchorDay;
+          }
+          // anchorDay > maxDay: 根据策略决定
+          if (ms == 'month_end') {
+            return today.day == maxDay;
+          }
+          // skip 策略：跳过该月
+          return false;
+        }
+        return false;
+      }
+      final todayAgendas = agendas.where(_occursToday).toList()
         ..sort((a, b) {
           final sa = a['startMinute'] as int? ?? 0;
           final sb = b['startMinute'] as int? ?? 0;
@@ -161,6 +199,7 @@ class _TodayPageState extends State<TodayPage> {
         _nextCourse = next;
         _weekData = weekData;
         _weatherLine = weatherLine;
+        _weatherBrief = brief;
         _dailyEmojis = dailyEmojis;
         _todayAgendas = todayAgendas;
         _isLoading = false;
@@ -193,17 +232,25 @@ class _TodayPageState extends State<TodayPage> {
   // --------------- build ---------------
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final theme = Theme.of(context).copyWith(
+      colorScheme: Theme.of(context).colorScheme.copyWith(primary: _accentColor),
+    );
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
     return Scaffold(
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _loadData,
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            children: [
+      backgroundColor: Colors.transparent,
+      body: Container(
+        color: theme.scaffoldBackgroundColor,
+        child: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: _loadData,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 80),
+              children: [
               const SizedBox(height: 40),
               _buildHeader(theme),
               const SizedBox(height: 24),
@@ -220,30 +267,56 @@ class _TodayPageState extends State<TodayPage> {
               ],
               const SizedBox(height: 16),
               _buildCourseList(theme),
-              const SizedBox(height: 80),
             ],
           ),
         ),
       ),
+      ),
     );
   }
 
-  // ---- header ----
+  // ---- header (left: time/greeting, right: big weather emoji + brief temp) ----
   Widget _buildHeader(ThemeData theme) {
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ShaderMask(
-          shaderCallback: (b) => LinearGradient(
-            colors: [_accentColor, theme.colorScheme.onSurface],
-          ).createShader(b),
-          child: Text(_currentTime,
-              style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w300, color: Colors.white)),
+        // 左侧：时间、日期、问候语
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ShaderMask(
+                shaderCallback: (b) => LinearGradient(
+                  colors: [_accentColor, theme.colorScheme.onSurface],
+                ).createShader(b),
+                child: Text(_currentTime,
+                    style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w300, color: Colors.white)),
+              ),
+              const SizedBox(height: 4),
+              Text(_dateLine, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 2),
+              Text(_greeting, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w600)),
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(_dateLine, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        const SizedBox(height: 2),
-        Text(_greeting, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w600)),
+        // 右侧：大号天气 emoji + 简短温度文字
+        if (_weatherLine.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(_todayEmoji, style: const TextStyle(fontSize: 32)),
+                if (_weatherBrief.isNotEmpty)
+                  Text(_weatherBrief,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: _accentColor,
+                      )),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -263,7 +336,10 @@ class _TodayPageState extends State<TodayPage> {
             Text(_todayEmoji, style: const TextStyle(fontSize: 16)),
             const SizedBox(width: 6),
             Flexible(
-              child: Text(_weatherLine, style: TextStyle(fontSize: 12, color: _accentColor), overflow: TextOverflow.ellipsis),
+              child: Text(_weatherLine,
+                  style: TextStyle(fontSize: 12, color: _accentColor),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
             ),
           ],
         ),

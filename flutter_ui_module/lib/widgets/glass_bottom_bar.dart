@@ -26,6 +26,7 @@ class _GlassBottomBarState extends State<GlassBottomBar>
   late AnimationController _slideController;
   late Animation<double> _slideAnimation;
   int _prevIndex = 0;
+  bool _isClickAnimating = false;
 
   // 拖动跟踪
   double _dragOffset = 0;
@@ -40,14 +41,20 @@ class _GlassBottomBarState extends State<GlassBottomBar>
     _prevIndex = widget.currentIndex;
     _slideController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 600),
     );
+    _slideController.addStatusListener((status) {
+      if (status == AnimationStatus.completed ||
+          status == AnimationStatus.dismissed) {
+        _isClickAnimating = false;
+      }
+    });
     _slideAnimation = Tween<double>(
       begin: widget.currentIndex.toDouble(),
       end: widget.currentIndex.toDouble(),
     ).animate(CurvedAnimation(
       parent: _slideController,
-      curve: Curves.elasticOut,
+      curve: Curves.easeInOutCubic,
     ));
     _slideController.value = 1.0;
   }
@@ -57,12 +64,13 @@ class _GlassBottomBarState extends State<GlassBottomBar>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentIndex != widget.currentIndex) {
       _prevIndex = oldWidget.currentIndex;
+      _isClickAnimating = true;
       _slideAnimation = Tween<double>(
         begin: _prevIndex.toDouble(),
         end: widget.currentIndex.toDouble(),
       ).animate(CurvedAnimation(
         parent: _slideController,
-        curve: Curves.elasticOut,
+        curve: Curves.easeInOutCubic,
       ));
       _slideController.reset();
       _slideController.forward();
@@ -116,11 +124,11 @@ class _GlassBottomBarState extends State<GlassBottomBar>
     final accentColor =
         isDark ? const Color(0xFF0091FF) : const Color(0xFF0088FF);
     final glassColor = isDark
-        ? const Color(0xFF1C1C1E).withValues(alpha: 0.78)
-        : const Color(0xFFF2F2F7).withValues(alpha: 0.78);
+        ? const Color(0xFF1C1C1E).withValues(alpha: 0.25)
+        : const Color(0xFFF2F2F7).withValues(alpha: 0.30);
     final indicatorColor = isDark
-        ? const Color(0xFF3A3A3A).withValues(alpha: 0.9)
-        : Colors.white.withValues(alpha: 0.94);
+        ? const Color(0xFF3A3A3A).withValues(alpha: 0.20)
+        : Colors.white.withValues(alpha: 0.25);
 
     final bottomSafe = MediaQuery.of(context).padding.bottom;
     final barItems = widget.items.take(3).toList();
@@ -137,30 +145,59 @@ class _GlassBottomBarState extends State<GlassBottomBar>
           child: LayoutBuilder(
             builder: (context, constraints) {
               final totalWidth = constraints.maxWidth;
-              const circleSize = 56.0;
-              const gap = 10.0;
-              final capsuleWidth = totalWidth - circleSize - gap;
-              final tabW = (capsuleWidth - 8) / barItems.length;
-              _tabWidth = tabW;
-              // 各标签指示器中心 X 坐标（相对于 Row 内部）
+              const gap = 6.0;
+              // 四项均分宽度：前三项在胶囊内，第四项独立
+              final tabW = (totalWidth - 8 - gap) / 4;
+              final circleSize = tabW;
+              final capsuleWidth = 3 * tabW + 8;
+              // 胶囊内三个 Expanded 实际均分宽度
+              final actualTabW = capsuleWidth / 3;
+              _tabWidth = actualTabW;
+              // 各标签指示器左边缘 X 坐标（相对于 Row 内部）
               final posTab0 = 4.0;
-              final posTab1 = tabW + 4;
-              final posTab2 = tabW * 2 + 4;
-              final posTab3 = capsuleWidth + gap + 4;
-              final tabPositions = [posTab0, posTab1, posTab2, posTab3];
-              // 指示器宽度：胶囊内用 tabW-8，个人按钮用 circleSize
+              final posTab1 = actualTabW + 4;
+              final posTab2 = actualTabW * 2 + 4;
+              // 指示器宽度：胶囊内 tabW-8，圆形按钮略小于按钮
               final indicatorW = tabW - 8;
+              final circleIndicatorW = circleSize * 0.55;
+              final circleIndicatorX = capsuleWidth + gap + (circleSize - circleIndicatorW) / 2;
+              final tabPositions = [posTab0, posTab1, posTab2, circleIndicatorX];
 
               // 当前指示器位置（支持拖动到个人按钮）
+              final isCircleMode = widget.currentIndex == 3 && !_isDragging && !_isClickAnimating;
               double indicatorX;
+              double animProgress = 0;
               if (_isDragging) {
                 final raw = _dragStartIndex.toDouble() +
                     _dragOffset / _tabWidth;
                 final clamped = raw.clamp(0.0, 3.0);
                 indicatorX = tabPositions[clamped.round()] +
                     (clamped - clamped.round()) * tabPositions[1];
+              } else if (_isClickAnimating) {
+                animProgress = _slideAnimation.value;
+                final fromIdx = _prevIndex;
+                final toIdx = widget.currentIndex;
+                // 液态流动：lerp 插值 + clamp 防越界偏移
+                final rawT = (animProgress - fromIdx) / (toIdx - fromIdx);
+                final t = rawT.clamp(0.0, 1.0);
+                indicatorX = lerpDouble(
+                    tabPositions[fromIdx], tabPositions[toIdx], t)!;
               } else {
                 indicatorX = tabPositions[widget.currentIndex];
+              }
+
+              // 指示器垂直位置：胶囊模式下顶对齐，圆形模式下与按钮居中对齐
+              final indicatorTop = isCircleMode ? (64 - circleIndicatorW) / 2 : 4.0;
+
+              // 液态流动指示器宽度（个人按钮时匹配圆形尺寸）
+              double currentIndicatorW;
+              if (isCircleMode) {
+                currentIndicatorW = circleIndicatorW;
+              } else if (!_isDragging && _isClickAnimating && widget.currentIndex != 3) {
+                final flowStretch = 1.0 + (1.0 - (animProgress - _prevIndex).abs()) * 0.5;
+                currentIndicatorW = indicatorW * flowStretch;
+              } else {
+                currentIndicatorW = indicatorW;
               }
 
               return Stack(
@@ -189,6 +226,7 @@ class _GlassBottomBarState extends State<GlassBottomBar>
                           item: widget.items.last,
                           isSelected: widget.currentIndex == 3,
                           accentColor: accentColor,
+                          glassColor: glassColor,
                           size: circleSize,
                           onTap: () => widget.onTap(3),
                         ),
@@ -198,14 +236,14 @@ class _GlassBottomBarState extends State<GlassBottomBar>
                   // 指示器（覆盖在底栏上方，可移动到个人按钮）
                   Positioned(
                     left: indicatorX,
-                    top: 4,
+                    top: indicatorTop,
                     child: _IndicatorBar(
-                      width: widget.currentIndex == 3 && !_isDragging
-                          ? circleSize - 8
-                          : indicatorW,
+                      width: currentIndicatorW,
+                      circleIndicatorSize: circleIndicatorW,
                       isDark: isDark,
                       indicatorColor: indicatorColor,
                       dragProgress: _dragProgress,
+                      isCircle: isCircleMode,
                     ),
                   ),
                 ],
@@ -242,14 +280,14 @@ class _GlassCapsule extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
           decoration: BoxDecoration(
             color: glassColor,
             borderRadius: BorderRadius.circular(32),
             border: Border.all(
               color: Colors.white
-                  .withValues(alpha: isDark ? 0.12 : 0.75),
+                  .withValues(alpha: isDark ? 0.10 : 0.20),
               width: 0.8,
             ),
             boxShadow: [
@@ -296,32 +334,36 @@ class _GlassCapsule extends StatelessWidget {
 
 class _IndicatorBar extends StatelessWidget {
   final double width;
+  final double circleIndicatorSize;
   final bool isDark;
   final Color indicatorColor;
   final double dragProgress;
+  final bool isCircle;
 
   const _IndicatorBar({
     required this.width,
+    required this.circleIndicatorSize,
     required this.isDark,
     required this.indicatorColor,
     required this.dragProgress,
+    this.isCircle = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    // 原始项目 pressedScale = 78/56 ≈ 1.393
-    final scale = 1.0 + dragProgress * 0.393;
-    // 透镜折射强度
-    final lens = 2.0 + dragProgress * 6.0;
+    // 拖动时轻微放大，避免过度膨胀导致不透明
+    final scale = 1.0 + dragProgress * 0.12;
+    // 透镜折射强度（拖动时微增，模拟液态拉伸）
+    final lens = 1.0 + dragProgress * 1.5;
 
     return Transform.scale(
       scale: scale,
       child: Container(
-        width: width,
-        height: 56,
+        width: isCircle ? circleIndicatorSize : width,
+        height: isCircle ? circleIndicatorSize : 56,
         decoration: BoxDecoration(
           color: indicatorColor,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(isCircle ? circleIndicatorSize / 2 : 24),
           border: Border.all(
             color: isDark
                 ? Colors.white.withValues(alpha: 0.14)
@@ -338,7 +380,7 @@ class _IndicatorBar extends StatelessWidget {
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(isCircle ? circleIndicatorSize / 2 : 24),
           child: Stack(
             children: [
               // 透镜折射：增强模糊模拟玻璃透镜
@@ -349,16 +391,16 @@ class _IndicatorBar extends StatelessWidget {
               // 玻璃高光
               Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(28),
+                  borderRadius: BorderRadius.circular(isCircle ? circleIndicatorSize / 2 : 24),
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.white
-                          .withValues(alpha: isDark ? 0.1 : 0.55),
+                          .withValues(alpha: isDark ? 0.08 : 0.22),
                       Colors.transparent,
                       Colors.black
-                          .withValues(alpha: isDark ? 0.15 : 0.02),
+                          .withValues(alpha: isDark ? 0.10 : 0.02),
                     ],
                     stops: const [0, 0.35, 1],
                   ),
@@ -425,6 +467,7 @@ class _PersonCircle extends StatelessWidget {
   final GlassBottomBarItem item;
   final bool isSelected;
   final Color accentColor;
+  final Color glassColor;
   final double size;
   final VoidCallback onTap;
 
@@ -432,6 +475,7 @@ class _PersonCircle extends StatelessWidget {
     required this.item,
     required this.isSelected,
     required this.accentColor,
+    required this.glassColor,
     required this.size,
     required this.onTap,
   });
@@ -444,33 +488,36 @@ class _PersonCircle extends StatelessWidget {
       child: Center(
         child: ClipOval(
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
             child: Container(
               width: size,
               height: size,
               decoration: BoxDecoration(
                 color: isSelected
-                    ? accentColor.withValues(alpha: 0.84)
-                    : (isDark
-                        ? const Color(0xFF2C2C2E).withValues(alpha: 0.72)
-                        : const Color(0xFFE5E5EA).withValues(alpha: 0.68)),
+                    ? accentColor.withValues(alpha: 0.45)
+                    : glassColor,
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: isSelected
-                      ? Colors.white.withValues(alpha: 0.4)
+                      ? Colors.white.withValues(alpha: 0.3)
                       : Colors.white
-                          .withValues(alpha: isDark ? 0.1 : 0.65),
+                          .withValues(alpha: isDark ? 0.10 : 0.20),
                   width: 0.8,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: isSelected
-                        ? accentColor.withValues(alpha: 0.4)
-                        : Colors.black.withValues(alpha: 0.14),
-                    blurRadius: isSelected ? 16 : 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+              ),
+              foregroundDecoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    const Color(0x08FFFFFF),
+                    Colors.transparent,
+                    isDark
+                        ? const Color(0x081A237E)
+                        : const Color(0x08FF8A65),
+                  ],
+                ),
               ),
               child: Icon(
                 isSelected ? item.activeIcon : item.icon,

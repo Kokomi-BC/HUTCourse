@@ -2341,7 +2341,7 @@ public class AiChatFragment extends Fragment {
         if (etPrompt != null) {
             etPrompt.setTextColor(onSurface);
             etPrompt.setHintTextColor(ColorUtils.setAlphaComponent(onSurface, 146));
-            etPrompt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f);
+            etPrompt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
         }
         if (acModelPicker != null) {
             int pickerText = ColorUtils.setAlphaComponent(onSurface, 184);

@@ -42,14 +42,17 @@ class _ProfilePageState extends State<ProfilePage> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+      backgroundColor: Colors.transparent,
+      body: Container(
+        color: theme.scaffoldBackgroundColor,
+        child: SafeArea(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 80),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     const SizedBox(height: 56),
                     Text(
                       '个人',
@@ -63,10 +66,11 @@ class _ProfilePageState extends State<ProfilePage> {
                     _buildExamEntry(theme),
                     const SizedBox(height: 16),
                     _buildSettingsEntry(theme),
-                    const SizedBox(height: 100),
+                    const SizedBox(height: 16),
                   ],
                 ),
               ),
+        ),
       ),
     );
   }

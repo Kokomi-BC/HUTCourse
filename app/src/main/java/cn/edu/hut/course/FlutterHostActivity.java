@@ -115,6 +115,9 @@ public class FlutterHostActivity extends FlutterActivity {
                         case "getAgendaItems":
                             result.success(getAgendaItemsList());
                             break;
+                        case "getAgendaItemsJson":
+                            result.success(getAgendaItemsJson());
+                            break;
                         case "openSettings":
                             openSettingsPage();
                             result.success(null);
@@ -225,6 +228,23 @@ public class FlutterHostActivity extends FlutterActivity {
                         case "loadChatHistory":
                             result.success(getChatHistory());
                             break;
+                        case "saveChatMessage": {
+                            String sessionId = call.argument("sessionId");
+                            String role = call.argument("role");
+                            String content = call.argument("content");
+                            result.success(saveChatMessage(sessionId, role, content));
+                            break;
+                        }
+                        case "loadSessionMessages": {
+                            String sessionId = call.argument("sessionId");
+                            result.success(loadSessionMessages(sessionId));
+                            break;
+                        }
+                        case "deleteSession": {
+                            String sessionId = call.argument("sessionId");
+                            result.success(deleteSession(sessionId));
+                            break;
+                        }
                         case "setThemeColor": {
                             int color = call.argument("color");
                             getSharedPreferences("course_storage", MODE_PRIVATE)
@@ -423,10 +443,38 @@ public class FlutterHostActivity extends FlutterActivity {
                 map.put("location", a.location != null ? a.location : "");
                 map.put("renderColor", a.renderColor);
                 map.put("readOnly", a.readOnly);
+                map.put("monthlyStrategy", a.monthlyStrategy != null ? a.monthlyStrategy : "skip");
                 list.add(map);
             }
         } catch (Exception e) { }
         return list;
+    }
+
+    private String getAgendaItemsJson() {
+        try {
+            List<Agenda> agendas = AgendaStorageManager.loadAllAgendas(this);
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (Agenda a : agendas) {
+                if (a == null) continue;
+                org.json.JSONObject obj = new org.json.JSONObject();
+                obj.put("id", a.id);
+                obj.put("title", a.title != null ? a.title : "");
+                obj.put("description", a.description != null ? a.description : "");
+                obj.put("date", a.date != null ? a.date : "");
+                obj.put("startMinute", a.startMinute);
+                obj.put("endMinute", a.endMinute);
+                obj.put("priority", a.priority);
+                obj.put("repeatRule", a.repeatRule != null ? a.repeatRule : "");
+                obj.put("location", a.location != null ? a.location : "");
+                obj.put("renderColor", a.renderColor);
+                obj.put("readOnly", a.readOnly);
+                obj.put("monthlyStrategy", a.monthlyStrategy != null ? a.monthlyStrategy : "skip");
+                arr.put(obj);
+            }
+            return arr.toString();
+        } catch (Exception e) {
+            return "[]";
+        }
     }
 
     private void openSettingsPage() {
@@ -517,33 +565,170 @@ public class FlutterHostActivity extends FlutterActivity {
         return result;
     }
 
+    // ==================== Chat History Persistence ====================
+
+    private static final String HISTORY_PREFS = "ai_chat_history";
+    private static final String HISTORY_KEY = "history_json";
+    private static final int MAX_SESSIONS = 30;
+
+    private org.json.JSONArray loadHistoryJson() {
+        try {
+            String json = getSharedPreferences(HISTORY_PREFS, MODE_PRIVATE)
+                    .getString(HISTORY_KEY, null);
+            if (json != null && !json.isEmpty()) {
+                return new org.json.JSONArray(json);
+            }
+        } catch (Exception e) {
+            Log.e("FlutterHost", "loadHistoryJson error", e);
+        }
+        return new org.json.JSONArray();
+    }
+
+    private void saveHistoryJson(org.json.JSONArray arr) {
+        getSharedPreferences(HISTORY_PREFS, MODE_PRIVATE)
+                .edit()
+                .putString(HISTORY_KEY, arr.toString())
+                .apply();
+    }
+
+    private boolean saveChatMessage(String sessionId, String role, String content) {
+        if (sessionId == null || sessionId.isEmpty()) return false;
+        if (role == null || content == null) return false;
+        try {
+            org.json.JSONArray arr = loadHistoryJson();
+            org.json.JSONObject target = null;
+            int targetIdx = -1;
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject s = arr.getJSONObject(i);
+                if (sessionId.equals(s.optString("id", ""))) {
+                    target = s;
+                    targetIdx = i;
+                    break;
+                }
+            }
+            if (target == null) {
+                // 创建新 session
+                target = new org.json.JSONObject();
+                target.put("id", sessionId);
+                target.put("title", "user".equals(role) && content.length() > 0
+                        ? (content.length() > 30 ? content.substring(0, 30) + "..." : content)
+                        : "新对话");
+                target.put("titleFromAi", false);
+                target.put("messages", new org.json.JSONArray());
+                target.put("updatedAt", System.currentTimeMillis());
+            }
+            // 追加消息
+            org.json.JSONArray msgs = target.getJSONArray("messages");
+            org.json.JSONObject msg = new org.json.JSONObject();
+            msg.put("role", role);
+            msg.put("content", content);
+            msg.put("timestamp", System.currentTimeMillis());
+            msgs.put(msg);
+            // 更新时间戳
+            target.put("updatedAt", System.currentTimeMillis());
+            // 如果是新 session（之前没找到），插入到最前面
+            if (targetIdx < 0) {
+                org.json.JSONArray newArr = new org.json.JSONArray();
+                newArr.put(target);
+                for (int i = 0; i < arr.length(); i++) {
+                    newArr.put(arr.get(i));
+                }
+                arr = newArr;
+            }
+            // 限制最大会话数
+            while (arr.length() > MAX_SESSIONS) {
+                arr.remove(arr.length() - 1);
+            }
+            saveHistoryJson(arr);
+            return true;
+        } catch (Exception e) {
+            Log.e("FlutterHost", "saveChatMessage error", e);
+            return false;
+        }
+    }
+
+    private List<Map<String, Object>> loadSessionMessages(String sessionId) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (sessionId == null || sessionId.isEmpty()) return list;
+        try {
+            org.json.JSONArray arr = loadHistoryJson();
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject s = arr.getJSONObject(i);
+                if (sessionId.equals(s.optString("id", ""))) {
+                    org.json.JSONArray msgs = s.optJSONArray("messages");
+                    if (msgs != null) {
+                        for (int j = 0; j < msgs.length(); j++) {
+                            org.json.JSONObject m = msgs.getJSONObject(j);
+                            Map<String, Object> map = new HashMap<>();
+                            map.put("role", m.optString("role", ""));
+                            map.put("content", m.optString("content", ""));
+                            list.add(map);
+                        }
+                    }
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            Log.e("FlutterHost", "loadSessionMessages error", e);
+        }
+        return list;
+    }
+
+    private boolean deleteSession(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return false;
+        try {
+            org.json.JSONArray arr = loadHistoryJson();
+            org.json.JSONArray newArr = new org.json.JSONArray();
+            boolean found = false;
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject s = arr.getJSONObject(i);
+                if (sessionId.equals(s.optString("id", ""))) {
+                    found = true;
+                } else {
+                    newArr.put(s);
+                }
+            }
+            if (found) {
+                saveHistoryJson(newArr);
+            }
+            return found;
+        } catch (Exception e) {
+            Log.e("FlutterHost", "deleteSession error", e);
+            return false;
+        }
+    }
+
     private List<Map<String, Object>> getChatHistory() {
         List<Map<String, Object>> list = new ArrayList<>();
         try {
-            android.content.SharedPreferences prefs = getSharedPreferences("ai_chat_history", MODE_PRIVATE);
-            String historyJson = prefs.getString("history_json", null);
-            if (historyJson != null && !historyJson.isEmpty()) {
-                try {
-                    org.json.JSONArray arr = new org.json.JSONArray(historyJson);
-                    for (int i = 0; i < arr.length(); i++) {
-                        org.json.JSONObject session = arr.getJSONObject(i);
-                        org.json.JSONArray msgs = session.optJSONArray("messages");
-                        String title = "";
-                        if (msgs != null && msgs.length() > 0) {
-                            org.json.JSONObject first = msgs.getJSONObject(0);
-                            String content = first.optString("content", "");
-                            title = content.length() > 30 ? content.substring(0, 30) + "..." : content;
-                        }
-                        if (title.isEmpty()) title = "新对话";
-                        Map<String, Object> item = new HashMap<>();
-                        item.put("title", title);
-                        item.put("date", "");
-                        item.put("id", String.valueOf(i));
-                        list.add(item);
+            org.json.JSONArray arr = loadHistoryJson();
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject session = arr.getJSONObject(i);
+                String id = session.optString("id", "");
+                String title = session.optString("title", "");
+                long updatedAt = session.optLong("updatedAt", 0);
+                // 如果 title 为空或是默认值，尝试从第一条消息提取
+                if (title.isEmpty() || "新对话".equals(title)) {
+                    org.json.JSONArray msgs = session.optJSONArray("messages");
+                    if (msgs != null && msgs.length() > 0) {
+                        org.json.JSONObject first = msgs.getJSONObject(0);
+                        String content = first.optString("content", "");
+                        title = content.length() > 30 ? content.substring(0, 30) + "..." : content;
                     }
-                } catch (Exception e) {
-                    Log.e("FlutterHost", "getChatHistory parse error", e);
                 }
+                if (title.isEmpty()) title = "新对话";
+                // 格式化日期
+                String dateStr = "";
+                if (updatedAt > 0) {
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                            "yyyy-MM-dd HH:mm", java.util.Locale.getDefault());
+                    dateStr = sdf.format(new java.util.Date(updatedAt));
+                }
+                Map<String, Object> item = new HashMap<>();
+                item.put("title", title);
+                item.put("date", dateStr);
+                item.put("id", id);
+                list.add(item);
             }
         } catch (Exception e) {
             Log.e("FlutterHost", "getChatHistory error", e);
